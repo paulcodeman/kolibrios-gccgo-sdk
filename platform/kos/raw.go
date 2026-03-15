@@ -235,6 +235,11 @@ func BootstrapRuntimeHasGCRaw() uint32 __asm__("runtime_bootstrap_has_gc")
 
 // Runtime helper - trigger a collection when allocation pressure has crossed the GC threshold.
 func PollRuntimeGCRaw() __asm__("runtime_gc_poll")
+// Runtime helper - allow a thread to participate in stop-the-world.
+func PollRuntimeWorldStopRaw() __asm__("runtime_kolibri_poll_world_stop")
+
+// Runtime helper - start a goroutine on a new runtime-managed OS thread.
+func StartRuntimeThreadRaw(record uint32, stackSize uint32) uint32 __asm__("runtime_kolibri_start_locked")
 
 // Runtime helper - set the number of runtime threads (M) to use.
 func SetRuntimeThreadsRaw(count uint32) uint32 __asm__("runtime_kolibri_set_threads")
@@ -299,6 +304,7 @@ func CreateButton(x int, y int, width int, height int, id int, color uint32)
 // Function -1 - terminate thread/process.
 func ExitRaw()
 func RuntimeExitProcessRaw() __asm__("runtime_kolibri_exit_process")
+func RuntimeExitThreadRaw() __asm__("runtime_kolibri_exit_thread")
 
 // Function 12 - begin/end window redraw.
 func Redraw(mode int)

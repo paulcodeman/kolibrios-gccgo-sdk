@@ -1,19 +1,23 @@
 package ui
 
-import "kos"
+import (
+	"kos"
+	"runtime"
+)
 
 func (window *Window) Start() {
 	if window == nil {
 		return
 	}
 	if registerWindowStart() {
+		window.primary = true
 		window.startLoop(true)
 		return
 	}
 	window.startThreadedNoRegister(0)
 }
 
-// StartThreaded launches the window event loop on a new KolibriOS thread.
+// StartThreaded launches the window event loop on a new runtime-managed OS thread.
 // Avoid concurrent access to the window from other threads.
 func (window *Window) StartThreaded() (tid uint32, ok bool) {
 	return window.StartThreadedWithStack(0)
@@ -23,6 +27,7 @@ func (window *Window) StartThreadedWithStack(stackSize int) (tid uint32, ok bool
 	if window == nil {
 		return 0, false
 	}
+	window.primary = false
 	registerWindowStart()
 	return window.startThreadedNoRegister(stackSize)
 }
@@ -40,13 +45,14 @@ func (window *Window) startThreadedNoRegister(stackSize int) (tid uint32, ok boo
 	if window == nil {
 		return 0, false
 	}
-	return kos.CreateThread(func() { window.startLoop(false) }, stackSize)
+	return kos.CreateRuntimeThread(func() { window.startLoop(false) }, stackSize)
 }
 
 func (window *Window) startLoop(pollGC bool) {
 	if window == nil {
 		return
 	}
+	runtime.LockOSThread()
 	window.running = true
 	window.syncThreadSlot(true)
 	if kos.ThreadDebug != nil {
@@ -96,6 +102,9 @@ func (window *Window) startLoop(pollGC bool) {
 				window.Close()
 			}
 		}
+		if !window.running {
+			break
+		}
 		if window.scrollRedraw {
 			window.scrollRedraw = false
 			needsRedraw = true
@@ -111,6 +120,11 @@ func (window *Window) startLoop(pollGC bool) {
 		if pollGC && WindowPollRuntimeGC && event != kos.EventNone && WindowGCPollActiveIntervalMs > 0 {
 			window.pollRuntimeGCWithInterval(WindowGCPollActiveIntervalMs)
 		}
+	}
+	if window.primary {
+		kos.Exit()
+	} else {
+		kos.ExitRuntimeThread()
 	}
 }
 
@@ -131,10 +145,14 @@ func (window *Window) nextEvent(pollGC bool) kos.EventType {
 
 func (window *Window) waitEvent(pollGC bool) kos.EventType {
 	timeout := window.caretBlinkTimeout()
+	if !window.primary && timeout == 0 {
+		timeout = 1
+	}
 	if !pollGC || !WindowPollRuntimeGC {
 		if timeout == 0 {
 			return kos.EventType(kos.Event())
 		}
+		kos.PollRuntimeWorldStopRaw()
 		event := kos.EventType(kos.CheckEvent())
 		if event != kos.EventNone {
 			return event
@@ -151,6 +169,7 @@ func (window *Window) waitEvent(pollGC bool) kos.EventType {
 	if timeout == 0 {
 		return kos.EventType(kos.Event())
 	}
+	kos.PollRuntimeWorldStopRaw()
 	return kos.EventType(kos.WaitEventTimeout(timeout))
 }
 

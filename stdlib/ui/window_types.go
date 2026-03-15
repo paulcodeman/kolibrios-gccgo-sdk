@@ -35,6 +35,7 @@ type Window struct {
 	LockRenderList bool
 	// DisableNodeTiming skips per-node timing in drawRenderList.
 	DisableNodeTiming bool
+	primary           bool
 
 	nodes                   []Node
 	canvas                  *Canvas

@@ -96,6 +96,8 @@ func CopyBytesRaw(ptr uint32, size uint32) []byte                               
 func ReadUint32Raw(base uint32, offset uint32) uint32                                      { return 0 }
 func BootstrapRuntimeHasGCRaw() uint32                                                     { return 0 }
 func PollRuntimeGCRaw()                                                                    {}
+func PollRuntimeWorldStopRaw()                                                             {}
+func StartRuntimeThreadRaw(record uint32, stackSize uint32) uint32                          { return 0 }
 func HeapAllocCountRaw() uint32                                                            { return 0 }
 func HeapAllocBytesRaw() uint32                                                            { return 0 }
 func HeapFreeCountRaw() uint32                                                             { return 0 }
@@ -122,6 +124,7 @@ func GetButtonID() int
 func CreateButton(x int, y int, width int, height int, id int, color uint32)
 func ExitRaw()
 func RuntimeExitProcessRaw()
+func RuntimeExitThreadRaw()
 func Redraw(mode int)
 func windowRaw(x int, y int, width int, height int, title *byte)
 

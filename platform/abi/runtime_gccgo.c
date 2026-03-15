@@ -38,6 +38,7 @@ extern int32_t runtime_kos_create_thread_raw(uint32_t entry, uint32_t stack) __a
 extern int32_t runtime_kos_get_thread_info_raw(uint8_t* buffer, int32_t slot) __asm__("go_0kos.GetThreadInfo");
 extern void runtime_kos_exit_raw(void) __asm__("go_0kos.ExitRaw");
 extern void runtime_kolibri_thread_entry(void);
+extern void runtime_kolibri_locked_entry(void* arg) __asm__("go_0kos.ThreadBootstrap");
 void runtime_console_bridge_close(uint32_t close_window);
 
 typedef struct {
@@ -51,6 +52,8 @@ static inline void runtime_atomic_store_u32(uint32_t* value, uint32_t next);
 static inline bool runtime_atomic_cas_u32(uint32_t* value, uint32_t expected, uint32_t desired);
 __attribute__((noreturn)) static void runtime_exit_process(void);
 __attribute__((noreturn)) void runtime_kolibri_exit_process(void) __asm__("runtime_kolibri_exit_process");
+__attribute__((noreturn)) void runtime_kolibri_exit_thread(void) __asm__("runtime_kolibri_exit_thread");
+void runtime_kolibri_poll_world_stop(void) __asm__("runtime_kolibri_poll_world_stop");
 
 // Minimal pthread stubs for libgcc_eh on KolibriOS (single-threaded runtime).
 // libgcc uses weak pthread_* symbols; providing no-ops avoids hangs in __register_frame.
@@ -1215,6 +1218,7 @@ typedef struct {
     void* stack_base;
     uintptr_t stack_top;
     uint32_t stack_size;
+    runtime_g* start_g;
 } runtime_m_start_record;
 
 static uint32_t runtime_thread_stack_pointer(void* stack_base, size_t size, void* arg) {
@@ -1283,24 +1287,40 @@ void runtime_m_start(runtime_m_start_record* start) {
     runtime_allm_add(m);
     runtime_bind_m(m);
     runtime_set_current_g(g0);
+    if (start->start_g != NULL) {
+        runtime_g* first = start->start_g;
+        first->lockedm = m;
+        if (first->status != RUNTIME_G_DEAD) {
+            first->status = RUNTIME_G_RUNNABLE;
+        }
+        first->parking = 0;
+        m->nextg = first;
+    }
 
     free(start);
     runtime_schedule();
     runtime_kos_exit_raw();
 }
 
-static int runtime_spawn_m(void) {
+static runtime_m* runtime_spawn_m_with_start(runtime_g* start_g, uint32_t stack_size) {
     runtime_m* m;
     runtime_g* g0;
     runtime_m_start_record* start;
     void* stack;
     uint32_t stack_ptr;
-    uint32_t stack_size = 0x10000u;
+    uint32_t stack_len = stack_size;
     int32_t raw_id;
 
     runtime_lock_mutex(&runtime_m_lock);
     runtime_m_pending++;
     runtime_unlock_mutex(&runtime_m_lock);
+
+    if (stack_len == 0) {
+        stack_len = 0x10000u;
+    }
+    if (stack_len < 0x1000u) {
+        stack_len = 0x1000u;
+    }
 
     m = (runtime_m*)malloc(sizeof(runtime_m));
     if (m == NULL) {
@@ -1309,7 +1329,7 @@ static int runtime_spawn_m(void) {
             runtime_m_pending--;
         }
         runtime_unlock_mutex(&runtime_m_lock);
-        return 0;
+        return NULL;
     }
     memset(m, 0, sizeof(*m));
 
@@ -1321,11 +1341,11 @@ static int runtime_spawn_m(void) {
             runtime_m_pending--;
         }
         runtime_unlock_mutex(&runtime_m_lock);
-        return 0;
+        return NULL;
     }
     memset(g0, 0, sizeof(*g0));
 
-    stack = malloc(stack_size);
+    stack = malloc(stack_len);
     if (stack == NULL) {
         free(g0);
         free(m);
@@ -1334,7 +1354,7 @@ static int runtime_spawn_m(void) {
             runtime_m_pending--;
         }
         runtime_unlock_mutex(&runtime_m_lock);
-        return 0;
+        return NULL;
     }
 
     start = (runtime_m_start_record*)malloc(sizeof(runtime_m_start_record));
@@ -1347,16 +1367,20 @@ static int runtime_spawn_m(void) {
             runtime_m_pending--;
         }
         runtime_unlock_mutex(&runtime_m_lock);
-        return 0;
+        return NULL;
     }
 
     start->m = m;
     start->g0 = g0;
     start->stack_base = stack;
-    start->stack_top = (uintptr_t)stack + stack_size;
-    start->stack_size = stack_size;
+    start->stack_top = (uintptr_t)stack + stack_len;
+    start->stack_size = stack_len;
+    start->start_g = start_g;
+    if (start_g != NULL) {
+        start_g->lockedm = m;
+    }
 
-    stack_ptr = runtime_thread_stack_pointer(stack, stack_size, start);
+    stack_ptr = runtime_thread_stack_pointer(stack, stack_len, start);
     if (stack_ptr == 0) {
         free(start);
         free(stack);
@@ -1367,7 +1391,7 @@ static int runtime_spawn_m(void) {
             runtime_m_pending--;
         }
         runtime_unlock_mutex(&runtime_m_lock);
-        return 0;
+        return NULL;
     }
 
     raw_id = runtime_kos_create_thread_raw((uint32_t)(uintptr_t)&runtime_kolibri_thread_entry, stack_ptr);
@@ -1381,11 +1405,15 @@ static int runtime_spawn_m(void) {
             runtime_m_pending--;
         }
         runtime_unlock_mutex(&runtime_m_lock);
-        return 0;
+        return NULL;
     }
 
     m->tid = (uint32_t)raw_id;
-    return 1;
+    return m;
+}
+
+static int runtime_spawn_m(void) {
+    return runtime_spawn_m_with_start(NULL, 0) != NULL;
 }
 
 extern char __end;
@@ -3683,6 +3711,46 @@ __attribute__((noreturn)) void runtime_kolibri_exit_process(void) {
     runtime_exit_process();
 }
 
+__attribute__((noreturn)) void runtime_kolibri_exit_thread(void) {
+    runtime_m* m = runtime_getm();
+    if (m == NULL || m == &runtime_m0) {
+        runtime_exit_process();
+    }
+    runtime_lock_mutex(&runtime_m_lock);
+    runtime_m* prev = NULL;
+    runtime_m* cur = runtime_allm;
+    while (cur != NULL) {
+        if (cur == m) {
+            if (prev != NULL) {
+                prev->next = cur->next;
+            } else {
+                runtime_allm = cur->next;
+            }
+            if (runtime_m_count > 0) {
+                runtime_m_count--;
+            }
+            uint32_t slot = cur->tid;
+            if (slot != 0 && slot <= RUNTIME_MAX_THREAD_SLOTS) {
+                if (runtime_m_by_slot_load(slot) == cur) {
+                    runtime_m_by_slot_store(slot, NULL);
+                }
+            }
+            cur->next = NULL;
+            break;
+        }
+        prev = cur;
+        cur = cur->next;
+    }
+    runtime_unlock_mutex(&runtime_m_lock);
+    runtime_kos_exit_raw();
+    for (;;) {
+    }
+}
+
+void runtime_kolibri_poll_world_stop(void) {
+    runtime_poll_world_stop();
+}
+
 __attribute__((noreturn)) static void runtime_fail_simple(const char* reason) {
     runtime_debug_write_cstring("runtime panic: ");
     runtime_debug_write_cstring(reason);
@@ -4804,6 +4872,24 @@ void runtime_gc_poll(void) {
     runtime_gc_collect_impl_locked();
     runtime_gc_poll_retry = runtime_gc_live_bytes >= runtime_gc_threshold;
     runtime_unlock_mutex(&runtime_gc_lock);
+}
+
+uint32_t runtime_kolibri_start_locked(uintptr_t record_ptr, uint32_t stack_size) __asm__("runtime_kolibri_start_locked");
+uint32_t runtime_kolibri_start_locked(uintptr_t record_ptr, uint32_t stack_size) {
+    if (record_ptr == 0) {
+        return 0;
+    }
+    runtime_g* g = runtime_newg(runtime_kolibri_locked_entry, (void*)record_ptr);
+    runtime_m* m = runtime_spawn_m_with_start(g, stack_size);
+    if (m == NULL) {
+        runtime_allg_remove(g);
+        if (g->stack_base != NULL) {
+            free(g->stack_base);
+        }
+        free(g);
+        return 0;
+    }
+    return m->tid;
 }
 
 uint32_t runtime_kolibri_set_threads(uint32_t count) __asm__("runtime_kolibri_set_threads");

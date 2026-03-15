@@ -42,6 +42,13 @@ bring-up bar.
 | process model | process exit is explicit; pid/ppid and child-start behavior can start with the current narrow contract before a broader process API exists | `stdlib/os/os.go`, `platform/kos/process.go` |
 | scheduler | native port can start single-threaded; goroutines/channels and multi-threaded scheduling are supported in the bootstrap runtime, but are not a bring-up prerequisite | `platform/abi/runtime_gccgo.c`, `examples/goroutines`, `examples/threads` |
 
+## Bootstrap Runtime TODOs
+
+- Replace the window-loop stop-the-world polling and 1-tick timeout with a runtime-level safe-point scheme that can preempt or interrupt threads blocked in `Event`/`WaitEventTimeout`.
+- Make multi-threaded GC robust: coordinated world-stop, stack scanning across Ms, and a clear contract for blocking syscalls.
+- Replace the per-window thread-exit hook with a general runtime thread lifecycle API (enter/exit, detach).
+- Remove current shutdown workarounds once the runtime can guarantee clean process exit with all Ms parked.
+
 ## Carry-Over Rules From The Bootstrap Path
 
 The native port should intentionally preserve these already-proven contracts in

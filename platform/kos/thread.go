@@ -44,9 +44,10 @@ const (
 )
 
 type threadStartRecord struct {
-	fn    ThreadStart
-	stack []byte
-	tid   uint32
+	fn             ThreadStart
+	stack          []byte
+	tid            uint32
+	releaseOnStart bool
 }
 
 var threadStartRecords []*threadStartRecord
@@ -211,6 +212,53 @@ func CreateThread(fn ThreadStart, stackSize int) (tid uint32, ok bool) {
 	return record.tid, true
 }
 
+// CreateRuntimeThread spawns a runtime-managed OS thread and runs fn as a goroutine locked to it.
+// The goroutine runs under the Go scheduler, so its stack is visible to the GC.
+func CreateRuntimeThread(fn ThreadStart, stackSize int) (tid uint32, ok bool) {
+	if fn == nil {
+		return 0, false
+	}
+	if stackSize <= 0 {
+		stackSize = DefaultThreadStackSize
+	}
+	if stackSize < MinThreadStackSize {
+		stackSize = MinThreadStackSize
+	}
+
+	record := &threadStartRecord{
+		fn:             fn,
+		releaseOnStart: true,
+	}
+	threadStartRecords = append(threadStartRecords, record)
+	recordPtr := uint32(uintptr(unsafe.Pointer(record)))
+	if ThreadDebug != nil {
+		ThreadDebug(ThreadDebugEvent{
+			Stage:     "runtime_create_prepare",
+			Record:    recordPtr,
+			StackSize: stackSize,
+		})
+	}
+	rawID := StartRuntimeThreadRaw(recordPtr, uint32(stackSize))
+	if ThreadDebug != nil {
+		ThreadDebug(ThreadDebugEvent{
+			Stage: "runtime_create_return",
+			RawID: int(rawID),
+		})
+	}
+	if rawID == 0 {
+		threadStartRecords = threadStartRecords[:len(threadStartRecords)-1]
+		return 0, false
+	}
+	record.tid = rawID
+	return record.tid, true
+}
+
+// ExitRuntimeThread terminates the current runtime-managed OS thread.
+// Use only when the goroutine is locked to its OS thread.
+func ExitRuntimeThread() {
+	RuntimeExitThreadRaw()
+}
+
 func hasFreeThreadSlot() bool {
 	_, maxSlot, ok := ReadCurrentThreadInfo()
 	if !ok || maxSlot <= 0 {
@@ -238,8 +286,12 @@ func ThreadBootstrap(record *threadStartRecord) {
 		if record != nil {
 			recordPtr = uint32(uintptr(unsafe.Pointer(record)))
 		}
+		stage := "bootstrap"
+		if record != nil && record.releaseOnStart {
+			stage = "runtime_bootstrap"
+		}
 		ThreadDebug(ThreadDebugEvent{
-			Stage:    "bootstrap",
+			Stage:    stage,
 			Record:   recordPtr,
 			ThreadID: record.tid,
 		})
@@ -247,7 +299,13 @@ func ThreadBootstrap(record *threadStartRecord) {
 	if record == nil || record.fn == nil {
 		return
 	}
-	record.fn()
+	fn := record.fn
+	if record.releaseOnStart {
+		record.fn = nil
+		record.stack = nil
+		record.releaseOnStart = false
+	}
+	fn()
 }
 
 func threadStackPointer(stack []byte) (uint32, bool) {
