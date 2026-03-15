@@ -164,6 +164,13 @@ func HasActiveConsole() bool {
 	return ConsoleBridgeReadyRaw() != 0
 }
 
+func ActiveConsole() (Console, bool) {
+	if activeConsole.Valid() {
+		return activeConsole, true
+	}
+	return Console{}, false
+}
+
 func WriteActiveConsole(data []byte) (int, error) {
 	if len(data) == 0 {
 		return 0, nil
