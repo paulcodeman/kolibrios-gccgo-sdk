@@ -14,6 +14,14 @@
 #endif
 #endif
 
+#ifndef KOLIBRI_RT_DEBUG
+#define KOLIBRI_RT_DEBUG 0
+#endif
+
+#ifndef KOLIBRI_RT_DEBUG_FILE
+#define KOLIBRI_RT_DEBUG_FILE 0
+#endif
+
 extern void* malloc(size_t size);
 extern void* realloc(void* ptr, size_t size);
 extern void free(void* ptr);
@@ -25,9 +33,27 @@ extern uint32_t runtime_kos_heap_free_raw(uint32_t ptr);
 extern uint32_t runtime_kos_heap_realloc_raw(uint32_t size, uint32_t ptr);
 extern uint32_t runtime_kos_load_dll_cstring_raw(const char* path);
 extern uint32_t runtime_kos_get_free_ram_raw(void) __asm__("go_0kos.GetFreeRAM");
+extern int32_t runtime_kos_get_current_thread_slot_raw(void) __asm__("go_0kos.GetCurrentThreadSlotRaw");
+extern int32_t runtime_kos_create_thread_raw(uint32_t entry, uint32_t stack) __asm__("go_0kos.CreateThreadRaw");
+extern int32_t runtime_kos_get_thread_info_raw(uint8_t* buffer, int32_t slot) __asm__("go_0kos.GetThreadInfo");
+extern void runtime_kos_exit_raw(void) __asm__("go_0kos.ExitRaw");
+extern void runtime_kolibri_thread_entry(void);
+void runtime_console_bridge_close(uint32_t close_window);
+
+typedef struct {
+    uint32_t state;
+} runtime_mutex;
+
+static void runtime_lock_mutex(runtime_mutex* m);
+static void runtime_unlock_mutex(runtime_mutex* m);
+static inline uint32_t runtime_atomic_load_u32(const volatile uint32_t* value);
+static inline void runtime_atomic_store_u32(uint32_t* value, uint32_t next);
+static inline bool runtime_atomic_cas_u32(uint32_t* value, uint32_t expected, uint32_t desired);
+__attribute__((noreturn)) static void runtime_exit_process(void);
 
 // Minimal pthread stubs for libgcc_eh on KolibriOS (single-threaded runtime).
 // libgcc uses weak pthread_* symbols; providing no-ops avoids hangs in __register_frame.
+// TODO: replace with real pthread/TLS hooks once the runtime supports multi-threading.
 typedef int pthread_once_t;
 typedef unsigned int pthread_key_t;
 
@@ -106,6 +132,7 @@ typedef struct runtime_pool_node {
 static runtime_pool_node* runtime_pool_free_lists[RUNTIME_POOL_CLASS_COUNT];
 static uint16_t runtime_pool_free_counts[RUNTIME_POOL_CLASS_COUNT];
 static size_t runtime_pool_cached_bytes = 0;
+static runtime_mutex runtime_pool_lock;
 
 typedef struct runtime_pool_header {
     uint32_t magic;
@@ -229,11 +256,14 @@ static void runtime_pool_header_init(runtime_pool_header* header, uint16_t class
 }
 
 void* runtime_pool_malloc(size_t size) {
-    runtime_pool_header* header;
+    runtime_pool_header* header = NULL;
     size_t total;
     int class_index;
+    void* result = NULL;
 
+    runtime_lock_mutex(&runtime_pool_lock);
     if (size > (size_t)-1 - RUNTIME_POOL_HEADER_SIZE) {
+        runtime_unlock_mutex(&runtime_pool_lock);
         return NULL;
     }
 
@@ -242,18 +272,24 @@ void* runtime_pool_malloc(size_t size) {
     if (class_index < 0) {
         header = (runtime_pool_header*)malloc(total);
         if (header == NULL) {
+            runtime_unlock_mutex(&runtime_pool_lock);
             return NULL;
         }
         runtime_pool_header_init(header, RUNTIME_POOL_CLASS_INDEX_SYSTEM);
-        return (void*)((uint8_t*)header + RUNTIME_POOL_HEADER_SIZE);
+        result = (void*)((uint8_t*)header + RUNTIME_POOL_HEADER_SIZE);
+        runtime_unlock_mutex(&runtime_pool_lock);
+        return result;
     }
 
     header = (runtime_pool_header*)runtime_pool_alloc(total);
     if (header == NULL) {
+        runtime_unlock_mutex(&runtime_pool_lock);
         return NULL;
     }
     runtime_pool_header_init(header, (uint16_t)class_index);
-    return (void*)((uint8_t*)header + RUNTIME_POOL_HEADER_SIZE);
+    result = (void*)((uint8_t*)header + RUNTIME_POOL_HEADER_SIZE);
+    runtime_unlock_mutex(&runtime_pool_lock);
+    return result;
 }
 
 void runtime_pool_free(void* ptr) {
@@ -265,24 +301,29 @@ void runtime_pool_free(void* ptr) {
         return;
     }
 
+    runtime_lock_mutex(&runtime_pool_lock);
     header = runtime_pool_header_from_payload(ptr);
     if (header->magic != RUNTIME_POOL_MAGIC) {
+        runtime_unlock_mutex(&runtime_pool_lock);
         free(ptr);
         return;
     }
 
     class_index = header->class_index;
     if (class_index >= RUNTIME_POOL_CLASS_COUNT && class_index != RUNTIME_POOL_CLASS_INDEX_SYSTEM) {
+        runtime_unlock_mutex(&runtime_pool_lock);
         free(header);
         return;
     }
     if (class_index == RUNTIME_POOL_CLASS_INDEX_SYSTEM) {
+        runtime_unlock_mutex(&runtime_pool_lock);
         free(header);
         return;
     }
 
     class_size = ((size_t)1u) << ((size_t)class_index + RUNTIME_POOL_MIN_SHIFT);
     runtime_pool_release(header, class_size);
+    runtime_unlock_mutex(&runtime_pool_lock);
 }
 
 void* runtime_pool_realloc(void* ptr, size_t size) {
@@ -301,8 +342,10 @@ void* runtime_pool_realloc(void* ptr, size_t size) {
         return NULL;
     }
 
+    runtime_lock_mutex(&runtime_pool_lock);
     header = runtime_pool_header_from_payload(ptr);
     if (header->magic != RUNTIME_POOL_MAGIC) {
+        runtime_unlock_mutex(&runtime_pool_lock);
         return realloc(ptr, size);
     }
 
@@ -312,26 +355,32 @@ void* runtime_pool_realloc(void* ptr, size_t size) {
     }
     if (class_index == RUNTIME_POOL_CLASS_INDEX_SYSTEM) {
         if (size > (size_t)-1 - RUNTIME_POOL_HEADER_SIZE) {
+            runtime_unlock_mutex(&runtime_pool_lock);
             return NULL;
         }
         total = size + RUNTIME_POOL_HEADER_SIZE;
         header = (runtime_pool_header*)realloc(header, total);
         if (header == NULL) {
+            runtime_unlock_mutex(&runtime_pool_lock);
             return NULL;
         }
         runtime_pool_header_init(header, RUNTIME_POOL_CLASS_INDEX_SYSTEM);
-        return (void*)((uint8_t*)header + RUNTIME_POOL_HEADER_SIZE);
+        out = (void*)((uint8_t*)header + RUNTIME_POOL_HEADER_SIZE);
+        runtime_unlock_mutex(&runtime_pool_lock);
+        return out;
     }
 
     class_size = ((size_t)1u) << ((size_t)class_index + RUNTIME_POOL_MIN_SHIFT);
     if (class_size <= RUNTIME_POOL_HEADER_SIZE) {
+        runtime_unlock_mutex(&runtime_pool_lock);
         return NULL;
     }
     old_capacity = class_size - RUNTIME_POOL_HEADER_SIZE;
     if (size <= old_capacity) {
+        runtime_unlock_mutex(&runtime_pool_lock);
         return ptr;
     }
-
+    runtime_unlock_mutex(&runtime_pool_lock);
     out = runtime_pool_malloc(size);
     if (out == NULL) {
         return NULL;
@@ -461,12 +510,12 @@ enum {
 
 #define RUNTIME_G_STACK_SIZE (256u * 1024u)
 
-typedef struct {
-    uint32_t state;
-} runtime_mutex;
-
 typedef struct runtime_hchan runtime_hchan;
 typedef struct runtime_sudog runtime_sudog;
+
+#if KOLIBRI_RT_DEBUG
+static void runtime_debug_event(const char* tag, runtime_g* g, runtime_hchan* c, uint32_t extra);
+#endif
 typedef struct runtime_waitq runtime_waitq;
 typedef struct runtime_scase runtime_scase;
 typedef struct runtime_selectgo_result runtime_selectgo_result;
@@ -545,12 +594,25 @@ typedef void (*runtime_defer_fn)(void* arg);
 
 static runtime_m runtime_m0;
 static runtime_g runtime_g0;
-static runtime_g* runtime_curg = NULL;
+static runtime_m* runtime_allm = NULL;
 static runtime_g* runtime_allg = NULL;
 static runtime_g* runtime_runq_head = NULL;
 static runtime_g* runtime_runq_tail = NULL;
 static runtime_g* runtime_deadg = NULL;
 static uint8_t runtime_g_initialized = 0;
+static runtime_mutex runtime_sched_lock;
+static runtime_mutex runtime_m_lock;
+static runtime_mutex runtime_gc_lock;
+
+#define RUNTIME_MAX_THREAD_SLOTS 256u
+static runtime_m* runtime_m_by_slot[RUNTIME_MAX_THREAD_SLOTS + 1];
+static uint32_t runtime_m_count = 0;
+static uint32_t runtime_m_pending = 0;
+static uint32_t runtime_max_threads = 1;
+static uint32_t runtime_started = 0;
+static volatile uint32_t runtime_world_stopping = 0;
+static volatile uint32_t runtime_world_waiting = 0;
+static volatile uint32_t runtime_world_stopper_tid = 0;
 static void runtime_debug_mark(const char* tag);
 static void runtime_debug_eh_frame_summary(void);
 static void runtime_gc_mark_pointer(const void* value);
@@ -562,6 +624,12 @@ static void* runtime_gc_payload(runtime_gc_header* header);
 static void runtime_fail_simple(const char* reason);
 static void runtime_lock_mutex(runtime_mutex* m);
 static void runtime_unlock_mutex(runtime_mutex* m);
+static inline uint32_t runtime_atomic_load_u32(const volatile uint32_t* value);
+static inline void runtime_atomic_store_u32(uint32_t* value, uint32_t next);
+static inline bool runtime_atomic_cas_u32(uint32_t* value, uint32_t expected, uint32_t desired);
+static inline uint32_t runtime_atomic_xadd_u32(volatile uint32_t* value, uint32_t delta);
+static void runtime_yield(void);
+static void runtime_sleep_ticks(uint32_t ticks);
 static runtime_g* runtime_newg(void (*entry)(void*), void* arg);
 static void runtime_schedule(void);
 void runtime_panicmem(void);
@@ -588,15 +656,193 @@ void runtime_gc_set_stack_top(const void* ptr);
 #define DW_EH_PE_aligned  0x50
 #define DW_EH_PE_indirect 0x80
 
+static uint32_t runtime_kolibri_current_thread_slot(void) {
+    int32_t slot = runtime_kos_get_current_thread_slot_raw();
+    if (slot > 0) {
+        return (uint32_t)slot;
+    }
+    return 0;
+}
+
+static uintptr_t runtime_current_sp(void) {
+    uintptr_t sp;
+    __asm__ volatile("movl %%esp, %0" : "=r"(sp));
+    return sp;
+}
+
+static runtime_g* runtime_find_g_by_stack(uintptr_t sp) {
+    runtime_g* g = runtime_allg;
+
+    while (g != NULL) {
+        if (g->stack_base != NULL && g->stack_top != 0) {
+            uintptr_t base = (uintptr_t)g->stack_base;
+            uintptr_t top = (uintptr_t)g->stack_top;
+            if (sp >= base && sp < top) {
+                return g;
+            }
+        }
+        g = g->all_next;
+    }
+    return NULL;
+}
+
+static runtime_m* runtime_getm_by_stack(void) {
+    uintptr_t sp = runtime_current_sp();
+    runtime_m* m = runtime_allm;
+
+    while (m != NULL) {
+        runtime_g* g0 = m->g0;
+        if (g0 != NULL && g0->stack_base != NULL && g0->stack_top != 0) {
+            uintptr_t base = (uintptr_t)g0->stack_base;
+            uintptr_t top = (uintptr_t)g0->stack_top;
+            if (sp >= base && sp < top) {
+                return m;
+            }
+        }
+        m = m->next;
+    }
+    return NULL;
+}
+
+static uint32_t runtime_kolibri_find_thread_slot_by_tid(uint32_t tid) {
+    uint8_t buffer[1024];
+    int32_t max_slot;
+
+    if (tid == 0) {
+        return 0;
+    }
+    max_slot = runtime_kos_get_thread_info_raw(buffer, -1);
+    if (max_slot < 1) {
+        return 0;
+    }
+    for (int32_t slot = 1; slot <= max_slot; slot++) {
+        int32_t res = runtime_kos_get_thread_info_raw(buffer, slot);
+        if (res < 0) {
+            continue;
+        }
+        uint32_t id = *(uint32_t*)(buffer + 30);
+        if (id == tid) {
+            return (uint32_t)slot;
+        }
+    }
+    return 0;
+}
+
+static void runtime_allm_add(runtime_m* m) {
+    if (m == NULL) {
+        return;
+    }
+    runtime_lock_mutex(&runtime_m_lock);
+    m->next = runtime_allm;
+    runtime_allm = m;
+    runtime_m_count++;
+    if (runtime_m_pending > 0) {
+        runtime_m_pending--;
+    }
+    runtime_unlock_mutex(&runtime_m_lock);
+}
+
+static runtime_m* runtime_m_by_slot_load(uint32_t slot) {
+    if (slot == 0 || slot > RUNTIME_MAX_THREAD_SLOTS) {
+        return NULL;
+    }
+    return __atomic_load_n(&runtime_m_by_slot[slot], __ATOMIC_ACQUIRE);
+}
+
+static void runtime_m_by_slot_store(uint32_t slot, runtime_m* m) {
+    if (slot == 0 || slot > RUNTIME_MAX_THREAD_SLOTS) {
+        return;
+    }
+    __atomic_store_n(&runtime_m_by_slot[slot], m, __ATOMIC_RELEASE);
+}
+
+static runtime_m* runtime_getm(void) {
+    runtime_m* m = NULL;
+    uintptr_t sp = runtime_current_sp();
+
+    if (runtime_g_initialized) {
+        runtime_g* g = runtime_find_g_by_stack(sp);
+        if (g != NULL && g->m != NULL) {
+            return g->m;
+        }
+        runtime_m* by_stack = runtime_getm_by_stack();
+        if (by_stack != NULL) {
+            return by_stack;
+        }
+    }
+
+    uint32_t slot = runtime_kolibri_current_thread_slot();
+    if (slot != 0) {
+        m = runtime_m_by_slot_load(slot);
+        if (m != NULL) {
+            return m;
+        }
+    }
+
+    return &runtime_m0;
+}
+
+static void runtime_bind_m(runtime_m* m) {
+    if (m == NULL) {
+        return;
+    }
+    runtime_m_by_slot_store(m->tid, m);
+}
+
+static void runtime_stop_world(void) {
+    runtime_m* m = runtime_getm();
+    runtime_world_stopper_tid = m != NULL ? m->tid : 0;
+    runtime_world_stopping = 1;
+    for (;;) {
+        uint32_t waiting = runtime_atomic_load_u32(&runtime_world_waiting);
+        uint32_t count = runtime_m_count;
+        if (count == 0 || waiting + 1 >= count) {
+            break;
+        }
+        runtime_yield();
+    }
+}
+
+static void runtime_start_world(void) {
+    runtime_world_stopping = 0;
+}
+
+static void runtime_poll_world_stop(void) {
+    runtime_m* m;
+
+    if (!runtime_world_stopping) {
+        return;
+    }
+    m = runtime_getm();
+    if (m != NULL && m->tid == runtime_world_stopper_tid) {
+        return;
+    }
+    if (m != NULL && m->curg != NULL) {
+        uintptr_t marker;
+        m->curg->context.esp = (uint32_t)(uintptr_t)&marker;
+    }
+    runtime_atomic_xadd_u32(&runtime_world_waiting, 1);
+    while (runtime_world_stopping) {
+        runtime_yield();
+    }
+    runtime_atomic_xadd_u32(&runtime_world_waiting, (uint32_t)-1);
+}
+
 static void runtime_set_current_g(runtime_g* g) {
-    runtime_curg = g;
-    runtime_m0.curg = g;
+    runtime_m* m = runtime_getm();
+    if (m != NULL) {
+        m->curg = g;
+    }
 }
 
 static void runtime_init_g0(void) {
     runtime_m0.curg = &runtime_g0;
     runtime_m0.gsignal = NULL;
+    runtime_m0.tid = runtime_kolibri_current_thread_slot();
+    runtime_m0.g0 = &runtime_g0;
+    runtime_m0.next = NULL;
     runtime_g0.m = &runtime_m0;
+    runtime_g0.lockedm = &runtime_m0;
     runtime_g0.entrysp = 0;
     runtime_g0.status = RUNTIME_G_RUNNING;
     runtime_g0.stack_base = NULL;
@@ -609,6 +855,8 @@ static void runtime_init_g0(void) {
     runtime_g0.select_done = -1;
     runtime_g0.select_recvok = 0;
     runtime_allg = &runtime_g0;
+    runtime_allm_add(&runtime_m0);
+    runtime_bind_m(&runtime_m0);
     runtime_set_current_g(&runtime_g0);
     runtime_g_initialized = 1;
 }
@@ -617,7 +865,11 @@ runtime_g* runtime_getg(void) {
     if (!runtime_g_initialized) {
         runtime_init_g0();
     }
-    return runtime_curg;
+    runtime_g* g = runtime_find_g_by_stack(runtime_current_sp());
+    if (g != NULL) {
+        return g;
+    }
+    return runtime_getm()->curg;
 }
 
 extern void runtime_swapcontext(runtime_context* from, runtime_context* to);
@@ -626,35 +878,60 @@ static void runtime_runq_enqueue(runtime_g* g) {
     if (g == NULL) {
         return;
     }
+    runtime_lock_mutex(&runtime_sched_lock);
     g->sched_next = NULL;
     if (runtime_runq_tail == NULL) {
         runtime_runq_head = g;
         runtime_runq_tail = g;
+        runtime_unlock_mutex(&runtime_sched_lock);
+        if (runtime_m_count > 1 && runtime_getm() == &runtime_m0) {
+            runtime_yield();
+        }
         return;
     }
     runtime_runq_tail->sched_next = g;
     runtime_runq_tail = g;
+    runtime_unlock_mutex(&runtime_sched_lock);
+    if (runtime_m_count > 1 && runtime_getm() == &runtime_m0) {
+        runtime_yield();
+    }
 }
 
-static runtime_g* runtime_runq_dequeue(void) {
-    runtime_g* g = runtime_runq_head;
-    if (g == NULL) {
-        return NULL;
+static runtime_g* runtime_runq_dequeue_for_m(runtime_m* m) {
+    runtime_g* prev = NULL;
+    runtime_g* g;
+
+    runtime_lock_mutex(&runtime_sched_lock);
+    g = runtime_runq_head;
+    while (g != NULL) {
+        if (g->lockedm == NULL || g->lockedm == m) {
+            if (prev != NULL) {
+                prev->sched_next = g->sched_next;
+            } else {
+                runtime_runq_head = g->sched_next;
+            }
+            if (runtime_runq_tail == g) {
+                runtime_runq_tail = prev;
+            }
+            g->sched_next = NULL;
+            runtime_unlock_mutex(&runtime_sched_lock);
+            return g;
+        }
+        prev = g;
+        g = g->sched_next;
     }
-    runtime_runq_head = g->sched_next;
-    if (runtime_runq_head == NULL) {
-        runtime_runq_tail = NULL;
-    }
-    g->sched_next = NULL;
-    return g;
+    runtime_unlock_mutex(&runtime_sched_lock);
+    return NULL;
 }
 
 static void runtime_allg_add(runtime_g* g) {
     if (g == NULL) {
         return;
     }
+    runtime_lock_mutex(&runtime_sched_lock);
     g->all_next = runtime_allg;
     runtime_allg = g;
+    runtime_unlock_mutex(&runtime_sched_lock);
 }
 
 static void runtime_allg_remove(runtime_g* g) {
@@ -664,6 +941,7 @@ static void runtime_allg_remove(runtime_g* g) {
     if (g == NULL) {
         return;
     }
+    runtime_lock_mutex(&runtime_sched_lock);
     prev = NULL;
     cur = runtime_allg;
     while (cur != NULL) {
@@ -674,26 +952,39 @@ static void runtime_allg_remove(runtime_g* g) {
                 runtime_allg = cur->all_next;
             }
             cur->all_next = NULL;
+            runtime_unlock_mutex(&runtime_sched_lock);
             return;
         }
         prev = cur;
         cur = cur->all_next;
     }
+    runtime_unlock_mutex(&runtime_sched_lock);
 }
 
 static void runtime_enqueue_dead(runtime_g* g) {
     if (g == NULL) {
         return;
     }
+    runtime_lock_mutex(&runtime_sched_lock);
     g->sched_next = runtime_deadg;
     runtime_deadg = g;
+    runtime_unlock_mutex(&runtime_sched_lock);
 }
 
 static void runtime_free_dead(void) {
-    while (runtime_deadg != NULL) {
-        runtime_g* g = runtime_deadg;
+    for (;;) {
+        runtime_g* g;
+
+        runtime_lock_mutex(&runtime_sched_lock);
+        g = runtime_deadg;
+        if (g == NULL) {
+            runtime_unlock_mutex(&runtime_sched_lock);
+            return;
+        }
         runtime_deadg = g->sched_next;
         g->sched_next = NULL;
+        runtime_unlock_mutex(&runtime_sched_lock);
+
         runtime_allg_remove(g);
         if (g->stack_base != NULL) {
             free(g->stack_base);
@@ -729,9 +1020,19 @@ static void runtime_makecontext(runtime_context* ctx, void (*fn)(void), void* st
 }
 
 static void runtime_switch(runtime_g* from, runtime_g* to) {
+    runtime_m* m;
     if (from == NULL || to == NULL || from == to) {
         return;
     }
+    m = NULL;
+    if (from->m != NULL) {
+        m = from->m;
+    } else if (to->m != NULL) {
+        m = to->m;
+    } else {
+        m = runtime_getm();
+    }
+    to->m = m;
     runtime_set_current_g(to);
     runtime_swapcontext(&from->context, &to->context);
     runtime_set_current_g(from);
@@ -744,29 +1045,58 @@ static void runtime_ready(runtime_g* g) {
     if (g->status == RUNTIME_G_DEAD) {
         return;
     }
-    if (g->status != RUNTIME_G_RUNNABLE) {
+    uint32_t parking = runtime_atomic_load_u32(&g->parking);
+    if (parking == 1u) {
+        runtime_atomic_store_u32(&g->parking, 0);
+        g->status = RUNTIME_G_RUNNING;
+        return;
+    }
+    runtime_atomic_store_u32(&g->parking, 0);
+    if (g->status == RUNTIME_G_WAITING) {
         g->status = RUNTIME_G_RUNNABLE;
         runtime_runq_enqueue(g);
     }
 }
 
+static void runtime_gopark_after_unlock(runtime_g* g, runtime_m* m);
+
 static void runtime_gopark_internal(void) {
     runtime_g* g = runtime_getg();
-    if (g == NULL || g == &runtime_g0) {
+    runtime_m* m = runtime_getm();
+    if (g == NULL || m == NULL || g == m->g0) {
         return;
     }
     g->status = RUNTIME_G_WAITING;
-    runtime_switch(g, &runtime_g0);
+    runtime_atomic_store_u32(&g->parking, 1);
+    runtime_gopark_after_unlock(g, m);
+}
+
+static void runtime_gopark_after_unlock(runtime_g* g, runtime_m* m) {
+    if (g == NULL || m == NULL || g == m->g0) {
+        return;
+    }
+    if (!runtime_atomic_cas_u32(&g->parking, 1, 2)) {
+#if KOLIBRI_RT_DEBUG
+        runtime_debug_event("park skip", g, NULL, g->parking);
+#endif
+        g->status = RUNTIME_G_RUNNING;
+        return;
+    }
+#if KOLIBRI_RT_DEBUG
+    runtime_debug_event("park sleep", g, NULL, g->parking);
+#endif
+    runtime_switch(g, m->g0);
 }
 
 static void runtime_gosched_internal(void) {
     runtime_g* g = runtime_getg();
-    if (g == NULL || g == &runtime_g0) {
+    runtime_m* m = runtime_getm();
+    if (g == NULL || m == NULL || g == m->g0) {
         return;
     }
     g->status = RUNTIME_G_RUNNABLE;
     runtime_runq_enqueue(g);
-    runtime_switch(g, &runtime_g0);
+    runtime_switch(g, m->g0);
 }
 
 void runtime_Gosched(void) __asm__("runtime.Gosched");
@@ -774,14 +1104,34 @@ void runtime_Gosched(void) {
     runtime_gosched_internal();
 }
 
+void runtime_LockOSThread(void) __asm__("runtime.LockOSThread");
+void runtime_LockOSThread(void) {
+    runtime_g* g = runtime_getg();
+    runtime_m* m = runtime_getm();
+    if (g == NULL || m == NULL) {
+        return;
+    }
+    g->lockedm = m;
+}
+
+void runtime_UnlockOSThread(void) __asm__("runtime.UnlockOSThread");
+void runtime_UnlockOSThread(void) {
+    runtime_g* g = runtime_getg();
+    if (g == NULL) {
+        return;
+    }
+    g->lockedm = NULL;
+}
+
 __attribute__((noreturn)) static void runtime_goexit_internal(void) {
     runtime_g* g = runtime_getg();
-    if (g == NULL || g == &runtime_g0) {
+    runtime_m* m = runtime_getm();
+    if (g == NULL || m == NULL || g == m->g0) {
         runtime_fail_simple("goexit on g0");
     }
     g->status = RUNTIME_G_DEAD;
     runtime_enqueue_dead(g);
-    runtime_switch(g, &runtime_g0);
+    runtime_switch(g, m->g0);
     for (;;) {
     }
 }
@@ -807,6 +1157,180 @@ static void runtime_app_entry(void* arg) {
     }
 }
 
+typedef struct {
+    runtime_m* m;
+    runtime_g* g0;
+    void* stack_base;
+    uintptr_t stack_top;
+    uint32_t stack_size;
+} runtime_m_start_record;
+
+static uint32_t runtime_thread_stack_pointer(void* stack_base, size_t size, void* arg) {
+    uintptr_t top;
+
+    if (stack_base == NULL || size < 16u) {
+        return 0;
+    }
+
+    top = (uintptr_t)stack_base + size;
+    top &= ~(uintptr_t)0xFu;
+    if (top < (uintptr_t)stack_base + 4u) {
+        return 0;
+    }
+    top -= 4u;
+    *(uint32_t*)top = (uint32_t)(uintptr_t)arg;
+    return (uint32_t)top;
+}
+
+void runtime_m_start(runtime_m_start_record* start) {
+    runtime_m* m;
+    runtime_g* g0;
+
+    if (start == NULL) {
+        return;
+    }
+    m = start->m;
+    g0 = start->g0;
+    if (m == NULL || g0 == NULL) {
+        return;
+    }
+
+    m->curg = g0;
+    m->g0 = g0;
+    m->gsignal = NULL;
+    {
+        uint32_t slot = runtime_kolibri_current_thread_slot();
+        if (slot == 0) {
+            slot = runtime_kolibri_find_thread_slot_by_tid(m->tid);
+        }
+        if (slot != 0) {
+            m->tid = slot;
+        }
+    }
+
+    g0->m = m;
+    g0->lockedm = m;
+    g0->entrysp = 0;
+    g0->status = RUNTIME_G_RUNNING;
+    g0->stack_base = start->stack_base;
+    g0->stack_top = start->stack_top;
+    g0->stack_size = start->stack_size;
+    g0->sched_next = NULL;
+    g0->all_next = NULL;
+    g0->entry = NULL;
+    g0->entry_arg = NULL;
+    g0->select_done = -1;
+    g0->select_recvok = 0;
+
+    runtime_allg_add(g0);
+    runtime_allm_add(m);
+    runtime_bind_m(m);
+    runtime_set_current_g(g0);
+
+    free(start);
+    runtime_schedule();
+    runtime_kos_exit_raw();
+}
+
+static int runtime_spawn_m(void) {
+    runtime_m* m;
+    runtime_g* g0;
+    runtime_m_start_record* start;
+    void* stack;
+    uint32_t stack_ptr;
+    uint32_t stack_size = 0x10000u;
+    int32_t raw_id;
+
+    runtime_lock_mutex(&runtime_m_lock);
+    runtime_m_pending++;
+    runtime_unlock_mutex(&runtime_m_lock);
+
+    m = (runtime_m*)malloc(sizeof(runtime_m));
+    if (m == NULL) {
+        runtime_lock_mutex(&runtime_m_lock);
+        if (runtime_m_pending > 0) {
+            runtime_m_pending--;
+        }
+        runtime_unlock_mutex(&runtime_m_lock);
+        return 0;
+    }
+    memset(m, 0, sizeof(*m));
+
+    g0 = (runtime_g*)malloc(sizeof(runtime_g));
+    if (g0 == NULL) {
+        free(m);
+        runtime_lock_mutex(&runtime_m_lock);
+        if (runtime_m_pending > 0) {
+            runtime_m_pending--;
+        }
+        runtime_unlock_mutex(&runtime_m_lock);
+        return 0;
+    }
+    memset(g0, 0, sizeof(*g0));
+
+    stack = malloc(stack_size);
+    if (stack == NULL) {
+        free(g0);
+        free(m);
+        runtime_lock_mutex(&runtime_m_lock);
+        if (runtime_m_pending > 0) {
+            runtime_m_pending--;
+        }
+        runtime_unlock_mutex(&runtime_m_lock);
+        return 0;
+    }
+
+    start = (runtime_m_start_record*)malloc(sizeof(runtime_m_start_record));
+    if (start == NULL) {
+        free(stack);
+        free(g0);
+        free(m);
+        runtime_lock_mutex(&runtime_m_lock);
+        if (runtime_m_pending > 0) {
+            runtime_m_pending--;
+        }
+        runtime_unlock_mutex(&runtime_m_lock);
+        return 0;
+    }
+
+    start->m = m;
+    start->g0 = g0;
+    start->stack_base = stack;
+    start->stack_top = (uintptr_t)stack + stack_size;
+    start->stack_size = stack_size;
+
+    stack_ptr = runtime_thread_stack_pointer(stack, stack_size, start);
+    if (stack_ptr == 0) {
+        free(start);
+        free(stack);
+        free(g0);
+        free(m);
+        runtime_lock_mutex(&runtime_m_lock);
+        if (runtime_m_pending > 0) {
+            runtime_m_pending--;
+        }
+        runtime_unlock_mutex(&runtime_m_lock);
+        return 0;
+    }
+
+    raw_id = runtime_kos_create_thread_raw((uint32_t)(uintptr_t)&runtime_kolibri_thread_entry, stack_ptr);
+    if (raw_id < 0) {
+        free(start);
+        free(stack);
+        free(g0);
+        free(m);
+        runtime_lock_mutex(&runtime_m_lock);
+        if (runtime_m_pending > 0) {
+            runtime_m_pending--;
+        }
+        runtime_unlock_mutex(&runtime_m_lock);
+        return 0;
+    }
+
+    m->tid = (uint32_t)raw_id;
+    return 1;
+}
+
 extern char __end;
 extern char __memory_top;
 
@@ -815,11 +1339,23 @@ void runtime_kolibri_start(void (*init)(void), void (*main)(void)) {
         runtime_init_g0();
     }
     runtime_gc_set_stack_top(&__memory_top);
+    runtime_started = 1;
     runtime_app_init_fn = init;
     runtime_app_main_fn = main;
     runtime_g* g = runtime_newg(runtime_app_entry, NULL);
     runtime_runq_enqueue(g);
+    if (runtime_max_threads > 1) {
+        uint32_t target = runtime_max_threads - 1;
+        while (target > 0) {
+            if (!runtime_spawn_m()) {
+                break;
+            }
+            target--;
+        }
+    }
     runtime_schedule();
+    runtime_console_bridge_close(1);
+    runtime_exit_process();
 }
 
 static runtime_g* runtime_newg(void (*entry)(void*), void* arg) {
@@ -831,7 +1367,7 @@ static runtime_g* runtime_newg(void (*entry)(void*), void* arg) {
         runtime_panicmem();
     }
     memset(g, 0, sizeof(*g));
-    g->m = &runtime_m0;
+    g->m = runtime_getm();
     g->entry = entry;
     g->entry_arg = arg;
     g->status = RUNTIME_G_RUNNABLE;
@@ -857,21 +1393,55 @@ runtime_g* __go_go(uintptr_t fn, void* arg) {
 }
 
 static void runtime_schedule(void) {
+    runtime_m* m = runtime_getm();
+    runtime_g* g0 = (m != NULL && m->g0 != NULL) ? m->g0 : &runtime_g0;
     for (;;) {
         runtime_free_dead();
-        runtime_g* next = runtime_runq_dequeue();
+        runtime_poll_world_stop();
+        runtime_g* next = runtime_runq_dequeue_for_m(m);
         if (next == NULL) {
-            runtime_g* scan = runtime_allg;
+            if (m != &runtime_m0) {
+                runtime_yield();
+                continue;
+            }
+        runtime_lock_mutex(&runtime_sched_lock);
+        runtime_g* scan = runtime_allg;
+        bool any_runnable = false;
+        bool any_running = false;
+        bool any_waiting = false;
             while (scan != NULL) {
-                if (scan != &runtime_g0 && scan->status == RUNTIME_G_WAITING) {
-                    runtime_fail_simple("all goroutines asleep - deadlock");
+                if (scan->m != NULL && scan->m->g0 == scan) {
+                    scan = scan->all_next;
+                    continue;
+                }
+                if (scan->status == RUNTIME_G_RUNNABLE) {
+                    any_runnable = true;
+                } else if (scan->status == RUNTIME_G_RUNNING) {
+                    any_running = true;
+                } else if (scan->status == RUNTIME_G_WAITING) {
+                    any_waiting = true;
                 }
                 scan = scan->all_next;
+            }
+        runtime_unlock_mutex(&runtime_sched_lock);
+        if (any_runnable || any_running) {
+            if (any_runnable) {
+                runtime_yield();
+            } else {
+                runtime_sleep_ticks(1);
+            }
+            continue;
+        }
+        if (any_waiting) {
+#if KOLIBRI_RT_DEBUG
+            runtime_debug_event("deadlock", runtime_getg(), NULL, runtime_getg() != NULL ? runtime_getg()->parking : 0);
+#endif
+                runtime_fail_simple("all goroutines asleep - deadlock");
             }
             return;
         }
         next->status = RUNTIME_G_RUNNING;
-        runtime_switch(&runtime_g0, next);
+        runtime_switch(g0, next);
     }
 }
 
@@ -978,18 +1548,29 @@ static void runtime_waitq_remove(runtime_waitq* q, runtime_sudog* sd) {
 }
 
 static void runtime_wake_sudog(runtime_sudog* sd, int recvok) {
+    runtime_g* g;
+    runtime_hchan* c;
+    uint32_t success;
     if (sd == NULL) {
         return;
     }
-    sd->success = recvok ? 1 : 0;
+    g = sd->g;
+    c = sd->c;
+    success = recvok ? 1u : 0u;
+    sd->success = success;
     if (sd->is_select) {
-        if (sd->g->select_done != -1) {
+        if (g != NULL && g->select_done != -1) {
             return;
         }
-        sd->g->select_done = sd->select_index;
-        sd->g->select_recvok = recvok;
+        if (g != NULL) {
+            g->select_done = sd->select_index;
+            g->select_recvok = recvok;
+        }
     }
-    runtime_ready(sd->g);
+    runtime_ready(g);
+#if KOLIBRI_RT_DEBUG
+    runtime_debug_event("wake", g, c, success);
+#endif
 }
 
 static void runtime_chan_lock(runtime_hchan* c) {
@@ -1026,6 +1607,8 @@ static void runtime_chan_copy(runtime_hchan* c, void* dst, void* src) {
 
 static bool runtime_chan_send(runtime_hchan* c, void* elem, bool block) {
     runtime_sudog* sd;
+    runtime_g* g;
+    runtime_m* m;
 
     if (c == NULL) {
         if (!block) {
@@ -1066,8 +1649,17 @@ static bool runtime_chan_send(runtime_hchan* c, void* elem, bool block) {
 
     sd = runtime_sudog_alloc(c, elem, -1, 0);
     runtime_waitq_enqueue(&c->sendq, sd);
+    g = runtime_getg();
+    m = runtime_getm();
+    if (g != NULL) {
+        g->status = RUNTIME_G_WAITING;
+        runtime_atomic_store_u32(&g->parking, 1);
+    }
+#if KOLIBRI_RT_DEBUG
+    runtime_debug_event("send park", g, c, g != NULL ? g->parking : 0);
+#endif
     runtime_chan_unlock(c);
-    runtime_gopark_internal();
+    runtime_gopark_after_unlock(g, m);
 
     if (!sd->success) {
         throw((go_string){ "send on closed channel", 22 });
@@ -1078,6 +1670,8 @@ static bool runtime_chan_send(runtime_hchan* c, void* elem, bool block) {
 
 static bool runtime_chan_recv(runtime_hchan* c, void* elem, bool block, bool* recvok) {
     runtime_sudog* sd;
+    runtime_g* g;
+    runtime_m* m;
 
     if (recvok != NULL) {
         *recvok = false;
@@ -1148,8 +1742,17 @@ static bool runtime_chan_recv(runtime_hchan* c, void* elem, bool block, bool* re
 
     sd = runtime_sudog_alloc(c, elem, -1, 0);
     runtime_waitq_enqueue(&c->recvq, sd);
+    g = runtime_getg();
+    m = runtime_getm();
+    if (g != NULL) {
+        g->status = RUNTIME_G_WAITING;
+        runtime_atomic_store_u32(&g->parking, 1);
+    }
+#if KOLIBRI_RT_DEBUG
+    runtime_debug_event("recv park", g, c, g != NULL ? g->parking : 0);
+#endif
     runtime_chan_unlock(c);
-    runtime_gopark_internal();
+    runtime_gopark_after_unlock(g, m);
 
     if (!sd->success) {
         if (elem != NULL) {
@@ -1163,6 +1766,149 @@ static bool runtime_chan_recv(runtime_hchan* c, void* elem, bool block, bool* re
     }
     runtime_sudog_free(sd);
     return true;
+}
+
+static bool runtime_select_try_send_locked(runtime_hchan* c, void* elem) {
+    runtime_sudog* sd;
+
+    if (c == NULL) {
+        return false;
+    }
+    if (c->closed) {
+        throw((go_string){ "send on closed channel", 22 });
+    }
+    sd = runtime_waitq_dequeue(&c->recvq);
+    if (sd != NULL) {
+        runtime_chan_copy(c, sd->elem, elem);
+        runtime_wake_sudog(sd, 1);
+        return true;
+    }
+    if (c->dataqsiz != 0 && c->qcount < c->dataqsiz) {
+        void* slot = (unsigned char*)c->buf + (uintptr_t)c->sendx * c->elemsize;
+        runtime_chan_copy(c, slot, elem);
+        c->sendx = (c->sendx + 1) % c->dataqsiz;
+        c->qcount++;
+        return true;
+    }
+    return false;
+}
+
+static bool runtime_select_try_recv_locked(runtime_hchan* c, void* elem, bool* recvok) {
+    runtime_sudog* sd;
+
+    if (recvok != NULL) {
+        *recvok = false;
+    }
+    if (c == NULL) {
+        return false;
+    }
+    if (c->qcount > 0) {
+        void* slot = (unsigned char*)c->buf + (uintptr_t)c->recvx * c->elemsize;
+        if (elem != NULL) {
+            runtime_chan_copy(c, elem, slot);
+        }
+        c->recvx = (c->recvx + 1) % c->dataqsiz;
+        c->qcount--;
+
+        sd = runtime_waitq_dequeue(&c->sendq);
+        if (sd != NULL) {
+            void* send_slot = (unsigned char*)c->buf + (uintptr_t)c->sendx * c->elemsize;
+            runtime_chan_copy(c, send_slot, sd->elem);
+            c->sendx = (c->sendx + 1) % c->dataqsiz;
+            c->qcount++;
+            runtime_wake_sudog(sd, 1);
+        }
+
+        if (recvok != NULL) {
+            *recvok = true;
+        }
+        return true;
+    }
+    sd = runtime_waitq_dequeue(&c->sendq);
+    if (sd != NULL) {
+        if (elem != NULL) {
+            runtime_chan_copy(c, elem, sd->elem);
+        }
+        runtime_wake_sudog(sd, 1);
+        if (recvok != NULL) {
+            *recvok = true;
+        }
+        return true;
+    }
+    if (c->closed) {
+        if (elem != NULL) {
+            runtime_chan_zero(c, elem);
+        }
+        if (recvok != NULL) {
+            *recvok = false;
+        }
+        return true;
+    }
+    return false;
+}
+
+static int32_t runtime_select_build_lock_order(runtime_scase* cas0, int32_t ncases, runtime_hchan*** order_out) {
+    runtime_hchan** order;
+    int32_t count = 0;
+    int32_t i;
+    int32_t j;
+
+    if (order_out == NULL || cas0 == NULL || ncases <= 0) {
+        return 0;
+    }
+
+    order = (runtime_hchan**)malloc((size_t)ncases * sizeof(runtime_hchan*));
+    if (order == NULL) {
+        runtime_panicmem();
+    }
+
+    for (i = 0; i < ncases; i++) {
+        runtime_hchan* c = cas0[i].c;
+        if (c == NULL) {
+            continue;
+        }
+        for (j = 0; j < count; j++) {
+            if (order[j] == c) {
+                break;
+            }
+        }
+        if (j == count) {
+            order[count++] = c;
+        }
+    }
+
+    for (i = 0; i < count; i++) {
+        for (j = i + 1; j < count; j++) {
+            if ((uintptr_t)order[j] < (uintptr_t)order[i]) {
+                runtime_hchan* tmp = order[i];
+                order[i] = order[j];
+                order[j] = tmp;
+            }
+        }
+    }
+
+    *order_out = order;
+    return count;
+}
+
+static void runtime_select_lock_all(runtime_hchan** order, int32_t count) {
+    int32_t i;
+    if (order == NULL || count <= 0) {
+        return;
+    }
+    for (i = 0; i < count; i++) {
+        runtime_chan_lock(order[i]);
+    }
+}
+
+static void runtime_select_unlock_all(runtime_hchan** order, int32_t count) {
+    int32_t i;
+    if (order == NULL || count <= 0) {
+        return;
+    }
+    for (i = count - 1; i >= 0; i--) {
+        runtime_chan_unlock(order[i]);
+    }
 }
 
 static void runtime_gc_scan_hchan(runtime_gc_header* header) {
@@ -1272,6 +2018,9 @@ void runtime_closechan(runtime_hchan* c) {
         throw((go_string){ "close of closed channel", 23 });
     }
     c->closed = 1;
+#if KOLIBRI_RT_DEBUG
+    runtime_debug_event("close", runtime_getg(), c, 0);
+#endif
 
     while ((sd = runtime_waitq_dequeue(&c->recvq)) != NULL) {
         runtime_wake_sudog(sd, 0);
@@ -1286,11 +2035,14 @@ void runtime_closechan(runtime_hchan* c) {
 void runtime_selectgo(runtime_selectgo_result* ret, runtime_scase* cas0, uint16_t* order0, int32_t nsends, int32_t nrecvs, bool block) __asm__("runtime.selectgo");
 void runtime_selectgo(runtime_selectgo_result* ret, runtime_scase* cas0, uint16_t* order0, int32_t nsends, int32_t nrecvs, bool block) {
     runtime_g* g;
+    runtime_m* m;
     int32_t ncases;
     int32_t i;
     int32_t selected = -1;
     int32_t recvok = 0;
     runtime_sudog** sudogs;
+    runtime_hchan** lock_order = NULL;
+    int32_t lock_count = 0;
 
     (void)order0;
 
@@ -1314,39 +2066,54 @@ void runtime_selectgo(runtime_selectgo_result* ret, runtime_scase* cas0, uint16_
         }
         return;
     }
-    for (i = 0; i < ncases; i++) {
-        runtime_scase* sc = &cas0[i];
-        if (sc->c == NULL) {
-            continue;
-        }
-        if (i < nsends) {
-            if (runtime_chan_send(sc->c, sc->elem, false)) {
-                selected = i;
-                recvok = 0;
-                goto done;
-            }
-        } else {
-            bool ok;
-            if (runtime_chan_recv(sc->c, sc->elem, false, &ok)) {
-                selected = i;
-                recvok = ok ? 1 : 0;
-                goto done;
-            }
-        }
-    }
-
     if (!block) {
-        ret->selected = -1;
-        ret->recvOK = 0;
+        g = runtime_getg();
+        lock_count = runtime_select_build_lock_order(cas0, ncases, &lock_order);
+        runtime_select_lock_all(lock_order, lock_count);
+        for (i = 0; i < ncases; i++) {
+            runtime_scase* sc = &cas0[i];
+            if (sc->c == NULL) {
+                continue;
+            }
+            if (i < nsends) {
+                if (runtime_select_try_send_locked(sc->c, sc->elem)) {
+                    selected = i;
+                    recvok = 0;
+#if KOLIBRI_RT_DEBUG
+                    runtime_debug_event("select nb", g, sc->c, (uint32_t)i);
+#endif
+                    goto done_unlock;
+                }
+            } else {
+                bool ok;
+                if (runtime_select_try_recv_locked(sc->c, sc->elem, &ok)) {
+                    selected = i;
+                    recvok = ok ? 1 : 0;
+#if KOLIBRI_RT_DEBUG
+                    runtime_debug_event("select nb", g, sc->c, (uint32_t)i);
+#endif
+                    goto done_unlock;
+                }
+            }
+        }
+done_unlock:
+        runtime_select_unlock_all(lock_order, lock_count);
+        free(lock_order);
+        ret->selected = selected;
+        ret->recvOK = recvok;
         return;
     }
 
+retry_block:
+    selected = -1;
+    recvok = 0;
     g = runtime_getg();
     if (g == NULL) {
         return;
     }
     g->select_done = -1;
     g->select_recvok = 0;
+    m = runtime_getm();
 
     sudogs = (runtime_sudog**)malloc((size_t)ncases * sizeof(runtime_sudog*));
     if (sudogs == NULL) {
@@ -1356,12 +2123,41 @@ void runtime_selectgo(runtime_selectgo_result* ret, runtime_scase* cas0, uint16_
         sudogs[i] = NULL;
     }
 
+    lock_count = runtime_select_build_lock_order(cas0, ncases, &lock_order);
+    runtime_select_lock_all(lock_order, lock_count);
+
     for (i = 0; i < ncases; i++) {
         runtime_scase* sc = &cas0[i];
         if (sc->c == NULL) {
             continue;
         }
-        runtime_chan_lock(sc->c);
+        if (i < nsends) {
+            if (runtime_select_try_send_locked(sc->c, sc->elem)) {
+                selected = i;
+                recvok = 0;
+#if KOLIBRI_RT_DEBUG
+                runtime_debug_event("select imm", g, sc->c, (uint32_t)i);
+#endif
+                goto selected_unlock;
+            }
+        } else {
+            bool ok;
+            if (runtime_select_try_recv_locked(sc->c, sc->elem, &ok)) {
+                selected = i;
+                recvok = ok ? 1 : 0;
+#if KOLIBRI_RT_DEBUG
+                runtime_debug_event("select imm", g, sc->c, (uint32_t)i);
+#endif
+                goto selected_unlock;
+            }
+        }
+    }
+
+    for (i = 0; i < ncases; i++) {
+        runtime_scase* sc = &cas0[i];
+        if (sc->c == NULL) {
+            continue;
+        }
         runtime_sudog* sd = runtime_sudog_alloc(sc->c, sc->elem, i, 1);
         sudogs[i] = sd;
         if (i < nsends) {
@@ -1369,13 +2165,26 @@ void runtime_selectgo(runtime_selectgo_result* ret, runtime_scase* cas0, uint16_
         } else {
             runtime_waitq_enqueue(&sc->c->recvq, sd);
         }
-        runtime_chan_unlock(sc->c);
     }
 
-    runtime_gopark_internal();
+    g->status = RUNTIME_G_WAITING;
+    runtime_atomic_store_u32(&g->parking, 1);
+#if KOLIBRI_RT_DEBUG
+    runtime_debug_event("select park", g, NULL, 0);
+#endif
+    runtime_select_unlock_all(lock_order, lock_count);
+    free(lock_order);
+    lock_order = NULL;
+    lock_count = 0;
+    runtime_gopark_after_unlock(g, m);
 
     selected = g->select_done;
     recvok = g->select_recvok;
+#if KOLIBRI_RT_DEBUG
+    runtime_debug_event("select wake", g, NULL, (uint32_t)selected);
+#endif
+
+cleanup:
 
     for (i = 0; i < ncases; i++) {
         runtime_sudog* sd = sudogs[i];
@@ -1397,9 +2206,25 @@ void runtime_selectgo(runtime_selectgo_result* ret, runtime_scase* cas0, uint16_
     }
     free(sudogs);
 
+    if (selected < 0) {
+#if KOLIBRI_RT_DEBUG
+        runtime_debug_event("select retry", g, NULL, 0);
+#endif
+        goto retry_block;
+    }
+
 done:
     ret->selected = selected;
     ret->recvOK = recvok;
+    return;
+
+selected_unlock:
+    runtime_select_unlock_all(lock_order, lock_count);
+    free(lock_order);
+    lock_order = NULL;
+    lock_count = 0;
+    free(sudogs);
+    goto done;
 }
 
 extern char __eh_frame_start;
@@ -1486,6 +2311,8 @@ void runtime_panicmem(void);
 void runtime_typedmemmove(const go_type_descriptor* descriptor, void* dest, const void* src);
 static void runtime_gc_mark_pointer(const void* value);
 static void runtime_gc_collect_impl(void);
+static void runtime_gc_collect_impl_locked(void);
+static void runtime_gc_collect_impl_locked(void);
 static void* runtime_gc_alloc_managed(size_t size, const go_type_descriptor* descriptor, runtime_gc_scan_fn scan, void* aux, uintptr_t count);
 static void* runtime_gc_alloc_object(const go_type_descriptor* descriptor);
 static void* runtime_gc_alloc_array(const go_type_descriptor* descriptor, intptr_t count, size_t total_size);
@@ -1687,6 +2514,116 @@ static void* kos_memset(void* dest, int value, size_t size) {
     return dest;
 }
 
+#if KOLIBRI_RT_DEBUG_FILE
+#define RUNTIME_DEBUG_FILE_BUF_SIZE 4096u
+
+typedef struct {
+    uint32_t subfunc;
+    uint32_t offset;
+    uint32_t offset_hi;
+    uint32_t size;
+    uint32_t data;
+    char path[64];
+} runtime_fs70_req;
+
+static const char runtime_debug_file_path[] = "/rd/1/goruntime-debug.txt";
+static char runtime_debug_file_buf[RUNTIME_DEBUG_FILE_BUF_SIZE];
+static uint32_t runtime_debug_file_len = 0;
+static uint32_t runtime_debug_file_offset = 0;
+static uint8_t runtime_debug_file_initialized = 0;
+static volatile uint32_t runtime_debug_file_lock = 0;
+
+static void runtime_debug_file_lock_acquire(void) {
+    while (!runtime_atomic_cas_u32((uint32_t*)&runtime_debug_file_lock, 0u, 1u)) {
+        runtime_yield();
+    }
+}
+
+static void runtime_debug_file_lock_release(void) {
+    runtime_atomic_store_u32((uint32_t*)&runtime_debug_file_lock, 0u);
+}
+
+static void runtime_debug_file_copy_path(runtime_fs70_req* req) {
+    size_t i = 0;
+    if (req == NULL) {
+        return;
+    }
+    while (runtime_debug_file_path[i] != '\0' && i + 1 < sizeof(req->path)) {
+        req->path[i] = runtime_debug_file_path[i];
+        i++;
+    }
+    req->path[i] = '\0';
+}
+
+static uint32_t runtime_debug_file_sys70(runtime_fs70_req* req) {
+    uint32_t eax = 70;
+    uint32_t ebx = (uint32_t)(uintptr_t)req;
+    __asm__ volatile("int $0x40"
+                     : "+a"(eax), "+b"(ebx)
+                     :
+                     : "ecx", "edx", "esi", "edi", "memory", "cc");
+    return eax;
+}
+
+static void runtime_debug_file_init(void) {
+    runtime_fs70_req req;
+
+    kos_memset(&req, 0, sizeof(req));
+    req.subfunc = 2;
+    req.size = 0;
+    req.data = 0;
+    runtime_debug_file_copy_path(&req);
+    runtime_debug_file_sys70(&req);
+    runtime_debug_file_offset = 0;
+    runtime_debug_file_initialized = 1;
+}
+
+static void runtime_debug_file_flush_unlocked(void) {
+    runtime_fs70_req req;
+    uint32_t result;
+
+    if (runtime_debug_file_len == 0) {
+        return;
+    }
+    if (!runtime_debug_file_initialized) {
+        runtime_debug_file_init();
+    }
+
+    kos_memset(&req, 0, sizeof(req));
+    req.subfunc = 3;
+    req.offset = runtime_debug_file_offset;
+    req.offset_hi = 0;
+    req.size = runtime_debug_file_len;
+    req.data = (uint32_t)(uintptr_t)runtime_debug_file_buf;
+    runtime_debug_file_copy_path(&req);
+
+    result = runtime_debug_file_sys70(&req);
+    if (result == 5u) {
+        runtime_debug_file_init();
+        result = runtime_debug_file_sys70(&req);
+    }
+    if (result == 0u) {
+        runtime_debug_file_offset += runtime_debug_file_len;
+    }
+    runtime_debug_file_len = 0;
+}
+
+static void runtime_debug_file_write_byte(unsigned char value) {
+    runtime_debug_file_lock_acquire();
+    runtime_debug_file_buf[runtime_debug_file_len++] = (char)value;
+    if (runtime_debug_file_len >= RUNTIME_DEBUG_FILE_BUF_SIZE) {
+        runtime_debug_file_flush_unlocked();
+    }
+    runtime_debug_file_lock_release();
+}
+
+static void runtime_debug_file_flush(void) {
+    runtime_debug_file_lock_acquire();
+    runtime_debug_file_flush_unlocked();
+    runtime_debug_file_lock_release();
+}
+#endif
+
 static void runtime_debug_write_byte(unsigned char value) {
     uint32_t eax;
     uint32_t ebx;
@@ -1699,6 +2636,10 @@ static void runtime_debug_write_byte(unsigned char value) {
                      : "+a"(eax), "+b"(ebx), "+c"(ecx)
                      :
                      : "edx", "esi", "edi", "memory", "cc");
+
+#if KOLIBRI_RT_DEBUG_FILE
+    runtime_debug_file_write_byte(value);
+#endif
 }
 
 static void runtime_debug_write_bytes(const char* value, size_t size) {
@@ -1733,7 +2674,40 @@ static void runtime_debug_write_hex32(uint32_t value) {
 static void runtime_debug_write_newline(void) {
     runtime_debug_write_byte('\r');
     runtime_debug_write_byte('\n');
+#if KOLIBRI_RT_DEBUG_FILE
+    runtime_debug_file_flush();
+#endif
 }
+
+#if KOLIBRI_RT_DEBUG
+static uint32_t runtime_debug_budget = 1200u;
+
+static bool runtime_debug_take(void) {
+    if (runtime_debug_budget == 0u) {
+        return false;
+    }
+    runtime_debug_budget--;
+    return true;
+}
+
+static void runtime_debug_event(const char* tag, runtime_g* g, runtime_hchan* c, uint32_t extra) {
+    if (!runtime_debug_take()) {
+        return;
+    }
+    runtime_debug_write_cstring(tag);
+    runtime_debug_write_cstring(" g=");
+    runtime_debug_write_hex32((uint32_t)(uintptr_t)g);
+    runtime_debug_write_cstring(" c=");
+    runtime_debug_write_hex32((uint32_t)(uintptr_t)c);
+    runtime_debug_write_cstring(" m=");
+    runtime_debug_write_hex32((uint32_t)(uintptr_t)runtime_getm());
+    runtime_debug_write_cstring(" tid=");
+    runtime_debug_write_hex32(runtime_kolibri_current_thread_slot());
+    runtime_debug_write_cstring(" ex=");
+    runtime_debug_write_hex32(extra);
+    runtime_debug_write_newline();
+}
+#endif
 
 static void runtime_debug_mark(const char* tag) {
     if (tag == NULL) {
@@ -2465,7 +3439,7 @@ static uint32_t runtime_hash_value(const go_type_descriptor* descriptor, const v
     return runtime_hash_bytes((const unsigned char*)data, (size_t)descriptor->size);
 }
 
-static inline uint32_t runtime_atomic_load_u32(const uint32_t* value) {
+static inline uint32_t runtime_atomic_load_u32(const volatile uint32_t* value) {
     return __atomic_load_n(value, __ATOMIC_ACQUIRE);
 }
 
@@ -2477,7 +3451,7 @@ static inline bool runtime_atomic_cas_u32(uint32_t* value, uint32_t expected, ui
     return __sync_bool_compare_and_swap(value, expected, desired);
 }
 
-static inline uint32_t runtime_atomic_xadd_u32(uint32_t* value, uint32_t delta) {
+static inline uint32_t runtime_atomic_xadd_u32(volatile uint32_t* value, uint32_t delta) {
     return __sync_fetch_and_add(value, delta);
 }
 
@@ -2496,6 +3470,9 @@ static void runtime_lock_mutex(runtime_mutex* m) {
         return;
     }
     for (;;) {
+        if (runtime_world_stopping) {
+            runtime_poll_world_stop();
+        }
         if (runtime_atomic_cas_u32(&m->state, 0, 1)) {
             return;
         }
@@ -2524,6 +3501,16 @@ void runtime_unlock(runtime_mutex* m) {
 static void runtime_yield(void) {
     uint32_t eax = 68;
     uint32_t ebx = 1;
+
+    __asm__ volatile("int $0x40"
+                     : "+a"(eax), "+b"(ebx)
+                     :
+                     : "ecx", "edx", "esi", "edi", "memory", "cc");
+}
+
+static void runtime_sleep_ticks(uint32_t ticks) {
+    uint32_t eax = 5;
+    uint32_t ebx = ticks;
 
     __asm__ volatile("int $0x40"
                      : "+a"(eax), "+b"(ebx)
@@ -3482,7 +4469,7 @@ static void runtime_gc_update_threshold(void) {
     runtime_gc_threshold = base + (base / 2u) + 4096u;
 }
 
-static void runtime_gc_collect_impl(void) {
+static void runtime_gc_collect_impl_locked(void) {
     runtime_gc_header* current;
     runtime_gc_header* next;
 
@@ -3490,6 +4477,7 @@ static void runtime_gc_collect_impl(void) {
         return;
     }
 
+    runtime_stop_world();
     runtime_gc_running = 1;
     runtime_gc_mark_token = (runtime_gc_mark_token == 1u) ? 2u : 1u;
 
@@ -3507,9 +4495,16 @@ static void runtime_gc_collect_impl(void) {
     runtime_gc_collection_count++;
     runtime_gc_running = 0;
     runtime_gc_update_threshold();
+    runtime_start_world();
 }
 
-static void runtime_gc_maybe_collect(size_t requested_size) {
+static void runtime_gc_collect_impl(void) {
+    runtime_lock_mutex(&runtime_gc_lock);
+    runtime_gc_collect_impl_locked();
+    runtime_unlock_mutex(&runtime_gc_lock);
+}
+
+static void runtime_gc_maybe_collect_locked(size_t requested_size) {
     if (!runtime_gc_enabled || runtime_gc_running) {
         return;
     }
@@ -3525,13 +4520,13 @@ static void runtime_gc_maybe_collect(size_t requested_size) {
             free_kb = runtime_kos_get_free_ram_raw();
             if (free_kb != 0 && free_kb < runtime_gc_low_mem_kb) {
                 runtime_gc_poll_retry = 1;
-                runtime_gc_collect_impl();
+                runtime_gc_collect_impl_locked();
             }
         }
     }
     if (requested_size > (size_t)-1 - runtime_gc_live_bytes || runtime_gc_live_bytes + requested_size >= runtime_gc_threshold) {
         runtime_gc_poll_retry = 1;
-        runtime_gc_collect_impl();
+        runtime_gc_collect_impl_locked();
     }
 }
 
@@ -3547,9 +4542,11 @@ static void* runtime_gc_alloc_managed(size_t size, const go_type_descriptor* des
         runtime_panicmem();
     }
 
-    runtime_gc_maybe_collect(payload_size);
+    runtime_lock_mutex(&runtime_gc_lock);
+    runtime_gc_maybe_collect_locked(payload_size);
     header = (runtime_gc_header*)runtime_pool_malloc(sizeof(runtime_gc_header) + payload_size);
     if (header == NULL) {
+        runtime_unlock_mutex(&runtime_gc_lock);
         return NULL;
     }
     runtime_gc_alloc_count++;
@@ -3565,6 +4562,7 @@ static void* runtime_gc_alloc_managed(size_t size, const go_type_descriptor* des
 
     payload = runtime_gc_payload(header);
     kos_memset(payload, 0, payload_size);
+    runtime_unlock_mutex(&runtime_gc_lock);
     return payload;
 }
 
@@ -3623,8 +4621,10 @@ static void runtime_gc_free_exact(void* ptr) {
         return;
     }
 
+    runtime_lock_mutex(&runtime_gc_lock);
     header = runtime_gc_find_exact_header(ptr);
     if (header == NULL) {
+        runtime_unlock_mutex(&runtime_gc_lock);
         free(ptr);
         return;
     }
@@ -3632,24 +4632,81 @@ static void runtime_gc_free_exact(void* ptr) {
     runtime_gc_unlink_allocation(header);
     runtime_pool_free(header);
     runtime_gc_update_threshold();
+    runtime_unlock_mutex(&runtime_gc_lock);
 }
 
 void runtime_force_gc(void) {
-    runtime_gc_collect_impl();
+    runtime_lock_mutex(&runtime_gc_lock);
+    runtime_gc_collect_impl_locked();
     runtime_gc_scrub_registers();
-    runtime_gc_collect_impl();
+    runtime_gc_collect_impl_locked();
     runtime_gc_poll_retry = 0;
+    runtime_unlock_mutex(&runtime_gc_lock);
 }
 
 void runtime_gc_poll(void) {
+    runtime_lock_mutex(&runtime_gc_lock);
     if (!runtime_gc_enabled || runtime_gc_running) {
+        runtime_unlock_mutex(&runtime_gc_lock);
         return;
     }
 
-    runtime_gc_collect_impl();
+    runtime_gc_collect_impl_locked();
     runtime_gc_scrub_registers();
-    runtime_gc_collect_impl();
+    runtime_gc_collect_impl_locked();
     runtime_gc_poll_retry = runtime_gc_live_bytes >= runtime_gc_threshold;
+    runtime_unlock_mutex(&runtime_gc_lock);
+}
+
+uint32_t runtime_kolibri_set_threads(uint32_t count) __asm__("runtime_kolibri_set_threads");
+uint32_t runtime_kolibri_set_threads(uint32_t count) {
+    if (count == 0) {
+        count = 1;
+    }
+    if (count > RUNTIME_MAX_THREAD_SLOTS) {
+        count = RUNTIME_MAX_THREAD_SLOTS;
+    }
+    runtime_lock_mutex(&runtime_m_lock);
+    runtime_max_threads = count;
+    runtime_unlock_mutex(&runtime_m_lock);
+
+    if (runtime_started) {
+        for (;;) {
+            uint32_t current;
+
+            runtime_lock_mutex(&runtime_m_lock);
+            current = runtime_m_count + runtime_m_pending;
+            runtime_unlock_mutex(&runtime_m_lock);
+
+            if (current >= runtime_max_threads) {
+                break;
+            }
+            if (!runtime_spawn_m()) {
+                break;
+            }
+        }
+        /* Give newly created threads a moment to enter the scheduler. */
+        for (uint32_t spins = 10000; spins > 0; spins--) {
+            uint32_t pending;
+            uint32_t current;
+
+            runtime_lock_mutex(&runtime_m_lock);
+            pending = runtime_m_pending;
+            current = runtime_m_count;
+            runtime_unlock_mutex(&runtime_m_lock);
+
+            if (pending == 0 || current >= runtime_max_threads) {
+                break;
+            }
+            runtime_yield();
+        }
+    }
+    return runtime_max_threads;
+}
+
+uint32_t runtime_kolibri_get_threads(void) __asm__("runtime_kolibri_get_threads");
+uint32_t runtime_kolibri_get_threads(void) {
+    return runtime_max_threads;
 }
 
 size_t runtime_gc_live_object_count(void) {

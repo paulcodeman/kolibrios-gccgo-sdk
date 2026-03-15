@@ -236,6 +236,12 @@ func BootstrapRuntimeHasGCRaw() uint32 __asm__("runtime_bootstrap_has_gc")
 // Runtime helper - trigger a collection when allocation pressure has crossed the GC threshold.
 func PollRuntimeGCRaw() __asm__("runtime_gc_poll")
 
+// Runtime helper - set the number of runtime threads (M) to use.
+func SetRuntimeThreadsRaw(count uint32) uint32 __asm__("runtime_kolibri_set_threads")
+
+// Runtime helper - get the configured runtime thread (M) count.
+func GetRuntimeThreadsRaw() uint32 __asm__("runtime_kolibri_get_threads")
+
 // Runtime helper - heap/GC counters for diagnostics.
 func HeapAllocCountRaw() uint32 __asm__("runtime_kos_heap_alloc_count_read")
 func HeapAllocBytesRaw() uint32 __asm__("runtime_kos_heap_alloc_bytes_read")

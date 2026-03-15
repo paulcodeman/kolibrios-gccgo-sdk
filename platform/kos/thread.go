@@ -135,6 +135,15 @@ func CurrentThreadSlotIndex() (slot int, ok bool) {
 	return 0, false
 }
 
+// SetRuntimeThreads configures how many OS threads the runtime should use.
+// Returns the effective thread count.
+func SetRuntimeThreads(count int) int {
+	if count < 1 {
+		count = 1
+	}
+	return int(SetRuntimeThreadsRaw(uint32(count)))
+}
+
 // CreateThread spawns a KolibriOS thread that runs fn using the bootstrap runtime.
 // Note: the bootstrap runtime GC is single-threaded; avoid concurrent Go
 // execution across threads unless you accept the current limitations.

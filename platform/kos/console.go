@@ -11,6 +11,7 @@ type Console struct {
 	exitProc        DLLProc
 	setTitleProc    DLLProc
 	getchProc       DLLProc
+	getch2Proc      DLLProc
 	getsProc        DLLProc
 	keyHitProc      DLLProc
 	version         uint32
@@ -31,6 +32,7 @@ func LoadConsoleFromDLL(table DLLExportTable) (Console, bool) {
 		exitProc:        table.Lookup("con_exit"),
 		setTitleProc:    table.Lookup("con_set_title"),
 		getchProc:       table.Lookup("con_getch"),
+		getch2Proc:      table.Lookup("con_getch2"),
 		getsProc:        table.Lookup("con_gets"),
 		keyHitProc:      table.Lookup("con_kbhit"),
 		version:         uint32(table.Lookup("version")),
@@ -76,6 +78,10 @@ func (console Console) Version() uint32 {
 
 func (console Console) SupportsInput() bool {
 	return console.getchProc.Valid()
+}
+
+func (console Console) SupportsInputFull() bool {
+	return console.getch2Proc.Valid()
 }
 
 func (console Console) SupportsLineInput() bool {
@@ -196,6 +202,15 @@ func (console Console) Getch() int {
 	}
 
 	return int(int32(CallStdcall0Raw(uint32(console.getchProc))))
+}
+
+// Getch2 returns the full keycode from CONSOLE.OBJ (ASCII in the high byte).
+func (console Console) Getch2() uint32 {
+	if !console.SupportsInputFull() {
+		return 0
+	}
+
+	return CallStdcall0Raw(uint32(console.getch2Proc))
 }
 
 func (console Console) Close() error {

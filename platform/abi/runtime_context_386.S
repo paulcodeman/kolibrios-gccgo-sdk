@@ -23,3 +23,17 @@ runtime_swapcontext:
     jmp *%ecx
 
     .size runtime_swapcontext, .-runtime_swapcontext
+
+    .globl runtime_kolibri_thread_entry
+    .type runtime_kolibri_thread_entry, @function
+runtime_kolibri_thread_entry:
+    movl (%esp), %eax
+    andl $0xFFFFFFF0, %esp
+    subl $8, %esp
+    push %eax
+    call runtime_m_start
+    addl $12, %esp
+    call go_0kos.ExitRaw
+    ret
+
+    .size runtime_kolibri_thread_entry, .-runtime_kolibri_thread_entry

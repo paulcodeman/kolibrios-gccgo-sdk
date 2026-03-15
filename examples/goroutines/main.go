@@ -59,10 +59,31 @@ func main() {
 	}
 
 	fmt.Println("done")
+	if console.SupportsInputFull() {
+		fmt.Println("Press Esc to exit.")
+		for {
+			key := console.Getch2()
+			if key == 0 {
+				// Console closed or no key; avoid burning CPU.
+				kos.Sleep(1)
+				continue
+			}
+			hi := byte(key >> 8)
+			lo := byte(key & 0xff)
+			if hi == exitKey || lo == exitKey || lo == 1 {
+				return
+			}
+		}
+	}
 	if console.SupportsInput() {
 		fmt.Println("Press Esc to exit.")
 		for {
-			if console.Getch() == exitKey {
+			key := console.Getch()
+			if key == 0 {
+				kos.Sleep(1)
+				continue
+			}
+			if key == exitKey || key == 1 || (key&0xff) == exitKey || (key&0xff) == 1 {
 				return
 			}
 		}

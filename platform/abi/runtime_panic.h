@@ -48,6 +48,9 @@ struct runtime_m {
     int32_t mallocing;
     const char* preemptoff;
     int32_t locks;
+    uint32_t tid;
+    runtime_g* g0;
+    struct runtime_m* next;
 };
 
 struct runtime_context {
@@ -61,6 +64,7 @@ struct runtime_context {
 
 struct runtime_g {
     runtime_m* m;
+    runtime_m* lockedm;
     runtime_defer* _defer;
     runtime_panic* _panic;
     void* exception;
@@ -79,6 +83,7 @@ struct runtime_g {
     uintptr_t stack_top;
     uint32_t stack_size;
     uint32_t status;
+    uint32_t parking;
     int32_t select_done;
     int32_t select_recvok;
 };
