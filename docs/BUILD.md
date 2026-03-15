@@ -48,6 +48,13 @@ Clean a target:
 ./build-app.sh uiwindow clean
 ```
 
+Build all apps/examples in one pass (full rebuild, then clean artifacts except
+`.kex`):
+
+```sh
+./make-all.sh
+```
+
 ## New App Template
 
 Create a new app from the shared template:
