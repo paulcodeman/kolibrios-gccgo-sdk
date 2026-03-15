@@ -144,7 +144,7 @@ Bootstrap behavior to carry over:
 
 First-slice runtime scope:
 
-- no goroutines requirement
+- no goroutines requirement (bootstrap runtime already supports them, but they are not required for the first native bring-up slice)
 - no channel requirement
 - no broad signal integration requirement
 - no `cgo`

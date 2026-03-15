@@ -23,6 +23,10 @@ Initial native-port profile:
 - the first success bar is "real `go build` for a narrow supported package
   set", not full upstream parity
 
+Note: the bootstrap runtime now supports goroutines/channels and a
+multi-threaded scheduler, but that does not change the initial native-port
+bring-up bar.
+
 ## Contract Summary
 
 | Area | Native target contract | Current bootstrap evidence |
@@ -36,7 +40,7 @@ Initial native-port profile:
 | time | wall clock comes from the current date/time syscalls, monotonic timing from the uptime counter, and sleep remains explicit and syscall-backed | `platform/kos/time.go`, `stdlib/time` |
 | stdio | ordinary stdout/stderr/stdin flows must work for pipe/file-backed cases first; console-backed integration remains a later integration layer on top | `stdlib/fmt`, `stdlib/log`, `examples/console`, `apps/diag` |
 | process model | process exit is explicit; pid/ppid and child-start behavior can start with the current narrow contract before a broader process API exists | `stdlib/os/os.go`, `platform/kos/process.go` |
-| scheduler | first native port is single-threaded; goroutines/channels are later work, not a bring-up prerequisite | `platform/abi/runtime_gccgo.c` |
+| scheduler | native port can start single-threaded; goroutines/channels and multi-threaded scheduling are supported in the bootstrap runtime, but are not a bring-up prerequisite | `platform/abi/runtime_gccgo.c`, `examples/goroutines`, `examples/threads` |
 
 ## Carry-Over Rules From The Bootstrap Path
 

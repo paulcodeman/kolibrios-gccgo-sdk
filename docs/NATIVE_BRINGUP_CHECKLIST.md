@@ -28,8 +28,8 @@ It does **not** cover:
 - maps
 - interfaces
 - files beyond what stdout/stderr needs
-- goroutines
-- channels
+- goroutines (bootstrap runtime now supports them, but they are out of scope here)
+- channels (bootstrap runtime now supports them, but they are out of scope here)
 - broad stdlib parity
 
 ## Bring-Up Rungs

@@ -104,6 +104,10 @@ The output `.kex` is written next to each target, for example
 - Set `FAST_PKG=1` to avoid package rebuild cascades in batch builds.
 - Set `KPACK=1` to run `kpack` on the final `.kex` (override the binary with
   `KPACK_BIN=/path/to/kpack`).
+- The bootstrap runtime now supports goroutines/channels and a multi-threaded
+  scheduler. Use `runtime.GOMAXPROCS` to configure the runtime thread count.
+- See `examples/goroutines` for channel scheduling and `examples/threads` for
+  multi-thread slot sampling.
 - CI uploads built `.kex` files directly as the `kex-artifacts` workflow
   artifact and runs `kpack` by default. Grab it from the latest run in the
   Actions build workflow:
