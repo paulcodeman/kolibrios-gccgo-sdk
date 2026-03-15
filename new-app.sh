@@ -50,7 +50,6 @@ render_template() {
 
 render_template "Makefile.in" "Makefile"
 render_template "main.go.in" "main.go"
-render_template "app.go.in" "app.go"
 
 printf 'created %s\n' "$target_dir"
 printf 'build with: make -C examples/%s all\n' "$name"
