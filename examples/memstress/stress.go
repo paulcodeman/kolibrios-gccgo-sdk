@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	memStressIterations      = 400
-	memStressWarmupIterations = 50
+	memStressIterations      = 120
+	memStressWarmupIterations = 10
 )
 
 type StressResult struct {

@@ -2509,7 +2509,7 @@ static void runtime_gc_collect_impl(void) {
         next = current->next;
         if (current->marked != runtime_gc_mark_token) {
             runtime_gc_unlink_allocation(current);
-            free(current);
+            runtime_pool_free(current);
         }
         current = next;
     }
