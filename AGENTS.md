@@ -25,3 +25,8 @@
 - If stdlib functionality is missing, first copy the relevant non-platform-specific files from the official sources (Go stdlib or libgo).
 - If a file is platform-dependent, adapt only the KolibriOS-specific parts and keep the rest aligned with upstream.
 - If compilation fails due to missing runtime symbols, extend `platform/abi/runtime_gccgo.c` (and related ABI code) to provide the needed symbols.
+
+## App Layout Convention
+
+- For small apps/examples, keep all logic in a single `main.go`.
+- Avoid splitting trivial entrypoints into `main.go` + `app.go` unless there is a clear complexity or reuse need.
