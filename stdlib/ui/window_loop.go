@@ -145,19 +145,15 @@ func (window *Window) nextEvent(pollGC bool) kos.EventType {
 
 func (window *Window) waitEvent(pollGC bool) kos.EventType {
 	timeout := window.caretBlinkTimeout()
-	if !window.primary && timeout == 0 {
-		timeout = 1
-	}
 	if !pollGC || !WindowPollRuntimeGC {
 		if timeout == 0 {
-			return kos.EventType(kos.Event())
+			return kos.WaitEvent()
 		}
-		kos.PollRuntimeWorldStopRaw()
 		event := kos.EventType(kos.CheckEvent())
 		if event != kos.EventNone {
 			return event
 		}
-		return kos.EventType(kos.WaitEventTimeout(timeout))
+		return kos.WaitEventFor(timeout)
 	}
 	event := kos.EventType(kos.CheckEvent())
 	if event != kos.EventNone {
@@ -167,10 +163,9 @@ func (window *Window) waitEvent(pollGC bool) kos.EventType {
 		window.pollRuntimeGC()
 	}
 	if timeout == 0 {
-		return kos.EventType(kos.Event())
+		return kos.WaitEvent()
 	}
-	kos.PollRuntimeWorldStopRaw()
-	return kos.EventType(kos.WaitEventTimeout(timeout))
+	return kos.WaitEventFor(timeout)
 }
 
 func (window *Window) noteEvent(event kos.EventType) {

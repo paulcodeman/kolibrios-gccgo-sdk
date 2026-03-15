@@ -237,6 +237,8 @@ func BootstrapRuntimeHasGCRaw() uint32 __asm__("runtime_bootstrap_has_gc")
 func PollRuntimeGCRaw() __asm__("runtime_gc_poll")
 // Runtime helper - allow a thread to participate in stop-the-world.
 func PollRuntimeWorldStopRaw() __asm__("runtime_kolibri_poll_world_stop")
+// Runtime helper - get current runtime M count.
+func GetRuntimeMCountRaw() uint32 __asm__("runtime_kolibri_get_m_count")
 
 // Runtime helper - start a goroutine on a new runtime-managed OS thread.
 func StartRuntimeThreadRaw(record uint32, stackSize uint32) uint32 __asm__("runtime_kolibri_start_locked")

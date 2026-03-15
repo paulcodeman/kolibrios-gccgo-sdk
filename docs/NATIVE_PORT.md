@@ -44,7 +44,7 @@ bring-up bar.
 
 ## Bootstrap Runtime TODOs
 
-- Replace the window-loop stop-the-world polling and 1-tick timeout with a runtime-level safe-point scheme that can preempt or interrupt threads blocked in `Event`/`WaitEventTimeout`.
+- Replace the current 1-tick polling in `platform/kos.WaitEvent`/`WaitEventFor` with an interruptible wait or runtime-level preemption for threads blocked in `Event`/`WaitEventTimeout`.
 - Make multi-threaded GC robust: coordinated world-stop, stack scanning across Ms, and a clear contract for blocking syscalls.
 - Replace the per-window thread-exit hook with a general runtime thread lifecycle API (enter/exit, detach).
 - Remove current shutdown workarounds once the runtime can guarantee clean process exit with all Ms parked.

@@ -54,6 +54,7 @@ __attribute__((noreturn)) static void runtime_exit_process(void);
 __attribute__((noreturn)) void runtime_kolibri_exit_process(void) __asm__("runtime_kolibri_exit_process");
 __attribute__((noreturn)) void runtime_kolibri_exit_thread(void) __asm__("runtime_kolibri_exit_thread");
 void runtime_kolibri_poll_world_stop(void) __asm__("runtime_kolibri_poll_world_stop");
+uint32_t runtime_kolibri_get_m_count(void) __asm__("runtime_kolibri_get_m_count");
 
 // Minimal pthread stubs for libgcc_eh on KolibriOS (single-threaded runtime).
 // libgcc uses weak pthread_* symbols; providing no-ops avoids hangs in __register_frame.
@@ -3749,6 +3750,10 @@ __attribute__((noreturn)) void runtime_kolibri_exit_thread(void) {
 
 void runtime_kolibri_poll_world_stop(void) {
     runtime_poll_world_stop();
+}
+
+uint32_t runtime_kolibri_get_m_count(void) {
+    return runtime_atomic_load_u32(&runtime_m_count);
 }
 
 __attribute__((noreturn)) static void runtime_fail_simple(const char* reason) {

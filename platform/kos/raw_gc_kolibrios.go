@@ -98,6 +98,7 @@ func BootstrapRuntimeHasGCRaw() uint32                                          
 func PollRuntimeGCRaw()                                                                    {}
 func PollRuntimeWorldStopRaw()                                                             {}
 func StartRuntimeThreadRaw(record uint32, stackSize uint32) uint32                          { return 0 }
+func GetRuntimeMCountRaw() uint32                                                          { return 0 }
 func HeapAllocCountRaw() uint32                                                            { return 0 }
 func HeapAllocBytesRaw() uint32                                                            { return 0 }
 func HeapFreeCountRaw() uint32                                                             { return 0 }
