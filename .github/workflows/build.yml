@@ -1,0 +1,36 @@
+name: build
+
+on:
+  push:
+
+jobs:
+  build-all:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc \
+            gccgo \
+            gcc-multilib \
+            gccgo-multilib \
+            make \
+            nasm \
+            binutils \
+            mtools \
+            qemu-system-x86
+
+      - name: Build all examples and apps
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t targets < <(find examples apps -type f -name Makefile -printf '%h\n' | sort -u)
+          echo "Found ${#targets[@]} targets"
+          for dir in "${targets[@]}"; do
+            echo "==> Building ${dir}"
+            ./build-app.sh "${dir}"
+          done

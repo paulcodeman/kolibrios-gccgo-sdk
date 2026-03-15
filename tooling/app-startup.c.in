@@ -1,0 +1,44 @@
+#include <stdint.h>
+
+#define KOLIBRI_LOADER_BUFFER_SIZE 1024u
+
+extern void kolibri_app_init(void) __asm__("@APP_INIT_SYMBOL@");
+extern void kolibri_app_main(void) __asm__("@APP_MAIN_SYMBOL@");
+extern void runtime_gc_set_stack_top(const void* ptr);
+extern unsigned char __bss_start;
+extern unsigned char __bss_end;
+
+unsigned char runtime_kolibri_loader_parameters[KOLIBRI_LOADER_BUFFER_SIZE];
+unsigned char runtime_kolibri_loader_path[KOLIBRI_LOADER_BUFFER_SIZE];
+
+uint32_t runtime_kolibri_loader_parameters_raw(void) {
+    return (uint32_t)(uintptr_t)runtime_kolibri_loader_parameters;
+}
+
+uint32_t runtime_kolibri_loader_path_raw(void) {
+    return (uint32_t)(uintptr_t)runtime_kolibri_loader_path;
+}
+
+__attribute__((noreturn))
+static void runtime_kolibri_exit(void) {
+    __asm__ __volatile__(
+        "movl $-1, %%eax\n\t"
+        "int $0x40\n\t"
+        :
+        :
+        : "eax", "memory");
+    __builtin_unreachable();
+}
+
+void runtime_kolibri_app_entry(void) {
+    unsigned char* bss;
+    unsigned char stack_top_marker = 0;
+
+    for (bss = &__bss_start; bss < &__bss_end; bss++) {
+        *bss = 0;
+    }
+    runtime_gc_set_stack_top(&stack_top_marker);
+    kolibri_app_init();
+    kolibri_app_main();
+    runtime_kolibri_exit();
+}

@@ -1,0 +1,374 @@
+package ui
+
+func (element *Element) Layout(canvas *Canvas) {
+	if element == nil || canvas == nil {
+		return
+	}
+	style := element.effectiveStyle()
+	element.updateRenderKey(style)
+	element.applyLayout(canvas, style)
+}
+
+func (element *Element) LayoutDirty() bool {
+	if element == nil {
+		return false
+	}
+	style := element.effectiveStyle()
+	key := element.layoutKeyFor(style, Rect{})
+	return !elementLayoutKeyEqual(key, element.layoutKey)
+}
+
+func (element *Element) layoutDirtyInCurrentContainer() bool {
+	if element == nil {
+		return false
+	}
+	if element.layoutRect.Empty() {
+		return true
+	}
+	container := element.layoutContainer()
+	if container.Width == 0 && container.Height == 0 {
+		return true
+	}
+	style := element.effectiveStyle()
+	key := element.layoutKeyFor(style, container)
+	return !elementLayoutKeyEqual(key, element.layoutKey)
+}
+
+func (element *Element) applyLayout(canvas *Canvas, style Style) {
+	if element == nil || canvas == nil {
+		return
+	}
+	container := Rect{X: 0, Y: 0, Width: canvas.Width(), Height: canvas.Height()}
+	element.applyLayoutIn(canvas, container, style)
+}
+
+func (element *Element) applyLayoutIn(canvas *Canvas, container Rect, style Style) {
+	if element == nil || canvas == nil {
+		return
+	}
+	key := element.layoutKeyFor(style, container)
+	if elementLayoutKeyEqual(key, element.layoutKey) && element.layoutRect.Width > 0 && element.layoutRect.Height > 0 {
+		return
+	}
+	element.layoutKey = key
+	rect := element.resolveRectIn(container, style)
+	element.layoutRect = rect
+	element.visualRect = element.visualBoundsFor(rect, style)
+}
+
+func (element *Element) layoutKeyFor(style Style, container Rect) elementLayoutKey {
+	var position *PositionMode
+	if value, ok := resolvePosition(style.Position); ok {
+		v := value
+		position = &v
+	}
+	var display *DisplayMode
+	if value, ok := resolveDisplay(style.Display); ok {
+		v := value
+		display = &v
+	}
+	var left *int
+	if value, ok := resolveLength(style.Left); ok {
+		v := value
+		left = &v
+	}
+	var top *int
+	if value, ok := resolveLength(style.Top); ok {
+		v := value
+		top = &v
+	}
+	var right *int
+	if value, ok := resolveLength(style.Right); ok {
+		v := value
+		right = &v
+	}
+	var bottom *int
+	if value, ok := resolveLength(style.Bottom); ok {
+		v := value
+		bottom = &v
+	}
+	var styleWidth *int
+	if value, ok := resolveLength(style.Width); ok {
+		v := value
+		styleWidth = &v
+	}
+	var styleHeight *int
+	if value, ok := resolveLength(style.Height); ok {
+		v := value
+		styleHeight = &v
+	}
+	var margin *Spacing
+	if value, ok := resolveSpacing(style.Margin); ok {
+		if value != nil {
+			v := *value
+			margin = &v
+		}
+	}
+	flowSet := element.flowSet
+	flowX := 0
+	flowY := 0
+	if flowSet {
+		flowX = element.flowX
+		flowY = element.flowY
+	}
+	return elementLayoutKey{
+		kind:        element.kind,
+		position:    position,
+		display:     display,
+		containerX:  container.X,
+		containerY:  container.Y,
+		containerW:  container.Width,
+		containerH:  container.Height,
+		left:        left,
+		top:         top,
+		right:       right,
+		bottom:      bottom,
+		width:       element.resolvedWidthIn(style, container),
+		height:      element.resolvedHeightIn(style, container),
+		styleWidth:  styleWidth,
+		styleHeight: styleHeight,
+		margin:      margin,
+		flowSet:     flowSet,
+		flowX:       flowX,
+		flowY:       flowY,
+	}
+}
+
+func (element *Element) layoutContainer() Rect {
+	if element == nil {
+		return Rect{}
+	}
+	key := element.layoutKey
+	return Rect{
+		X:      key.containerX,
+		Y:      key.containerY,
+		Width:  key.containerW,
+		Height: key.containerH,
+	}
+}
+
+func (element *Element) resolveRect(canvas *Canvas, style Style) Rect {
+	if canvas == nil {
+		return element.resolveRectIn(Rect{}, style)
+	}
+	container := Rect{X: 0, Y: 0, Width: canvas.Width(), Height: canvas.Height()}
+	return element.resolveRectIn(container, style)
+}
+
+func (element *Element) resolveRectIn(container Rect, style Style) Rect {
+	base := Rect{
+		X:      0,
+		Y:      0,
+		Width:  element.resolvedWidthIn(style, container),
+		Height: element.resolvedHeightIn(style, container),
+	}
+	x, y := element.basePosition(style)
+	base.X = x
+	base.Y = y
+	if !style.HasLayout() {
+		return base
+	}
+	return resolveRect(base, container, style)
+}
+
+func (element *Element) basePosition(style Style) (int, int) {
+	position := effectivePosition(style)
+	x := 0
+	y := 0
+	if position != PositionAbsolute && element.flowSet {
+		x = element.flowX
+		y = element.flowY
+	}
+	if position == PositionAbsolute {
+		if value, ok := resolveLength(style.Left); ok {
+			x = value
+		}
+		if value, ok := resolveLength(style.Top); ok {
+			y = value
+		}
+	}
+	return x, y
+}
+
+func (element *Element) rawPosition(style Style) (int, int) {
+	x, y := element.basePosition(style)
+	if effectivePosition(style) == PositionRelative {
+		if value, ok := resolveLength(style.Left); ok {
+			x += value
+		}
+		if value, ok := resolveLength(style.Right); ok {
+			x -= value
+		}
+		if value, ok := resolveLength(style.Top); ok {
+			y += value
+		}
+		if value, ok := resolveLength(style.Bottom); ok {
+			y -= value
+		}
+	}
+	return x, y
+}
+
+func (element *Element) setFlow(x int, y int) bool {
+	if element == nil {
+		return false
+	}
+	if element.flowSet && element.flowX == x && element.flowY == y {
+		return false
+	}
+	element.flowSet = true
+	element.flowX = x
+	element.flowY = y
+	return true
+}
+
+func (element *Element) clearFlow() bool {
+	if element == nil || !element.flowSet {
+		return false
+	}
+	element.flowSet = false
+	element.flowX = 0
+	element.flowY = 0
+	return true
+}
+
+func (element *Element) resolvedWidth(style Style) int {
+	if value, ok := resolveLength(style.Width); ok {
+		return value
+	}
+	text := element.text()
+	font, metrics := fontAndMetricsForStyle(style)
+	charWidth := metrics.width
+	if charWidth <= 0 {
+		charWidth = defaultCharWidth
+	}
+	textWidth := textWidthWithFont(text, font, charWidth)
+	leftPad := 0
+	rightPad := 0
+	if padding, ok := resolveSpacingNormalized(style.Padding); ok {
+		leftPad = padding.Left
+		rightPad = padding.Right
+	}
+	border := borderWidthFor(style)
+	baseWidth := textWidth + leftPad + rightPad + border*2
+	switch element.kind {
+	case ElementKindButton:
+		minWidth := textWidth + defaultButtonWidthPadding + border*2
+		if baseWidth < minWidth {
+			return minWidth
+		}
+		return baseWidth
+	case ElementKindLabel:
+		return baseWidth
+	default:
+		return baseWidth
+	}
+}
+
+func (element *Element) resolvedWidthIn(style Style, container Rect) int {
+	if value, ok := resolveLength(style.Width); ok {
+		return value
+	}
+	if display, ok := resolveDisplay(style.Display); ok && display == DisplayBlock {
+		if effectivePosition(style) != PositionAbsolute {
+			width := container.Width
+			if margin, ok := resolveSpacing(style.Margin); ok && margin != nil {
+				width -= margin.Left + margin.Right
+			}
+			if width < 0 {
+				width = 0
+			}
+			return width
+		}
+	}
+	return element.resolvedWidth(style)
+}
+
+func (element *Element) resolvedHeight(style Style) int {
+	return element.resolvedHeightIn(style, Rect{})
+}
+
+func (element *Element) resolvedHeightIn(style Style, container Rect) int {
+	if value, ok := resolveLength(style.Height); ok {
+		return value
+	}
+	text := element.text()
+	textHeight := 0
+	font, metrics := fontAndMetricsForStyle(style)
+	lineHeight := metrics.height
+	charWidth := metrics.width
+	if lineHeight <= 0 {
+		lineHeight = defaultFontHeight
+	}
+	if charWidth <= 0 {
+		charWidth = defaultCharWidth
+	}
+	if text != "" {
+		width := element.resolvedWidth(style)
+		if container.Width > 0 || container.Height > 0 {
+			width = element.resolvedWidthIn(style, container)
+		}
+		leftPad := 0
+		rightPad := 0
+		topPad := 0
+		bottomPad := 0
+		if padding, ok := resolveSpacingNormalized(style.Padding); ok {
+			leftPad = padding.Left
+			rightPad = padding.Right
+			topPad = padding.Top
+			bottomPad = padding.Bottom
+		}
+		border := borderWidthFor(style)
+		availableW := width - leftPad - rightPad - border*2
+		if availableW < 0 {
+			availableW = 0
+		}
+			if element.kind == ElementKindInput {
+				textHeight = lineHeight
+			} else if element.kind == ElementKindTextarea {
+				lines := element.wrapTextPreserveCached(text, availableW, true, font, charWidth)
+				if len(lines) > 0 {
+					textHeight = len(lines) * lineHeight
+				}
+			} else {
+				lines := element.wrapTextLinesCached(text, availableW, font, charWidth)
+				if len(lines) > 0 {
+					textHeight = len(lines) * lineHeight
+				}
+			}
+		baseHeight := textHeight + topPad + bottomPad + border*2
+		switch element.kind {
+		case ElementKindButton:
+			if baseHeight < defaultButtonHeight {
+				return defaultButtonHeight
+			}
+			return baseHeight
+		case ElementKindLabel:
+			return baseHeight
+		default:
+			return baseHeight
+		}
+	}
+	if text == "" && element.isTextInput() {
+		textHeight = lineHeight
+	}
+	topPad := 0
+	bottomPad := 0
+	if padding, ok := resolveSpacingNormalized(style.Padding); ok {
+		topPad = padding.Top
+		bottomPad = padding.Bottom
+	}
+	border := borderWidthFor(style)
+	baseHeight := textHeight + topPad + bottomPad + border*2
+	switch element.kind {
+	case ElementKindButton:
+		if baseHeight < defaultButtonHeight {
+			return defaultButtonHeight
+		}
+		return baseHeight
+	case ElementKindLabel:
+		return baseHeight
+	default:
+		return baseHeight
+	}
+}

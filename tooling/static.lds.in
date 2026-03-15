@@ -1,0 +1,79 @@
+PHDRS
+{
+    text PT_LOAD FLAGS(5);
+    data PT_LOAD FLAGS(6);
+    stack PT_GNU_STACK FLAGS(6);
+}
+
+SECTIONS
+{
+    . = 0x00000;
+
+    .text :
+    {
+        LONG(0x554E454D);
+        LONG(0x31305445);
+        LONG(1);
+        LONG(@ENTRYPOINT@);
+        LONG(__end);
+        LONG(__memory_top);
+        LONG(__memory_top);
+        LONG(runtime_kolibri_loader_parameters);
+        LONG(runtime_kolibri_loader_path);
+
+        *(.text)
+        *(.text.*)
+    } :text
+
+    .rodata :
+    {
+        *(.rodata)
+        *(.rodata.*)
+    } :text
+
+    .data :
+    {
+        *(.data)
+        *(.data.*)
+    } :data
+
+    .bss :
+    {
+        __bss_start = .;
+        *(COMMON)
+        *(.bss)
+        *(.bss.*)
+        __bss_end = .;
+    } :data
+
+    .eh_frame_hdr :
+    {
+        __eh_frame_hdr_start = .;
+        KEEP(*(.eh_frame_hdr))
+        __eh_frame_hdr_end = .;
+    } :text
+
+    .eh_frame :
+    {
+        __eh_frame_start = .;
+        KEEP(*(.eh_frame))
+        LONG(0);
+        __eh_frame_end = .;
+    } :text
+
+    .gcc_except_table :
+    {
+        KEEP(*(.gcc_except_table))
+        KEEP(*(.gcc_except_table.*))
+    } :text
+
+    .group :
+    {
+        *(.group)
+    } :text
+
+    __end = .;
+    __memory_top = ((__end + 0xFFF) & ~0xFFF) + @STACK_RESERVE@;
+
+    .note.GNU-stack : { } :text :stack
+}
