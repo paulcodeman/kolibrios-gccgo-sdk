@@ -51,19 +51,19 @@ Install the toolchain with your package manager:
 Build one target by path:
 
 ```sh
-./build-app.sh examples/window
+./build-app.sh examples/uiwindow
 ```
 
 Build by short name (searched under `apps/` and `examples/`):
 
 ```sh
-./build-app.sh window
+./build-app.sh uiwindow
 ```
 
 Clean a target:
 
 ```sh
-./build-app.sh window clean
+./build-app.sh uiwindow clean
 ```
 
 Create a new scaffolded app:
@@ -73,7 +73,7 @@ Create a new scaffolded app:
 ```
 
 The output `.kex` is written next to each target, for example
-`examples/window/window.kex`.
+`examples/uiwindow/uiwindow.kex`.
 
 ## Notes
 
@@ -81,6 +81,11 @@ The output `.kex` is written next to each target, for example
   conventions.
 - `tooling/kolibri-app.mk` accepts ordered `PACKAGE_DIRS` and can resolve
   imports from `platform/` (first-party) and `third_party/`.
+- The build defaults to `gccgo-15`; override with `GO=gccgo` if your binary name
+  differs.
+- Set `KEEP_PKG=1` to reuse `.pkg` artifacts across multiple builds.
+- Set `KEEP_ABI=1` to reuse ABI objects across multiple builds.
+- `.kex` build outputs are ignored by git.
 
 ## Docs
 

@@ -1,31 +1,22 @@
 # Repository Instructions
 
-## KolibriOS API Source Of Truth
+## Syscall ABI (Source Of Truth)
 
-- When adding or changing Go bindings for KolibriOS system calls, always consult `sysfuncs.txt` in the repository root first.
-- Do not invent syscall numbers, register layouts, subfunction codes, packed arguments, or return conventions from memory.
-- Treat `sysfuncs.txt` as the source of truth for:
-  - the function number placed into `eax`
-  - input/output register usage
-  - packed argument formats such as `x * 65536 + width`
-  - preserved registers and return-value behavior
+- Always consult `sysfuncs.txt` before adding or changing any KolibriOS syscall binding.
+- Do not invent syscall numbers, register layouts, packed args, or return rules.
+- Verify calling conventions in `sysfuncs.txt` before writing Go signatures or assembly stubs.
+- Keep low-level entrypoints aligned across `platform/abi/syscalls_i386.asm` and `platform/kos/raw.go`.
 
-## Where To Apply Changes
+## ABI Surface Alignment
 
-- Keep low-level syscall entrypoints aligned with `platform/abi/syscalls_i386.asm`.
-- Keep exported Go declarations aligned with `platform/kos/raw.go`.
-- Keep higher-level Go wrappers and types aligned with the low-level ABI in `platform/kos/*.go` and `stdlib/ui/*.go` when relevant.
+- Keep higher-level wrappers/types in `platform/kos/*.go` and `stdlib/ui/*.go` aligned with the raw ABI.
 
-## Implementation Rule
+## Stdlib And Runtime Porting
 
-- If a new Go function wraps a KolibriOS API call, verify the exact calling convention in `sysfuncs.txt` before writing the Go signature or the assembly stub.
-
-## Stdlib And Runtime Strategy
-
-- When porting or when stdlib functionality is missing, first copy the relevant non-platform-specific files from the official sources (Go stdlib or libgo).
-- If a file is platform-dependent, adapt only the KolibriOS-specific parts and keep the rest aligned with upstream.
-- Do not reimplement stdlib files from scratch unless there is no upstream source to start from.
-- If compilation fails due to missing runtime symbols, extend `platform/abi/runtime_gccgo.c` (and related ABI code) to provide the needed symbols.
+- When stdlib/runtime functionality is missing, start from upstream sources (Go stdlib, libgo, or runtime) and port them.
+- Only change KolibriOS-specific parts; keep the rest aligned with upstream.
+- Do not reimplement from scratch unless there is no upstream source to start from.
+- For missing runtime symbols in the bootstrap build, extend `platform/abi/runtime_gccgo.c` (and related ABI code).
 
 ## App Layout Convention
 

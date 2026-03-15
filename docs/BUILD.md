@@ -21,24 +21,31 @@ Install with your package manager:
 - `mtools`
 - `qemu-system-x86`
 
+By default the build expects `gccgo-15`. If your binary is named differently,
+override it per build:
+
+```sh
+make -C examples/uiwindow GO=gccgo
+```
+
 ## Build Commands
 
 Build one target by path:
 
 ```sh
-./build-app.sh examples/window
+./build-app.sh examples/uiwindow
 ```
 
 Build by short name (searched under `apps/` and `examples/`):
 
 ```sh
-./build-app.sh window
+./build-app.sh uiwindow
 ```
 
 Clean a target:
 
 ```sh
-./build-app.sh window clean
+./build-app.sh uiwindow clean
 ```
 
 ## New App Template
@@ -50,7 +57,7 @@ Create a new app from the shared template:
 ```
 
 This creates `examples/demo` with `package main`, a minimal window loop, and the
-shared `tooling/kolibri-app.mk` build wiring.
+shared `tooling/kolibri-app.mk` build wiring in a single `main.go`.
 
 ## Makefile Knobs
 
@@ -60,14 +67,19 @@ You can override these variables per target:
 - `PACKAGE_DIRS` to precompile additional shared packages
 - `FIRST_PARTY_DIRS` to add extra in-repo package roots
 - `THIRD_PARTY_DIRS` to add extra external package roots
+- `KEEP_PKG=1` to keep `.pkg` package artifacts between builds (useful when
+  building many targets in a row)
+- `KEEP_ABI=1` to keep ABI objects (`syscalls_i386.o`, `runtime_gccgo.o`,
+  `go-unwind.o`) between builds in a batch
 
 Example:
 
 ```sh
-make -C examples/window OPT_LEVEL=-O0
+make -C examples/uiwindow OPT_LEVEL=-O0
 ```
 
 ## Notes
 
 - The final `.kex` is written next to each target directory.
 - Intermediate `.o` and `.gox` files are removed after a successful build.
+- `.kex` build outputs are ignored by git.

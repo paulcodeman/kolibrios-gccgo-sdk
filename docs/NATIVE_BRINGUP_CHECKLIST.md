@@ -51,7 +51,7 @@ Evidence source in the bootstrap repo:
 
 - `tooling/app-startup.c.in`
 - `tooling/static.lds.in`
-- `examples/window`
+- `examples/uiwindow`
 
 Likely Go-tree files:
 
