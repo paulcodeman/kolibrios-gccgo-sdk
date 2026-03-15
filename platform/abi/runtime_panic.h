@@ -51,6 +51,11 @@ struct runtime_m {
     uint32_t tid;
     runtime_g* g0;
     struct runtime_m* next;
+    runtime_g* nextg;
+    runtime_g* deadg;
+    runtime_g* park_g;
+    runtime_g* enqg;
+    uint32_t exit_check_counter;
 };
 
 struct runtime_context {

@@ -298,6 +298,7 @@ func CreateButton(x int, y int, width int, height int, id int, color uint32)
 
 // Function -1 - terminate thread/process.
 func ExitRaw()
+func RuntimeExitProcessRaw() __asm__("runtime_kolibri_exit_process")
 
 // Function 12 - begin/end window redraw.
 func Redraw(mode int)

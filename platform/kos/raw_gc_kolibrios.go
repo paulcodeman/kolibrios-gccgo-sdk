@@ -121,6 +121,7 @@ func GetCurrentFolderRaw(buffer *byte, size uint32, encoding StringEncoding) int
 func GetButtonID() int
 func CreateButton(x int, y int, width int, height int, id int, color uint32)
 func ExitRaw()
+func RuntimeExitProcessRaw()
 func Redraw(mode int)
 func windowRaw(x int, y int, width int, height int, title *byte)
 

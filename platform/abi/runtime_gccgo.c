@@ -50,6 +50,7 @@ static inline uint32_t runtime_atomic_load_u32(const volatile uint32_t* value);
 static inline void runtime_atomic_store_u32(uint32_t* value, uint32_t next);
 static inline bool runtime_atomic_cas_u32(uint32_t* value, uint32_t expected, uint32_t desired);
 __attribute__((noreturn)) static void runtime_exit_process(void);
+__attribute__((noreturn)) void runtime_kolibri_exit_process(void) __asm__("runtime_kolibri_exit_process");
 
 // Minimal pthread stubs for libgcc_eh on KolibriOS (single-threaded runtime).
 // libgcc uses weak pthread_* symbols; providing no-ops avoids hangs in __register_frame.
@@ -630,6 +631,11 @@ static inline bool runtime_atomic_cas_u32(uint32_t* value, uint32_t expected, ui
 static inline uint32_t runtime_atomic_xadd_u32(volatile uint32_t* value, uint32_t delta);
 static void runtime_yield(void);
 static void runtime_sleep_ticks(uint32_t ticks);
+static bool runtime_thread_slot_dead(uint32_t slot);
+static inline runtime_g* runtime_atomic_load_g(runtime_g* const* value);
+static inline runtime_g* runtime_atomic_exchange_g(runtime_g** value, runtime_g* next);
+static inline bool runtime_atomic_cas_g(runtime_g** value, runtime_g* expected, runtime_g* desired);
+static runtime_m* runtime_find_idle_m(runtime_m* current);
 static runtime_g* runtime_newg(void (*entry)(void*), void* arg);
 static void runtime_schedule(void);
 void runtime_panicmem(void);
@@ -789,6 +795,27 @@ static void runtime_bind_m(runtime_m* m) {
     runtime_m_by_slot_store(m->tid, m);
 }
 
+static runtime_m* runtime_find_idle_m(runtime_m* current) {
+    runtime_m* m;
+
+    if (runtime_m_count < 2) {
+        return NULL;
+    }
+    runtime_lock_mutex(&runtime_m_lock);
+    m = runtime_allm;
+    while (m != NULL) {
+        if (m != current && m->curg == m->g0) {
+            if (runtime_atomic_load_g(&m->nextg) == NULL && m->park_g == NULL) {
+                runtime_unlock_mutex(&runtime_m_lock);
+                return m;
+            }
+        }
+        m = m->next;
+    }
+    runtime_unlock_mutex(&runtime_m_lock);
+    return NULL;
+}
+
 static void runtime_stop_world(void) {
     runtime_m* m = runtime_getm();
     runtime_world_stopper_tid = m != NULL ? m->tid : 0;
@@ -841,6 +868,11 @@ static void runtime_init_g0(void) {
     runtime_m0.tid = runtime_kolibri_current_thread_slot();
     runtime_m0.g0 = &runtime_g0;
     runtime_m0.next = NULL;
+    runtime_m0.nextg = NULL;
+    runtime_m0.deadg = NULL;
+    runtime_m0.park_g = NULL;
+    runtime_m0.enqg = NULL;
+    runtime_m0.exit_check_counter = 0;
     runtime_g0.m = &runtime_m0;
     runtime_g0.lockedm = &runtime_m0;
     runtime_g0.entrysp = 0;
@@ -877,6 +909,13 @@ extern void runtime_swapcontext(runtime_context* from, runtime_context* to);
 static void runtime_runq_enqueue(runtime_g* g) {
     if (g == NULL) {
         return;
+    }
+    runtime_m* curm = runtime_getm();
+    if (g->lockedm == NULL && curm != NULL && runtime_m_count > 1) {
+        runtime_m* idle = runtime_find_idle_m(curm);
+        if (idle != NULL && runtime_atomic_cas_g(&idle->nextg, NULL, g)) {
+            return;
+        }
     }
     runtime_lock_mutex(&runtime_sched_lock);
     g->sched_next = NULL;
@@ -1051,6 +1090,15 @@ static void runtime_ready(runtime_g* g) {
         g->status = RUNTIME_G_RUNNING;
         return;
     }
+    if (parking == 2u) {
+        if (runtime_atomic_cas_u32(&g->parking, 2, 3)) {
+            return;
+        }
+        parking = runtime_atomic_load_u32(&g->parking);
+    }
+    if (parking == 3u) {
+        return;
+    }
     runtime_atomic_store_u32(&g->parking, 0);
     if (g->status == RUNTIME_G_WAITING) {
         g->status = RUNTIME_G_RUNNABLE;
@@ -1085,6 +1133,7 @@ static void runtime_gopark_after_unlock(runtime_g* g, runtime_m* m) {
 #if KOLIBRI_RT_DEBUG
     runtime_debug_event("park sleep", g, NULL, g->parking);
 #endif
+    m->park_g = g;
     runtime_switch(g, m->g0);
 }
 
@@ -1095,7 +1144,10 @@ static void runtime_gosched_internal(void) {
         return;
     }
     g->status = RUNTIME_G_RUNNABLE;
-    runtime_runq_enqueue(g);
+    m->enqg = g;
+    if (runtime_m_count > 1) {
+        runtime_yield();
+    }
     runtime_switch(g, m->g0);
 }
 
@@ -1130,7 +1182,7 @@ __attribute__((noreturn)) static void runtime_goexit_internal(void) {
         runtime_fail_simple("goexit on g0");
     }
     g->status = RUNTIME_G_DEAD;
-    runtime_enqueue_dead(g);
+    m->deadg = g;
     runtime_switch(g, m->g0);
     for (;;) {
     }
@@ -1198,6 +1250,11 @@ void runtime_m_start(runtime_m_start_record* start) {
     m->curg = g0;
     m->g0 = g0;
     m->gsignal = NULL;
+    m->nextg = NULL;
+    m->deadg = NULL;
+    m->park_g = NULL;
+    m->enqg = NULL;
+    m->exit_check_counter = 0;
     {
         uint32_t slot = runtime_kolibri_current_thread_slot();
         if (slot == 0) {
@@ -1396,12 +1453,51 @@ static void runtime_schedule(void) {
     runtime_m* m = runtime_getm();
     runtime_g* g0 = (m != NULL && m->g0 != NULL) ? m->g0 : &runtime_g0;
     for (;;) {
+        runtime_g* next = NULL;
+        if (m != NULL) {
+            if (m != &runtime_m0) {
+                m->exit_check_counter++;
+                if ((m->exit_check_counter & 0xFFu) == 0u) {
+                    if (runtime_thread_slot_dead(runtime_m0.tid)) {
+                        runtime_exit_process();
+                    }
+                }
+            }
+            if (m->deadg != NULL) {
+                runtime_enqueue_dead(m->deadg);
+                m->deadg = NULL;
+            }
+            if (m->enqg != NULL) {
+                runtime_runq_enqueue(m->enqg);
+                m->enqg = NULL;
+            }
+            next = runtime_atomic_exchange_g(&m->nextg, NULL);
+            if (m->park_g != NULL) {
+                runtime_g* pg = m->park_g;
+                m->park_g = NULL;
+                uint32_t parking = runtime_atomic_load_u32(&pg->parking);
+                if (parking == 3u) {
+                    runtime_atomic_store_u32(&pg->parking, 0);
+                    if (pg->status == RUNTIME_G_WAITING) {
+                        pg->status = RUNTIME_G_RUNNABLE;
+                        runtime_runq_enqueue(pg);
+                    }
+                } else {
+                    runtime_atomic_store_u32(&pg->parking, 0);
+                }
+            }
+        }
+        if (next != NULL) {
+            next->status = RUNTIME_G_RUNNING;
+            runtime_switch(g0, next);
+            continue;
+        }
         runtime_free_dead();
         runtime_poll_world_stop();
-        runtime_g* next = runtime_runq_dequeue_for_m(m);
+        next = runtime_runq_dequeue_for_m(m);
         if (next == NULL) {
             if (m != &runtime_m0) {
-                runtime_yield();
+                runtime_sleep_ticks(1);
                 continue;
             }
         runtime_lock_mutex(&runtime_sched_lock);
@@ -3463,6 +3559,18 @@ static inline void runtime_atomic_store_uintptr(uintptr_t* value, uintptr_t next
     __atomic_store_n(value, next, __ATOMIC_RELEASE);
 }
 
+static inline runtime_g* runtime_atomic_load_g(runtime_g* const* value) {
+    return __atomic_load_n(value, __ATOMIC_ACQUIRE);
+}
+
+static inline runtime_g* runtime_atomic_exchange_g(runtime_g** value, runtime_g* next) {
+    return __atomic_exchange_n(value, next, __ATOMIC_ACQ_REL);
+}
+
+static inline bool runtime_atomic_cas_g(runtime_g** value, runtime_g* expected, runtime_g* desired) {
+    return __sync_bool_compare_and_swap(value, expected, desired);
+}
+
 static void runtime_yield(void);
 
 static void runtime_lock_mutex(runtime_mutex* m) {
@@ -3518,21 +3626,61 @@ static void runtime_sleep_ticks(uint32_t ticks) {
                      : "ecx", "edx", "esi", "edi", "memory", "cc");
 }
 
+static bool runtime_thread_slot_dead(uint32_t slot) {
+    uint8_t buffer[1024];
+    if (slot == 0) {
+        return false;
+    }
+    if (runtime_kos_get_thread_info_raw(buffer, (int32_t)slot) < 0) {
+        return false;
+    }
+    uint16_t status = *(uint16_t*)(buffer + 50);
+    return status == 3u || status == 4u || status == 9u;
+}
+
+static void runtime_kolibri_terminate_thread_slot(uint32_t slot) {
+    uint32_t eax = 18;
+    uint32_t ebx = 2;
+    uint32_t ecx = slot;
+
+    __asm__ volatile("int $0x40"
+                     : "+a"(eax), "+b"(ebx), "+c"(ecx)
+                     :
+                     : "edx", "esi", "edi", "memory", "cc");
+}
+
 uint32_t runtime_fastrand(void) {
     runtime_fastrand_state = runtime_fastrand_state * 1664525u + 1013904223u;
     return runtime_fastrand_state;
 }
 
 __attribute__((noreturn)) static void runtime_exit_process(void) {
-    int32_t eax;
+    runtime_console_bridge_close(1);
+    uint32_t current_slot = runtime_kolibri_current_thread_slot();
+    runtime_lock_mutex(&runtime_m_lock);
+    runtime_m* m = runtime_allm;
+    while (m != NULL) {
+        uint32_t slot = m->tid;
+        if (slot != 0 && slot != current_slot && slot <= RUNTIME_MAX_THREAD_SLOTS) {
+            if (runtime_m_by_slot_load(slot) == m) {
+                runtime_kolibri_terminate_thread_slot(slot);
+            }
+        }
+        m = m->next;
+    }
+    runtime_unlock_mutex(&runtime_m_lock);
 
-    eax = -1;
+    int32_t eax = -1;
     __asm__ volatile("int $0x40"
                      : "+a"(eax)
                      :
                      : "ebx", "ecx", "edx", "esi", "edi", "memory", "cc");
     for (;;) {
     }
+}
+
+__attribute__((noreturn)) void runtime_kolibri_exit_process(void) {
+    runtime_exit_process();
 }
 
 __attribute__((noreturn)) static void runtime_fail_simple(const char* reason) {
