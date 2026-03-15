@@ -6,6 +6,8 @@ on:
 jobs:
   build-all:
     runs-on: ubuntu-24.04
+    env:
+      GO: gccgo
     steps:
       - name: Checkout
         uses: actions/checkout@v4
