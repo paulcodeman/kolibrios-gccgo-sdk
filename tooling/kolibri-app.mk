@@ -24,6 +24,9 @@ OPT_LEVEL ?= -Os
 KEEP_PKG ?= 0
 KEEP_ABI ?= 0
 FAST_PKG ?= 0
+KPACK ?= 0
+KPACK_BIN ?= $(ROOT)/tooling/bin/kpack
+KPACK_FLAGS ?= --nologo
 
 ENTRYPOINT = go_0$(PACKAGE_NAME).Main
 LDSCRIPT_TEMPLATE = $(MK_DIR)/static.lds.in
@@ -141,6 +144,9 @@ $(PROGRAM).kex: $(OBJS) $(PACKAGE_GOXS) $(LDSCRIPT)
 	ld $(LDFLAGS) -o $(PROGRAM).kex $(OBJS) $(RUNTIME_LIBS)
 	strip $(PROGRAM).kex
 	$(OBJCOPY) $(PROGRAM).kex -O binary
+ifneq ($(KPACK),0)
+	$(KPACK_BIN) $(KPACK_FLAGS) $(PROGRAM).kex
+endif
 ifeq ($(KEEP_ABI),0)
 	rm -f $(ABI_OBJS)
 endif

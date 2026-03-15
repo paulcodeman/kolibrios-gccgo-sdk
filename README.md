@@ -75,6 +75,13 @@ Build all apps/examples in one pass (full rebuild, then clean artifacts except
 ./make-all.sh
 ```
 
+Build with KPack compression (uses the bundled `tooling/bin/kpack` by default):
+
+```sh
+./build-app.sh --kpack uiwindow
+./make-all.sh --kpack
+```
+
 Create a new scaffolded app:
 
 ```sh
@@ -95,10 +102,15 @@ The output `.kex` is written next to each target, for example
 - Set `KEEP_PKG=1` to reuse `.pkg` artifacts across multiple builds.
 - Set `KEEP_ABI=1` to reuse ABI objects across multiple builds.
 - Set `FAST_PKG=1` to avoid package rebuild cascades in batch builds.
+- Set `KPACK=1` to run `kpack` on the final `.kex` (override the binary with
+  `KPACK_BIN=/path/to/kpack`).
 - CI uploads built `.kex` files directly as the `kex-artifacts` workflow
-  artifact. Grab it from the latest run in the Actions build workflow:
+  artifact and runs `kpack` by default. Grab it from the latest run in the
+  Actions build workflow:
   [Actions build workflow](https://github.com/paulcodeman/kolibrios-gccgo-sdk/actions/workflows/build.yml).
 - `.kex` build outputs are ignored by git.
+- The bundled `tooling/bin/kpack` is a Linux x86_64 binary; override
+  `KPACK_BIN` on other hosts.
 
 ## Docs
 

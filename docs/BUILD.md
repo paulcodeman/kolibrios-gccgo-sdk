@@ -55,6 +55,15 @@ Build all apps/examples in one pass (full rebuild, then clean artifacts except
 ./make-all.sh
 ```
 
+Build with KPack compression (uses the bundled `tooling/bin/kpack` by default):
+
+```sh
+./build-app.sh --kpack uiwindow
+./make-all.sh --kpack
+```
+
+To use a different `kpack`, point `KPACK_BIN` at your preferred binary.
+
 ## New App Template
 
 Create a new app from the shared template:
@@ -80,6 +89,9 @@ You can override these variables per target:
   `go-unwind.o`) between builds in a batch
 - `FAST_PKG=1` to treat package ordering as order-only and avoid rebuild
   cascades when compiling many targets in a row
+- `KPACK=1` to run `kpack` on the final `.kex`
+- `KPACK_BIN=/path/to/kpack` to override the `kpack` binary path
+- `KPACK_FLAGS=--nologo` to pass flags to `kpack`
 
 Example:
 
@@ -92,3 +104,5 @@ make -C examples/uiwindow OPT_LEVEL=-O0
 - The final `.kex` is written next to each target directory.
 - Intermediate `.o` and `.gox` files are removed after a successful build.
 - `.kex` build outputs are ignored by git.
+- The bundled `tooling/bin/kpack` is a Linux x86_64 binary; override
+  `KPACK_BIN` if you are on another host.

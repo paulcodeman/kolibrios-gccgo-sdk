@@ -14,6 +14,7 @@ jobs:
       KEEP_PKG: "1"
       KEEP_ABI: "1"
       FAST_PKG: "1"
+      KPACK: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
