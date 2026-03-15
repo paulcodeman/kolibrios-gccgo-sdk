@@ -71,6 +71,8 @@ You can override these variables per target:
   building many targets in a row)
 - `KEEP_ABI=1` to keep ABI objects (`syscalls_i386.o`, `runtime_gccgo.o`,
   `go-unwind.o`) between builds in a batch
+- `FAST_PKG=1` to treat package ordering as order-only and avoid rebuild
+  cascades when compiling many targets in a row
 
 Example:
 

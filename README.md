@@ -85,6 +85,7 @@ The output `.kex` is written next to each target, for example
   differs.
 - Set `KEEP_PKG=1` to reuse `.pkg` artifacts across multiple builds.
 - Set `KEEP_ABI=1` to reuse ABI objects across multiple builds.
+- Set `FAST_PKG=1` to avoid package rebuild cascades in batch builds.
 - `.kex` build outputs are ignored by git.
 
 ## Docs
