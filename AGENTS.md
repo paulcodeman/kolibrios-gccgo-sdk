@@ -22,8 +22,9 @@
 
 ## Stdlib And Runtime Strategy
 
-- If stdlib functionality is missing, first copy the relevant non-platform-specific files from the official sources (Go stdlib or libgo).
+- When porting or when stdlib functionality is missing, first copy the relevant non-platform-specific files from the official sources (Go stdlib or libgo).
 - If a file is platform-dependent, adapt only the KolibriOS-specific parts and keep the rest aligned with upstream.
+- Do not reimplement stdlib files from scratch unless there is no upstream source to start from.
 - If compilation fails due to missing runtime symbols, extend `platform/abi/runtime_gccgo.c` (and related ABI code) to provide the needed symbols.
 
 ## App Layout Convention
