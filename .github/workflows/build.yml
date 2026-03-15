@@ -3,6 +3,9 @@ name: build
 on:
   push:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   build-all:
     runs-on: ubuntu-24.04
@@ -11,7 +14,6 @@ jobs:
       KEEP_PKG: "1"
       KEEP_ABI: "1"
       FAST_PKG: "1"
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,21 +43,10 @@ jobs:
             ./build-app.sh "${dir}"
           done
 
-      - name: Package kex artifacts
-        shell: bash
-        run: |
-          set -euo pipefail
-          find examples apps -type f -name '*.kex' -print > kex-files.txt
-          if [[ ! -s kex-files.txt ]]; then
-            echo "No .kex files found" >&2
-            exit 1
-          fi
-          tar -czf kex-artifacts.tar.gz -T kex-files.txt
-
       - name: Upload kex artifacts
         uses: actions/upload-artifact@v4
         with:
           name: kex-artifacts
           path: |
-            kex-artifacts.tar.gz
-            kex-files.txt
+            examples/**/*.kex
+            apps/**/*.kex
