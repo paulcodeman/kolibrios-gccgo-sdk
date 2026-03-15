@@ -22,6 +22,7 @@ extern uint32_t runtime_kos_heap_alloc_raw(uint32_t size);
 extern uint32_t runtime_kos_heap_free_raw(uint32_t ptr);
 extern uint32_t runtime_kos_heap_realloc_raw(uint32_t size, uint32_t ptr);
 extern uint32_t runtime_kos_load_dll_cstring_raw(const char* path);
+extern uint32_t runtime_kos_get_free_ram_raw(void) __asm__("go_0kos.GetFreeRAM");
 
 // Minimal pthread stubs for libgcc_eh on KolibriOS (single-threaded runtime).
 // libgcc uses weak pthread_* symbols; providing no-ops avoids hangs in __register_frame.
@@ -1828,6 +1829,8 @@ static size_t runtime_gc_collection_count = 0;
 static int runtime_gc_running = 0;
 static int runtime_gc_enabled = 0;
 static int runtime_gc_poll_retry = 0;
+static uint32_t runtime_gc_low_mem_kb = 8192u;
+static uint32_t runtime_gc_memcheck_counter = 0;
 static uint8_t runtime_gc_mark_token = 1;
 static runtime_gc_page_entry* runtime_gc_page_buckets[RUNTIME_GC_PAGE_BUCKETS];
 static uintptr_t runtime_gc_heap_min = 0;
@@ -2525,6 +2528,19 @@ static void runtime_gc_maybe_collect(size_t requested_size) {
     }
     if (requested_size == 0) {
         requested_size = 1;
+    }
+    if (runtime_gc_low_mem_kb != 0) {
+        runtime_gc_memcheck_counter++;
+        if (runtime_gc_memcheck_counter >= 256u) {
+            uint32_t free_kb;
+
+            runtime_gc_memcheck_counter = 0;
+            free_kb = runtime_kos_get_free_ram_raw();
+            if (free_kb != 0 && free_kb < runtime_gc_low_mem_kb) {
+                runtime_gc_poll_retry = 1;
+                runtime_gc_collect_impl();
+            }
+        }
     }
     if (requested_size > (size_t)-1 - runtime_gc_live_bytes || runtime_gc_live_bytes + requested_size >= runtime_gc_threshold) {
         runtime_gc_poll_retry = 1;
