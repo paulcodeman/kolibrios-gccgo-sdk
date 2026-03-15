@@ -19,6 +19,7 @@ typedef struct runtime_panic runtime_panic;
 typedef struct runtime_defer runtime_defer;
 typedef struct runtime_g runtime_g;
 typedef struct runtime_m runtime_m;
+typedef struct runtime_context runtime_context;
 
 struct runtime_panic {
     runtime_panic* link;
@@ -49,6 +50,15 @@ struct runtime_m {
     int32_t locks;
 };
 
+struct runtime_context {
+    uint32_t ebx;
+    uint32_t esi;
+    uint32_t edi;
+    uint32_t ebp;
+    uint32_t esp;
+    uint32_t eip;
+};
+
 struct runtime_g {
     runtime_m* m;
     runtime_defer* _defer;
@@ -60,6 +70,17 @@ struct runtime_g {
     uint8_t goexiting;
     uint8_t isforeign;
     uint8_t ranCgocallBackDone;
+    runtime_context context;
+    void (*entry)(void*);
+    void* entry_arg;
+    runtime_g* sched_next;
+    runtime_g* all_next;
+    void* stack_base;
+    uintptr_t stack_top;
+    uint32_t stack_size;
+    uint32_t status;
+    int32_t select_done;
+    int32_t select_recvok;
 };
 
 runtime_g* runtime_getg(void);

@@ -111,7 +111,7 @@ LIBGCC = $(shell $(GCC) -m32 -print-libgcc-file-name)
 LIBGCC_EH = $(shell $(GCC) -m32 -print-file-name=libgcc_eh.a)
 RUNTIME_LIBS = $(LIBGCC_EH) $(LIBGCC)
 
-ABI_OBJS = $(ABI_DIR)/syscalls_i386.o $(ABI_DIR)/runtime_gccgo.o $(ABI_DIR)/go-unwind.o
+ABI_OBJS = $(ABI_DIR)/syscalls_i386.o $(ABI_DIR)/runtime_gccgo.o $(ABI_DIR)/go-unwind.o $(ABI_DIR)/runtime_context_386.o
 STARTUP_ARTIFACTS = $(STARTUP_SOURCE) $(STARTUP_OBJ)
 OBJS = $(ABI_OBJS) $(PACKAGE_OBJS) $(APP_OBJ)
 OBJS += $(STARTUP_OBJ)
@@ -168,3 +168,6 @@ $(ABI_DIR)/syscalls_i386.o: $(ABI_DIR)/syscalls_i386.asm
 
 $(ABI_DIR)/go-unwind.o: $(ABI_DIR)/go-unwind.c
 	$(GCC) $(GCC_COMPILER_FLAGS) -fexceptions $< -o $@
+
+$(ABI_DIR)/runtime_context_386.o: $(ABI_DIR)/runtime_context_386.S
+	$(GCC) $(GCC_COMPILER_FLAGS) $< -o $@

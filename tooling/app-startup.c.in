@@ -5,6 +5,7 @@
 extern void kolibri_app_init(void) __asm__("@APP_INIT_SYMBOL@");
 extern void kolibri_app_main(void) __asm__("@APP_MAIN_SYMBOL@");
 extern void runtime_gc_set_stack_top(const void* ptr);
+extern void runtime_kolibri_start(void (*init)(void), void (*main)(void));
 extern unsigned char __bss_start;
 extern unsigned char __bss_end;
 
@@ -38,7 +39,6 @@ void runtime_kolibri_app_entry(void) {
         *bss = 0;
     }
     runtime_gc_set_stack_top(&stack_top_marker);
-    kolibri_app_init();
-    kolibri_app_main();
+    runtime_kolibri_start(kolibri_app_init, kolibri_app_main);
     runtime_kolibri_exit();
 }

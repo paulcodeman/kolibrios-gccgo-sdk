@@ -17,6 +17,8 @@
 extern void* malloc(size_t size);
 extern void* realloc(void* ptr, size_t size);
 extern void free(void* ptr);
+void* memset(void* dest, int value, size_t size);
+void* memmove(void* dest, const void* src, size_t size);
 extern uint32_t runtime_kos_heap_init_raw(void);
 extern uint32_t runtime_kos_heap_alloc_raw(uint32_t size);
 extern uint32_t runtime_kos_heap_free_raw(uint32_t ptr);
@@ -444,6 +446,80 @@ typedef struct {
 } go_map_type_descriptor;
 
 typedef struct {
+    const go_type_descriptor common;
+    const go_type_descriptor* elem_type;
+    uintptr_t dir;
+} go_chan_type_descriptor;
+
+enum {
+    RUNTIME_G_IDLE = 0,
+    RUNTIME_G_RUNNABLE = 1,
+    RUNTIME_G_RUNNING = 2,
+    RUNTIME_G_WAITING = 3,
+    RUNTIME_G_DEAD = 4,
+};
+
+#define RUNTIME_G_STACK_SIZE (256u * 1024u)
+
+typedef struct {
+    uint32_t state;
+} runtime_mutex;
+
+typedef struct runtime_hchan runtime_hchan;
+typedef struct runtime_sudog runtime_sudog;
+typedef struct runtime_waitq runtime_waitq;
+typedef struct runtime_scase runtime_scase;
+typedef struct runtime_selectgo_result runtime_selectgo_result;
+typedef struct runtime_selectnbrecv_result runtime_selectnbrecv_result;
+
+struct runtime_waitq {
+    runtime_sudog* first;
+    runtime_sudog* last;
+};
+
+struct runtime_hchan {
+    uint32_t qcount;
+    uint32_t dataqsiz;
+    void* buf;
+    uint16_t elemsize;
+    uint16_t pad;
+    uint32_t closed;
+    const go_type_descriptor* elemtype;
+    uint32_t sendx;
+    uint32_t recvx;
+    runtime_waitq recvq;
+    runtime_waitq sendq;
+    runtime_mutex lock;
+};
+
+struct runtime_sudog {
+    runtime_g* g;
+    runtime_sudog* next;
+    void* elem;
+    runtime_hchan* c;
+    int32_t select_index;
+    uint8_t is_select;
+    uint8_t success;
+    uint8_t pad0;
+    uint8_t pad1;
+};
+
+struct runtime_scase {
+    runtime_hchan* c;
+    void* elem;
+};
+
+struct runtime_selectgo_result {
+    int32_t selected;
+    int32_t recvOK;
+};
+
+struct runtime_selectnbrecv_result {
+    uint8_t selected;
+    uint8_t received;
+};
+
+typedef struct {
     void* value;
     uint32_t ok;
 } go_mapaccess2_result;
@@ -469,11 +545,31 @@ typedef void (*runtime_defer_fn)(void* arg);
 
 static runtime_m runtime_m0;
 static runtime_g runtime_g0;
+static runtime_g* runtime_curg = NULL;
+static runtime_g* runtime_allg = NULL;
+static runtime_g* runtime_runq_head = NULL;
+static runtime_g* runtime_runq_tail = NULL;
+static runtime_g* runtime_deadg = NULL;
 static uint8_t runtime_g_initialized = 0;
 static void runtime_debug_mark(const char* tag);
 static void runtime_debug_eh_frame_summary(void);
+static void runtime_gc_mark_pointer(const void* value);
+typedef struct runtime_gc_header runtime_gc_header;
+typedef void (*runtime_gc_scan_fn)(runtime_gc_header* header);
+static void* runtime_gc_alloc_managed(size_t size, const go_type_descriptor* descriptor, runtime_gc_scan_fn scan, void* aux, uintptr_t count);
+static void* runtime_gc_alloc_array(const go_type_descriptor* descriptor, intptr_t count, size_t total_size);
+static void* runtime_gc_payload(runtime_gc_header* header);
+static void runtime_fail_simple(const char* reason);
+static void runtime_lock_mutex(runtime_mutex* m);
+static void runtime_unlock_mutex(runtime_mutex* m);
+static runtime_g* runtime_newg(void (*entry)(void*), void* arg);
+static void runtime_schedule(void);
+void runtime_panicmem(void);
+void runtime_typedmemmove(const go_type_descriptor* descriptor, void* dest, const void* src);
+void throw(go_string message);
 size_t strlen(const char* str);
 void abort(void);
+void runtime_gc_set_stack_top(const void* ptr);
 
 // Minimal DWARF EH decoding for _Unwind_Find_FDE.
 #define DW_EH_PE_omit     0xff
@@ -492,15 +588,818 @@ void abort(void);
 #define DW_EH_PE_aligned  0x50
 #define DW_EH_PE_indirect 0x80
 
+static void runtime_set_current_g(runtime_g* g) {
+    runtime_curg = g;
+    runtime_m0.curg = g;
+}
+
+static void runtime_init_g0(void) {
+    runtime_m0.curg = &runtime_g0;
+    runtime_m0.gsignal = NULL;
+    runtime_g0.m = &runtime_m0;
+    runtime_g0.entrysp = 0;
+    runtime_g0.status = RUNTIME_G_RUNNING;
+    runtime_g0.stack_base = NULL;
+    runtime_g0.stack_top = 0;
+    runtime_g0.stack_size = 0;
+    runtime_g0.sched_next = NULL;
+    runtime_g0.all_next = NULL;
+    runtime_g0.entry = NULL;
+    runtime_g0.entry_arg = NULL;
+    runtime_g0.select_done = -1;
+    runtime_g0.select_recvok = 0;
+    runtime_allg = &runtime_g0;
+    runtime_set_current_g(&runtime_g0);
+    runtime_g_initialized = 1;
+}
+
 runtime_g* runtime_getg(void) {
     if (!runtime_g_initialized) {
-        runtime_m0.curg = &runtime_g0;
-        runtime_m0.gsignal = NULL;
-        runtime_g0.m = &runtime_m0;
-        runtime_g0.entrysp = 0;
-        runtime_g_initialized = 1;
+        runtime_init_g0();
     }
-    return &runtime_g0;
+    return runtime_curg;
+}
+
+extern void runtime_swapcontext(runtime_context* from, runtime_context* to);
+
+static void runtime_runq_enqueue(runtime_g* g) {
+    if (g == NULL) {
+        return;
+    }
+    g->sched_next = NULL;
+    if (runtime_runq_tail == NULL) {
+        runtime_runq_head = g;
+        runtime_runq_tail = g;
+        return;
+    }
+    runtime_runq_tail->sched_next = g;
+    runtime_runq_tail = g;
+}
+
+static runtime_g* runtime_runq_dequeue(void) {
+    runtime_g* g = runtime_runq_head;
+    if (g == NULL) {
+        return NULL;
+    }
+    runtime_runq_head = g->sched_next;
+    if (runtime_runq_head == NULL) {
+        runtime_runq_tail = NULL;
+    }
+    g->sched_next = NULL;
+    return g;
+}
+
+static void runtime_allg_add(runtime_g* g) {
+    if (g == NULL) {
+        return;
+    }
+    g->all_next = runtime_allg;
+    runtime_allg = g;
+}
+
+static void runtime_allg_remove(runtime_g* g) {
+    runtime_g* prev;
+    runtime_g* cur;
+
+    if (g == NULL) {
+        return;
+    }
+    prev = NULL;
+    cur = runtime_allg;
+    while (cur != NULL) {
+        if (cur == g) {
+            if (prev != NULL) {
+                prev->all_next = cur->all_next;
+            } else {
+                runtime_allg = cur->all_next;
+            }
+            cur->all_next = NULL;
+            return;
+        }
+        prev = cur;
+        cur = cur->all_next;
+    }
+}
+
+static void runtime_enqueue_dead(runtime_g* g) {
+    if (g == NULL) {
+        return;
+    }
+    g->sched_next = runtime_deadg;
+    runtime_deadg = g;
+}
+
+static void runtime_free_dead(void) {
+    while (runtime_deadg != NULL) {
+        runtime_g* g = runtime_deadg;
+        runtime_deadg = g->sched_next;
+        g->sched_next = NULL;
+        runtime_allg_remove(g);
+        if (g->stack_base != NULL) {
+            free(g->stack_base);
+        }
+        free(g);
+    }
+}
+
+static void runtime_makecontext(runtime_context* ctx, void (*fn)(void), void* stack, size_t size) {
+    uintptr_t sp;
+
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->ebx = 0;
+    ctx->esi = 0;
+    ctx->edi = 0;
+    ctx->ebp = 0;
+    ctx->esp = 0;
+    ctx->eip = 0;
+
+    if (fn == NULL || stack == NULL || size < 16u) {
+        return;
+    }
+
+    sp = (uintptr_t)stack + size;
+    sp &= ~(uintptr_t)0xFu;
+    sp -= sizeof(uintptr_t);
+    *(uintptr_t*)sp = 0;
+
+    ctx->esp = (uint32_t)sp;
+    ctx->eip = (uint32_t)(uintptr_t)fn;
+}
+
+static void runtime_switch(runtime_g* from, runtime_g* to) {
+    if (from == NULL || to == NULL || from == to) {
+        return;
+    }
+    runtime_set_current_g(to);
+    runtime_swapcontext(&from->context, &to->context);
+    runtime_set_current_g(from);
+}
+
+static void runtime_ready(runtime_g* g) {
+    if (g == NULL) {
+        return;
+    }
+    if (g->status == RUNTIME_G_DEAD) {
+        return;
+    }
+    if (g->status != RUNTIME_G_RUNNABLE) {
+        g->status = RUNTIME_G_RUNNABLE;
+        runtime_runq_enqueue(g);
+    }
+}
+
+static void runtime_gopark_internal(void) {
+    runtime_g* g = runtime_getg();
+    if (g == NULL || g == &runtime_g0) {
+        return;
+    }
+    g->status = RUNTIME_G_WAITING;
+    runtime_switch(g, &runtime_g0);
+}
+
+static void runtime_gosched_internal(void) {
+    runtime_g* g = runtime_getg();
+    if (g == NULL || g == &runtime_g0) {
+        return;
+    }
+    g->status = RUNTIME_G_RUNNABLE;
+    runtime_runq_enqueue(g);
+    runtime_switch(g, &runtime_g0);
+}
+
+void runtime_Gosched(void) __asm__("runtime.Gosched");
+void runtime_Gosched(void) {
+    runtime_gosched_internal();
+}
+
+__attribute__((noreturn)) static void runtime_goexit_internal(void) {
+    runtime_g* g = runtime_getg();
+    if (g == NULL || g == &runtime_g0) {
+        runtime_fail_simple("goexit on g0");
+    }
+    g->status = RUNTIME_G_DEAD;
+    runtime_enqueue_dead(g);
+    runtime_switch(g, &runtime_g0);
+    for (;;) {
+    }
+}
+
+static void runtime_go_start(void) {
+    runtime_g* g = runtime_getg();
+    if (g != NULL && g->entry != NULL) {
+        g->entry(g->entry_arg);
+    }
+    runtime_goexit_internal();
+}
+
+static void (*runtime_app_init_fn)(void) = NULL;
+static void (*runtime_app_main_fn)(void) = NULL;
+
+static void runtime_app_entry(void* arg) {
+    (void)arg;
+    if (runtime_app_init_fn != NULL) {
+        runtime_app_init_fn();
+    }
+    if (runtime_app_main_fn != NULL) {
+        runtime_app_main_fn();
+    }
+}
+
+extern char __end;
+extern char __memory_top;
+
+void runtime_kolibri_start(void (*init)(void), void (*main)(void)) {
+    if (!runtime_g_initialized) {
+        runtime_init_g0();
+    }
+    runtime_gc_set_stack_top(&__memory_top);
+    runtime_app_init_fn = init;
+    runtime_app_main_fn = main;
+    runtime_g* g = runtime_newg(runtime_app_entry, NULL);
+    runtime_runq_enqueue(g);
+    runtime_schedule();
+}
+
+static runtime_g* runtime_newg(void (*entry)(void*), void* arg) {
+    runtime_g* g;
+    void* stack;
+
+    g = (runtime_g*)malloc(sizeof(runtime_g));
+    if (g == NULL) {
+        runtime_panicmem();
+    }
+    memset(g, 0, sizeof(*g));
+    g->m = &runtime_m0;
+    g->entry = entry;
+    g->entry_arg = arg;
+    g->status = RUNTIME_G_RUNNABLE;
+    g->select_done = -1;
+    g->select_recvok = 0;
+    g->stack_size = RUNTIME_G_STACK_SIZE;
+    stack = malloc(g->stack_size);
+    if (stack == NULL) {
+        free(g);
+        runtime_panicmem();
+    }
+    g->stack_base = stack;
+    g->stack_top = (uintptr_t)stack + g->stack_size;
+    runtime_makecontext(&g->context, runtime_go_start, stack, g->stack_size);
+    runtime_allg_add(g);
+    return g;
+}
+
+runtime_g* __go_go(uintptr_t fn, void* arg) {
+    runtime_g* g = runtime_newg((void (*)(void*))(uintptr_t)fn, arg);
+    runtime_runq_enqueue(g);
+    return g;
+}
+
+static void runtime_schedule(void) {
+    for (;;) {
+        runtime_free_dead();
+        runtime_g* next = runtime_runq_dequeue();
+        if (next == NULL) {
+            runtime_g* scan = runtime_allg;
+            while (scan != NULL) {
+                if (scan != &runtime_g0 && scan->status == RUNTIME_G_WAITING) {
+                    runtime_fail_simple("all goroutines asleep - deadlock");
+                }
+                scan = scan->all_next;
+            }
+            return;
+        }
+        next->status = RUNTIME_G_RUNNING;
+        runtime_switch(&runtime_g0, next);
+    }
+}
+
+void runtime_block(void) __asm__("runtime.block");
+void runtime_block(void) {
+    for (;;) {
+        runtime_gopark_internal();
+    }
+}
+
+void runtime_panicgonil(void) __asm__("runtime.panicgonil");
+void runtime_panicgonil(void) {
+    throw((go_string){ "go of nil func value", 20 });
+}
+
+static runtime_sudog* runtime_sudog_alloc(runtime_hchan* c, void* elem, int32_t index, uint8_t is_select) {
+    runtime_sudog* sd = (runtime_sudog*)malloc(sizeof(runtime_sudog));
+    if (sd == NULL) {
+        runtime_panicmem();
+    }
+    memset(sd, 0, sizeof(*sd));
+    sd->g = runtime_getg();
+    sd->elem = elem;
+    sd->c = c;
+    sd->select_index = index;
+    sd->is_select = is_select;
+    sd->success = 0;
+    return sd;
+}
+
+static void runtime_sudog_free(runtime_sudog* sd) {
+    if (sd == NULL) {
+        return;
+    }
+    free(sd);
+}
+
+static void runtime_waitq_enqueue(runtime_waitq* q, runtime_sudog* sd) {
+    if (q == NULL || sd == NULL) {
+        return;
+    }
+    sd->next = NULL;
+    if (q->last == NULL) {
+        q->first = sd;
+        q->last = sd;
+        return;
+    }
+    q->last->next = sd;
+    q->last = sd;
+}
+
+static runtime_sudog* runtime_waitq_dequeue(runtime_waitq* q) {
+    runtime_sudog* sd;
+    if (q == NULL) {
+        return NULL;
+    }
+    for (;;) {
+        sd = q->first;
+        if (sd == NULL) {
+            return NULL;
+        }
+        if (sd->is_select && sd->g != NULL && sd->g->select_done != -1) {
+            q->first = sd->next;
+            if (q->first == NULL) {
+                q->last = NULL;
+            }
+            sd->next = NULL;
+            continue;
+        }
+        q->first = sd->next;
+        if (q->first == NULL) {
+            q->last = NULL;
+        }
+        sd->next = NULL;
+        return sd;
+    }
+}
+
+static void runtime_waitq_remove(runtime_waitq* q, runtime_sudog* sd) {
+    runtime_sudog* prev;
+    runtime_sudog* cur;
+
+    if (q == NULL || sd == NULL) {
+        return;
+    }
+    prev = NULL;
+    cur = q->first;
+    while (cur != NULL) {
+        if (cur == sd) {
+            if (prev != NULL) {
+                prev->next = cur->next;
+            } else {
+                q->first = cur->next;
+            }
+            if (q->last == cur) {
+                q->last = prev;
+            }
+            cur->next = NULL;
+            return;
+        }
+        prev = cur;
+        cur = cur->next;
+    }
+}
+
+static void runtime_wake_sudog(runtime_sudog* sd, int recvok) {
+    if (sd == NULL) {
+        return;
+    }
+    sd->success = recvok ? 1 : 0;
+    if (sd->is_select) {
+        if (sd->g->select_done != -1) {
+            return;
+        }
+        sd->g->select_done = sd->select_index;
+        sd->g->select_recvok = recvok;
+    }
+    runtime_ready(sd->g);
+}
+
+static void runtime_chan_lock(runtime_hchan* c) {
+    if (c == NULL) {
+        return;
+    }
+    runtime_lock_mutex(&c->lock);
+}
+
+static void runtime_chan_unlock(runtime_hchan* c) {
+    if (c == NULL) {
+        return;
+    }
+    runtime_unlock_mutex(&c->lock);
+}
+
+static void runtime_chan_zero(runtime_hchan* c, void* elem) {
+    if (c == NULL || elem == NULL || c->elemsize == 0) {
+        return;
+    }
+    memset(elem, 0, (size_t)c->elemsize);
+}
+
+static void runtime_chan_copy(runtime_hchan* c, void* dst, void* src) {
+    if (c == NULL || dst == NULL || src == NULL || c->elemsize == 0) {
+        return;
+    }
+    if (c->elemtype != NULL) {
+        runtime_typedmemmove(c->elemtype, dst, src);
+    } else {
+        memmove(dst, src, (size_t)c->elemsize);
+    }
+}
+
+static bool runtime_chan_send(runtime_hchan* c, void* elem, bool block) {
+    runtime_sudog* sd;
+
+    if (c == NULL) {
+        if (!block) {
+            return false;
+        }
+        runtime_gopark_internal();
+        return false;
+    }
+
+    runtime_chan_lock(c);
+
+    if (c->closed) {
+        runtime_chan_unlock(c);
+        throw((go_string){ "send on closed channel", 22 });
+    }
+
+    sd = runtime_waitq_dequeue(&c->recvq);
+    if (sd != NULL) {
+        runtime_chan_copy(c, sd->elem, elem);
+        runtime_wake_sudog(sd, 1);
+        runtime_chan_unlock(c);
+        return true;
+    }
+
+    if (c->dataqsiz != 0 && c->qcount < c->dataqsiz) {
+        void* slot = (unsigned char*)c->buf + (uintptr_t)c->sendx * c->elemsize;
+        runtime_chan_copy(c, slot, elem);
+        c->sendx = (c->sendx + 1) % c->dataqsiz;
+        c->qcount++;
+        runtime_chan_unlock(c);
+        return true;
+    }
+
+    if (!block) {
+        runtime_chan_unlock(c);
+        return false;
+    }
+
+    sd = runtime_sudog_alloc(c, elem, -1, 0);
+    runtime_waitq_enqueue(&c->sendq, sd);
+    runtime_chan_unlock(c);
+    runtime_gopark_internal();
+
+    if (!sd->success) {
+        throw((go_string){ "send on closed channel", 22 });
+    }
+    runtime_sudog_free(sd);
+    return true;
+}
+
+static bool runtime_chan_recv(runtime_hchan* c, void* elem, bool block, bool* recvok) {
+    runtime_sudog* sd;
+
+    if (recvok != NULL) {
+        *recvok = false;
+    }
+
+    if (c == NULL) {
+        if (!block) {
+            return false;
+        }
+        runtime_gopark_internal();
+        return false;
+    }
+
+    runtime_chan_lock(c);
+
+    if (c->qcount > 0) {
+        void* slot = (unsigned char*)c->buf + (uintptr_t)c->recvx * c->elemsize;
+        if (elem != NULL) {
+            runtime_chan_copy(c, elem, slot);
+        }
+        c->recvx = (c->recvx + 1) % c->dataqsiz;
+        c->qcount--;
+
+        sd = runtime_waitq_dequeue(&c->sendq);
+        if (sd != NULL) {
+            void* send_slot = (unsigned char*)c->buf + (uintptr_t)c->sendx * c->elemsize;
+            runtime_chan_copy(c, send_slot, sd->elem);
+            c->sendx = (c->sendx + 1) % c->dataqsiz;
+            c->qcount++;
+            runtime_wake_sudog(sd, 1);
+        }
+
+        runtime_chan_unlock(c);
+        if (recvok != NULL) {
+            *recvok = true;
+        }
+        return true;
+    }
+
+    sd = runtime_waitq_dequeue(&c->sendq);
+    if (sd != NULL) {
+        if (elem != NULL) {
+            runtime_chan_copy(c, elem, sd->elem);
+        }
+        runtime_wake_sudog(sd, 1);
+        runtime_chan_unlock(c);
+        if (recvok != NULL) {
+            *recvok = true;
+        }
+        return true;
+    }
+
+    if (c->closed) {
+        runtime_chan_unlock(c);
+        if (elem != NULL) {
+            runtime_chan_zero(c, elem);
+        }
+        if (recvok != NULL) {
+            *recvok = false;
+        }
+        return true;
+    }
+
+    if (!block) {
+        runtime_chan_unlock(c);
+        return false;
+    }
+
+    sd = runtime_sudog_alloc(c, elem, -1, 0);
+    runtime_waitq_enqueue(&c->recvq, sd);
+    runtime_chan_unlock(c);
+    runtime_gopark_internal();
+
+    if (!sd->success) {
+        if (elem != NULL) {
+            runtime_chan_zero(c, elem);
+        }
+        if (recvok != NULL) {
+            *recvok = false;
+        }
+    } else if (recvok != NULL) {
+        *recvok = true;
+    }
+    runtime_sudog_free(sd);
+    return true;
+}
+
+static void runtime_gc_scan_hchan(runtime_gc_header* header) {
+    runtime_hchan* c;
+
+    if (header == NULL) {
+        return;
+    }
+    c = (runtime_hchan*)runtime_gc_payload(header);
+    if (c == NULL) {
+        return;
+    }
+    runtime_gc_mark_pointer(c->buf);
+}
+
+runtime_hchan* runtime_makechan(go_chan_type_descriptor* t, int32_t size) __asm__("runtime.makechan");
+runtime_hchan* runtime_makechan(go_chan_type_descriptor* t, int32_t size) {
+    runtime_hchan* c;
+    size_t mem;
+
+    if (t == NULL) {
+        runtime_panicmem();
+    }
+    if (size < 0) {
+        runtime_panicmem();
+    }
+    if (t->elem_type == NULL || t->elem_type->size >= (uintptr_t)(1u << 16)) {
+        runtime_panicmem();
+    }
+
+    mem = 0;
+    if ((size_t)size > ((size_t)-1) / (size_t)t->elem_type->size) {
+        runtime_panicmem();
+    }
+    mem = (size_t)size * (size_t)t->elem_type->size;
+
+    c = (runtime_hchan*)runtime_gc_alloc_managed(sizeof(runtime_hchan), NULL, runtime_gc_scan_hchan, NULL, 0);
+    if (c == NULL) {
+        runtime_panicmem();
+    }
+    memset(c, 0, sizeof(*c));
+    c->dataqsiz = (uint32_t)size;
+    c->elemsize = (uint16_t)(t->elem_type != NULL ? t->elem_type->size : 0);
+    c->elemtype = t->elem_type;
+
+    if (size > 0 && mem > 0) {
+        c->buf = runtime_gc_alloc_array(t->elem_type, size, mem);
+    } else {
+        c->buf = NULL;
+    }
+
+    return c;
+}
+
+runtime_hchan* runtime_makechan64(go_chan_type_descriptor* t, int64_t size) __asm__("runtime.makechan64");
+runtime_hchan* runtime_makechan64(go_chan_type_descriptor* t, int64_t size) {
+    if (size > INT32_MAX || size < 0) {
+        runtime_panicmem();
+    }
+    return runtime_makechan(t, (int32_t)size);
+}
+
+void runtime_chansend1(runtime_hchan* c, void* elem) __asm__("runtime.chansend1");
+void runtime_chansend1(runtime_hchan* c, void* elem) {
+    runtime_chan_send(c, elem, true);
+}
+
+void runtime_chanrecv1(runtime_hchan* c, void* elem) __asm__("runtime.chanrecv1");
+void runtime_chanrecv1(runtime_hchan* c, void* elem) {
+    bool ok;
+    runtime_chan_recv(c, elem, true, &ok);
+}
+
+uint8_t runtime_chanrecv2(runtime_hchan* c, void* elem) __asm__("runtime.chanrecv2");
+uint8_t runtime_chanrecv2(runtime_hchan* c, void* elem) {
+    bool ok;
+    runtime_chan_recv(c, elem, true, &ok);
+    return ok ? 1 : 0;
+}
+
+uint8_t runtime_selectnbsend(runtime_hchan* c, void* elem) __asm__("runtime.selectnbsend");
+uint8_t runtime_selectnbsend(runtime_hchan* c, void* elem) {
+    return runtime_chan_send(c, elem, false) ? 1 : 0;
+}
+
+void runtime_selectnbrecv(runtime_selectnbrecv_result* ret, void* elem, runtime_hchan* c) __asm__("runtime.selectnbrecv");
+void runtime_selectnbrecv(runtime_selectnbrecv_result* ret, void* elem, runtime_hchan* c) {
+    bool ok;
+    bool done = runtime_chan_recv(c, elem, false, &ok);
+    if (ret == NULL) {
+        return;
+    }
+    ret->selected = done ? 1 : 0;
+    ret->received = ok ? 1 : 0;
+}
+
+void runtime_closechan(runtime_hchan* c) __asm__("runtime.closechan");
+void runtime_closechan(runtime_hchan* c) {
+    runtime_sudog* sd;
+    if (c == NULL) {
+        return;
+    }
+
+    runtime_chan_lock(c);
+    if (c->closed) {
+        runtime_chan_unlock(c);
+        throw((go_string){ "close of closed channel", 23 });
+    }
+    c->closed = 1;
+
+    while ((sd = runtime_waitq_dequeue(&c->recvq)) != NULL) {
+        runtime_wake_sudog(sd, 0);
+    }
+    while ((sd = runtime_waitq_dequeue(&c->sendq)) != NULL) {
+        runtime_wake_sudog(sd, 0);
+    }
+
+    runtime_chan_unlock(c);
+}
+
+void runtime_selectgo(runtime_selectgo_result* ret, runtime_scase* cas0, uint16_t* order0, int32_t nsends, int32_t nrecvs, bool block) __asm__("runtime.selectgo");
+void runtime_selectgo(runtime_selectgo_result* ret, runtime_scase* cas0, uint16_t* order0, int32_t nsends, int32_t nrecvs, bool block) {
+    runtime_g* g;
+    int32_t ncases;
+    int32_t i;
+    int32_t selected = -1;
+    int32_t recvok = 0;
+    runtime_sudog** sudogs;
+
+    (void)order0;
+
+    if (ret == NULL) {
+        return;
+    }
+    ret->selected = -1;
+    ret->recvOK = 0;
+
+    if (cas0 == NULL) {
+        if (block) {
+            runtime_block();
+        }
+        return;
+    }
+
+    ncases = nsends + nrecvs;
+    if (ncases == 0) {
+        if (block) {
+            runtime_block();
+        }
+        return;
+    }
+    for (i = 0; i < ncases; i++) {
+        runtime_scase* sc = &cas0[i];
+        if (sc->c == NULL) {
+            continue;
+        }
+        if (i < nsends) {
+            if (runtime_chan_send(sc->c, sc->elem, false)) {
+                selected = i;
+                recvok = 0;
+                goto done;
+            }
+        } else {
+            bool ok;
+            if (runtime_chan_recv(sc->c, sc->elem, false, &ok)) {
+                selected = i;
+                recvok = ok ? 1 : 0;
+                goto done;
+            }
+        }
+    }
+
+    if (!block) {
+        ret->selected = -1;
+        ret->recvOK = 0;
+        return;
+    }
+
+    g = runtime_getg();
+    if (g == NULL) {
+        return;
+    }
+    g->select_done = -1;
+    g->select_recvok = 0;
+
+    sudogs = (runtime_sudog**)malloc((size_t)ncases * sizeof(runtime_sudog*));
+    if (sudogs == NULL) {
+        runtime_panicmem();
+    }
+    for (i = 0; i < ncases; i++) {
+        sudogs[i] = NULL;
+    }
+
+    for (i = 0; i < ncases; i++) {
+        runtime_scase* sc = &cas0[i];
+        if (sc->c == NULL) {
+            continue;
+        }
+        runtime_chan_lock(sc->c);
+        runtime_sudog* sd = runtime_sudog_alloc(sc->c, sc->elem, i, 1);
+        sudogs[i] = sd;
+        if (i < nsends) {
+            runtime_waitq_enqueue(&sc->c->sendq, sd);
+        } else {
+            runtime_waitq_enqueue(&sc->c->recvq, sd);
+        }
+        runtime_chan_unlock(sc->c);
+    }
+
+    runtime_gopark_internal();
+
+    selected = g->select_done;
+    recvok = g->select_recvok;
+
+    for (i = 0; i < ncases; i++) {
+        runtime_sudog* sd = sudogs[i];
+        if (sd == NULL) {
+            continue;
+        }
+        if (i == selected) {
+            runtime_sudog_free(sd);
+            continue;
+        }
+        runtime_chan_lock(sd->c);
+        if (i < nsends) {
+            runtime_waitq_remove(&sd->c->sendq, sd);
+        } else {
+            runtime_waitq_remove(&sd->c->recvq, sd);
+        }
+        runtime_chan_unlock(sd->c);
+        runtime_sudog_free(sd);
+    }
+    free(sudogs);
+
+done:
+    ret->selected = selected;
+    ret->recvOK = recvok;
 }
 
 extern char __eh_frame_start;
@@ -531,9 +1430,7 @@ typedef struct {
     runtime_map_iter_state* state;
 } runtime_map_iterator;
 
-typedef struct runtime_gc_header runtime_gc_header;
 typedef struct runtime_gc_page_entry runtime_gc_page_entry;
-typedef void (*runtime_gc_scan_fn)(runtime_gc_header* header);
 
 typedef struct {
     const void* addr;
@@ -1592,6 +2489,38 @@ static inline void runtime_atomic_store_uintptr(uintptr_t* value, uintptr_t next
     __atomic_store_n(value, next, __ATOMIC_RELEASE);
 }
 
+static void runtime_yield(void);
+
+static void runtime_lock_mutex(runtime_mutex* m) {
+    if (m == NULL) {
+        return;
+    }
+    for (;;) {
+        if (runtime_atomic_cas_u32(&m->state, 0, 1)) {
+            return;
+        }
+        runtime_yield();
+    }
+}
+
+static void runtime_unlock_mutex(runtime_mutex* m) {
+    if (m == NULL) {
+        return;
+    }
+    runtime_atomic_store_u32(&m->state, 0);
+}
+
+void runtime_lock(runtime_mutex* m) __asm__("runtime.lock");
+void runtime_unlock(runtime_mutex* m) __asm__("runtime.unlock");
+
+void runtime_lock(runtime_mutex* m) {
+    runtime_lock_mutex(m);
+}
+
+void runtime_unlock(runtime_mutex* m) {
+    runtime_unlock_mutex(m);
+}
+
 static void runtime_yield(void) {
     uint32_t eax = 68;
     uint32_t ebx = 1;
@@ -1862,6 +2791,10 @@ static void runtime_gc_record_stack_top(const void* ptr) {
 
 void runtime_gc_set_stack_top(const void* ptr) {
     runtime_gc_record_stack_top(ptr);
+    if (!runtime_g_initialized) {
+        runtime_init_g0();
+    }
+    runtime_g0.stack_top = (uintptr_t)runtime_gc_stack_top;
     runtime_gc_enabled = runtime_gc_stack_top != NULL;
 }
 
@@ -2441,42 +3374,96 @@ static void runtime_gc_mark_registered_roots(void) {
 }
 
 static void runtime_gc_mark_defers(void) {
-    runtime_g* g = runtime_getg();
-    runtime_defer* current;
+    runtime_g* g;
+    for (g = runtime_allg; g != NULL; g = g->all_next) {
+        runtime_defer* current;
+        for (current = g->_defer; current != NULL; current = current->link) {
+            runtime_gc_mark_pointer(current);
+            runtime_gc_mark_pointer(current->arg);
+        }
+    }
+}
 
-    if (g == NULL) {
+static void runtime_gc_clamp_stack_range(runtime_g* g, uintptr_t* start, uintptr_t* end) {
+    uintptr_t low = 0;
+    uintptr_t high = 0;
+
+    if (g == &runtime_g0) {
+        low = (uintptr_t)&__end;
+        high = (uintptr_t)&__memory_top;
+    } else if (g->stack_base != NULL && g->stack_top != 0) {
+        low = (uintptr_t)g->stack_base;
+        high = (uintptr_t)g->stack_top;
+    }
+
+    if (low == 0 || high == 0) {
         return;
     }
 
-    for (current = g->_defer; current != NULL; current = current->link) {
-        runtime_gc_mark_pointer(current);
-        runtime_gc_mark_pointer(current->arg);
+    if (*start < low) {
+        *start = low;
+    }
+    if (*end > high) {
+        *end = high;
     }
 }
 
 __attribute__((noinline)) static void runtime_gc_mark_roots_and_stack(void) {
     uintptr_t registers[RUNTIME_GC_REGISTER_SLOTS];
-    uintptr_t marker;
-    uintptr_t start;
-    uintptr_t end;
+    runtime_g* g;
 
     runtime_gc_capture_registers(registers);
     runtime_gc_scan_conservative_words(registers, sizeof(registers));
     runtime_gc_mark_registered_roots();
     runtime_gc_mark_defers();
+    runtime_g* current = runtime_getg();
+    for (g = runtime_allg; g != NULL; g = g->all_next) {
+        uintptr_t marker;
+        uintptr_t start;
+        uintptr_t end;
 
-    marker = 0;
-    start = (uintptr_t)&marker;
-    end = (uintptr_t)runtime_gc_stack_top;
-    if (end < start) {
-        uintptr_t swap;
+        if (g->status == RUNTIME_G_DEAD) {
+            continue;
+        }
 
-        swap = start;
-        start = end;
-        end = swap;
-    }
-    if (end >= start) {
-        runtime_gc_scan_conservative_words((const void*)start, end - start + sizeof(uintptr_t));
+        if (g == current) {
+            marker = 0;
+            start = (uintptr_t)&marker;
+            end = (uintptr_t)g->stack_top;
+        } else {
+            start = (uintptr_t)g->context.esp;
+            end = (uintptr_t)g->stack_top;
+        }
+
+        if (end < start) {
+            uintptr_t swap;
+
+            swap = start;
+            start = end;
+            end = swap;
+        }
+        runtime_gc_clamp_stack_range(g, &start, &end);
+        if (end == 0 || start == 0) {
+            continue;
+        }
+        if (end >= sizeof(uintptr_t)) {
+            end -= sizeof(uintptr_t);
+        } else {
+            continue;
+        }
+        if (end < start) {
+            continue;
+        }
+        if (end >= start) {
+            runtime_gc_scan_conservative_words((const void*)start, end - start + sizeof(uintptr_t));
+        }
+
+        if (g->entry_arg != NULL) {
+            runtime_gc_mark_pointer(g->entry_arg);
+        }
+        if (g->_panic != NULL) {
+            runtime_gc_mark_pointer(g->_panic);
+        }
     }
 }
 
