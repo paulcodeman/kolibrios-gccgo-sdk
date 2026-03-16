@@ -34,6 +34,7 @@ retain the license terms of their respective upstream sources.
 - `tooling/bin/objcopy`
 - `tooling/bin/strip`
 - `tooling/bin/ld`
+- `tooling/bin/as`
   - Built from GNU binutils 2.42 (Ubuntu 24.04 build)
   - License: GNU GPL v3 or later
 

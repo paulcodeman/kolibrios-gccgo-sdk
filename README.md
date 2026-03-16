@@ -55,8 +55,9 @@ Install the toolchain with your package manager:
 To avoid system installs, you can drop prebuilt binaries into `tooling/bin`.
 The build prefers these when present: `gccgo-15`/`gccgo`, `gcc`, `ld`, `strip`,
 `nasm`, and `objcopy`.
-The repo currently ships `tooling/bin/nasm`, `tooling/bin/objcopy`,
-`tooling/bin/strip`, and `tooling/bin/ld` for Linux x86_64, plus
+The repo currently ships `tooling/bin/nasm`, `tooling/bin/as`,
+`tooling/bin/objcopy`, `tooling/bin/strip`, and `tooling/bin/ld` for
+Linux x86_64, plus
 `tooling/bin/i386-elf-objcopy` for COFF conversion.
 
 ## Quick Start

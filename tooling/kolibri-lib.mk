@@ -24,6 +24,7 @@ GCC ?= $(firstword \
   $(wildcard $(TOOLING_BIN)/gcc) \
   $(shell command -v gcc 2>/dev/null) \
   gcc)
+GCC_TOOL_PREFIX ?= $(if $(wildcard $(TOOLING_BIN)/as),-B$(TOOLING_BIN),)
 ASM_COMPILER_FLAGS = -f elf32 $(if $(filter 1,$(DEBUG)),-g -F dwarf,)
 NASM_BIN ?= $(firstword \
   $(wildcard $(TOOLING_BIN)/nasm) \
@@ -97,8 +98,8 @@ OBJ_SHORTEN_OUTPUT = $(BUILD_DIR)/$(PROGRAM).obj.short.elf
 COFF_FIX_EXPORTS ?= 1
 COFF_FIX_TOOL ?= $(MK_DIR)/fix-coff-exports.py
 
-GO_COMPILER_FLAGS = -m32 -c $(GO_OPT_LEVEL) -nostdlib -nostdinc -fexceptions -fno-stack-protector -fno-split-stack -static -fno-leading-underscore -fno-common -fno-pie $(if $(filter 1,$(DEBUG)),-g,) -ffunction-sections -fdata-sections -I. -I$(ROOT_ABS) -I$(PACKAGE_ARTIFACT_ROOT_ABS)
-GCC_COMPILER_FLAGS = -m32 -c $(OPT_LEVEL) -ffunction-sections -fdata-sections -fno-pic -fno-pie -fno-stack-protector -fno-builtin-calloc $(if $(filter 1,$(DEBUG)),-g,)
+GO_COMPILER_FLAGS = -m32 $(GCC_TOOL_PREFIX) -c $(GO_OPT_LEVEL) -nostdlib -nostdinc -fexceptions -fno-stack-protector -fno-split-stack -static -fno-leading-underscore -fno-common -fno-pie $(if $(filter 1,$(DEBUG)),-g,) -ffunction-sections -fdata-sections -I. -I$(ROOT_ABS) -I$(PACKAGE_ARTIFACT_ROOT_ABS)
+GCC_COMPILER_FLAGS = -m32 $(GCC_TOOL_PREFIX) -c $(OPT_LEVEL) -ffunction-sections -fdata-sections -fno-pic -fno-pie -fno-stack-protector -fno-builtin-calloc $(if $(filter 1,$(DEBUG)),-g,)
 
 APP_SOURCES = $(wildcard *.go)
 GO_PACKAGE ?= $(strip $(shell $(SED) -n 's/^package[[:space:]]\+\([A-Za-z_][A-Za-z0-9_]*\).*$$/\1/p;q' $(firstword $(APP_SOURCES))))

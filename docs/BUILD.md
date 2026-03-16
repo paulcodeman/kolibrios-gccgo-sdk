@@ -31,8 +31,9 @@ make -C apps/examples/uiwindow GO=gccgo
 If you want to use bundled tools instead of system installs, drop prebuilt
 binaries into `tooling/bin`. The build will prefer these when present:
 `gccgo-15`/`gccgo`, `gcc`, `ld`, `strip`, `nasm`, and `objcopy`.
-The repo currently ships `tooling/bin/nasm`, `tooling/bin/objcopy`,
-`tooling/bin/strip`, and `tooling/bin/ld` for Linux x86_64, plus
+The repo currently ships `tooling/bin/nasm`, `tooling/bin/as`,
+`tooling/bin/objcopy`, `tooling/bin/strip`, and `tooling/bin/ld` for
+Linux x86_64, plus
 `tooling/bin/i386-elf-objcopy` for COFF conversion.
 
 ## Build Commands

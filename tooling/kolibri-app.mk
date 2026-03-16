@@ -33,6 +33,7 @@ STRIP ?= $(firstword \
   $(wildcard $(TOOLING_BIN)/strip) \
   $(shell command -v strip 2>/dev/null) \
   strip)
+GCC_TOOL_PREFIX ?= $(if $(wildcard $(TOOLING_BIN)/as),-B$(TOOLING_BIN),)
 ASM_COMPILER_FLAGS = -g -f elf32 -F dwarf
 NASM_BIN ?= $(firstword \
   $(wildcard $(TOOLING_BIN)/nasm) \
@@ -62,8 +63,8 @@ STARTUP_TEMPLATE = $(MK_DIR)/app-startup.c.in
 STARTUP_SOURCE = $(BUILD_DIR)/$(PROGRAM).startup.c
 STARTUP_OBJ = $(BUILD_DIR)/$(PROGRAM).startup.o
 
-GO_COMPILER_FLAGS = -m32 -c $(GO_OPT_LEVEL) -nostdlib -nostdinc -fexceptions -fno-stack-protector -fno-split-stack -static -fno-leading-underscore -fno-common -fno-pie -g -ffunction-sections -fdata-sections -I. -I$(ROOT_ABS) -I$(PACKAGE_ARTIFACT_ROOT_ABS)
-GCC_COMPILER_FLAGS = -m32 -c $(OPT_LEVEL) -ffunction-sections -fdata-sections -fno-pic -fno-pie -fno-stack-protector -fno-builtin-calloc
+GO_COMPILER_FLAGS = -m32 $(GCC_TOOL_PREFIX) -c $(GO_OPT_LEVEL) -nostdlib -nostdinc -fexceptions -fno-stack-protector -fno-split-stack -static -fno-leading-underscore -fno-common -fno-pie -g -ffunction-sections -fdata-sections -I. -I$(ROOT_ABS) -I$(PACKAGE_ARTIFACT_ROOT_ABS)
+GCC_COMPILER_FLAGS = -m32 $(GCC_TOOL_PREFIX) -c $(OPT_LEVEL) -ffunction-sections -fdata-sections -fno-pic -fno-pie -fno-stack-protector -fno-builtin-calloc
 LDFLAGS = -n -T $(LDSCRIPT) -m elf_i386 -z noexecstack -z relro -z now --gc-sections --eh-frame-hdr --entry=$(ENTRYPOINT)
 
 APP_SOURCES = $(wildcard *.go)
