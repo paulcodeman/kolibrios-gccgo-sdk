@@ -21,6 +21,7 @@ NASM = nasm $(ASM_COMPILER_FLAGS)
 OBJCOPY = objcopy
 SED = sed
 OPT_LEVEL ?= -Os
+GO_OPT_LEVEL ?= -Os
 KEEP_PKG ?= 0
 KEEP_ABI ?= 0
 FAST_PKG ?= 0
@@ -36,8 +37,8 @@ STARTUP_TEMPLATE = $(MK_DIR)/app-startup.c.in
 STARTUP_SOURCE = $(BUILD_DIR)/$(PROGRAM).startup.c
 STARTUP_OBJ = $(BUILD_DIR)/$(PROGRAM).startup.o
 
-GO_COMPILER_FLAGS = -m32 -c $(OPT_LEVEL) -nostdlib -nostdinc -fexceptions -fno-stack-protector -fno-split-stack -static -fno-leading-underscore -fno-common -fno-pie -g -ffunction-sections -fdata-sections -I. -I$(ROOT_ABS) -I$(PACKAGE_ARTIFACT_ROOT_ABS)
-GCC_COMPILER_FLAGS = -m32 -c $(OPT_LEVEL) -ffunction-sections -fdata-sections -fno-pic -fno-pie -fno-stack-protector
+GO_COMPILER_FLAGS = -m32 -c $(GO_OPT_LEVEL) -nostdlib -nostdinc -fexceptions -fno-stack-protector -fno-split-stack -static -fno-leading-underscore -fno-common -fno-pie -g -ffunction-sections -fdata-sections -I. -I$(ROOT_ABS) -I$(PACKAGE_ARTIFACT_ROOT_ABS)
+GCC_COMPILER_FLAGS = -m32 -c $(OPT_LEVEL) -ffunction-sections -fdata-sections -fno-pic -fno-pie -fno-stack-protector -fno-builtin-calloc
 LDFLAGS = -n -T $(LDSCRIPT) -m elf_i386 -z noexecstack -z relro -z now --gc-sections --eh-frame-hdr --entry=$(ENTRYPOINT)
 
 APP_SOURCES = $(wildcard *.go)

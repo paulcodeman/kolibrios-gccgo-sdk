@@ -247,7 +247,7 @@ Why:
 - native Go support should make these wrappers easier to build, not absorb them
   wholesale into the standard library
 
-### Validation Harness (`apps/diag`, `examples/*`)
+### Validation Harness (`apps/diag`, `apps/examples/*`)
 
 Current responsibilities:
 
@@ -291,7 +291,7 @@ repository:
 - `kos` typed wrappers
 - `ui` helpers
 - `.obj` wrapper libraries
-- examples and app templates
+- app examples and templates
 - QEMU regression scripts
 - diagnostics utilities such as `apps/diag`
 

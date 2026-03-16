@@ -33,15 +33,25 @@ jobs:
             mtools \
             qemu-system-x86
 
-      - name: Build all examples and apps
+      - name: Prepare bundled tools
+        run: |
+          chmod +x tooling/bin/i386-elf-objcopy
+
+      - name: Build all apps and examples
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t targets < <(find examples apps -type f -name Makefile -printf '%h\n' | sort -u)
-          echo "Found ${#targets[@]} targets"
+          ./make-all.sh
+
+      - name: Build all libs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t targets < <(find libs -type f -name Makefile -printf '%h\n' | sort -u)
+          echo "Found ${#targets[@]} libs"
           for dir in "${targets[@]}"; do
             echo "==> Building ${dir}"
-            ./build-app.sh "${dir}"
+            ./build-lib.sh "${dir}"
           done
 
       - name: Upload kex artifacts
@@ -49,5 +59,11 @@ jobs:
         with:
           name: kex-artifacts
           path: |
-            examples/**/*.kex
             apps/**/*.kex
+
+      - name: Upload obj artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: obj-artifacts
+          path: |
+            libs/**/*.obj

@@ -1,3 +1,4 @@
 PROGRAM = __PROGRAM__
+ROOT = ../../..
 
-include ../../tooling/kolibri-app.mk
+include $(ROOT)/tooling/kolibri-app.mk

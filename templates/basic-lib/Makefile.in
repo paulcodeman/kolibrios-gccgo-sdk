@@ -1,0 +1,3 @@
+PROGRAM = __PROGRAM__
+
+include ../../tooling/kolibri-lib.mk

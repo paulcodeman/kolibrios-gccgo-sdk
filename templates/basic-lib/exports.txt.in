@@ -1,0 +1,2 @@
+# exports for __PROGRAM__
+hello(0) -> Hello

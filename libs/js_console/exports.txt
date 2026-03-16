@@ -1,0 +1,2 @@
+# exports for js_console.obj
+js_eval(4) -> JsEval

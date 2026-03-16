@@ -1,0 +1,6 @@
+package __PACKAGE_NAME__
+
+// Hello returns a demo value.
+func Hello() uint32 {
+	return 42
+}

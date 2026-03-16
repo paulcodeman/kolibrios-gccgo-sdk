@@ -26,6 +26,12 @@ such as:
 Those artifacts are not the original MIT-licensed code of this repository and
 retain the license terms of their respective upstream sources.
 
+## GNU Binutils (objcopy)
+
+- `tooling/bin/i386-elf-objcopy`
+  - Built from GNU binutils 2.30
+  - License: GNU GPL v3 or later
+
 ## golang.org/x/image
 
 - `third_party/golang.org/x/image/`
@@ -34,9 +40,9 @@ retain the license terms of their respective upstream sources.
 
 ## Fonts
 
-- `examples/uiwindow/assets/RobotoMono-Regular.ttf`
+- `apps/examples/uiwindow/assets/RobotoMono-Regular.ttf`
   - Source: Google Fonts (Roboto Mono)
   - License: Apache License 2.0
-- `examples/uiwindow/assets/OpenSans-Regular.ttf`
+- `apps/examples/uiwindow/assets/OpenSans-Regular.ttf`
   - Source: Google Fonts (Open Sans)
   - License: Apache License 2.0

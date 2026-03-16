@@ -6,8 +6,8 @@ usage() {
   echo "usage: $0 [--kpack] [--kpack-bin <path>] <name|path> [make-target]" >&2
   echo "examples:" >&2
   echo "  $0 uiwindow" >&2
-  echo "  $0 examples/uiwindow" >&2
-  echo "  $0 /abs/path/to/examples/uiwindow" >&2
+  echo "  $0 apps/examples/uiwindow" >&2
+  echo "  $0 /abs/path/to/apps/examples/uiwindow" >&2
   echo "  $0 uiwindow clean" >&2
   echo "  $0 --kpack uiwindow" >&2
 }
@@ -75,7 +75,7 @@ elif [[ "${INPUT}" == */* ]]; then
   fi
 else
   matches=()
-  for base in examples apps; do
+  for base in apps; do
     if [[ -d "${REPO_ROOT}/${base}/${INPUT}" ]]; then
       matches+=("${REPO_ROOT}/${base}/${INPUT}")
       continue

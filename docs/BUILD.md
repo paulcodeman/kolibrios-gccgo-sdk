@@ -25,18 +25,20 @@ By default the build expects `gccgo-15`. If your binary is named differently,
 override it per build:
 
 ```sh
-make -C examples/uiwindow GO=gccgo
+make -C apps/examples/uiwindow GO=gccgo
 ```
 
 ## Build Commands
 
+Use `build-app.sh` for apps and `build-lib.sh` for DLL-style `.obj` libraries.
+
 Build one target by path:
 
 ```sh
-./build-app.sh examples/uiwindow
+./build-app.sh apps/examples/uiwindow
 ```
 
-Build by short name (searched under `apps/` and `examples/`):
+Build by short name (searched under `apps/` and `apps/examples/`):
 
 ```sh
 ./build-app.sh uiwindow
@@ -47,6 +49,39 @@ Clean a target:
 ```sh
 ./build-app.sh uiwindow clean
 ```
+
+Build a KolibriOS DLL-style `.obj` library:
+
+```sh
+./build-lib.sh mylib
+```
+
+Library targets should include `tooling/kolibri-lib.mk` in their Makefile and
+provide an `exports.txt` file. Example:
+
+```
+# export_name(argcount) -> GoFunc
+hello(0) -> Hello
+version(0) -> Version
+```
+
+Each line maps an export name to a Go function. `->` and `=` are both accepted
+as separators. The optional `(argcount)` suffix is required when C stubs are
+generated (default). If the right-hand side is omitted, the export name is used
+as the Go function name. Prefix with `@` to use a raw symbol name (no Go
+prefixing).
+
+By default the build generates stdcall C stubs (`EXPORTS_STUBS=1`) that forward
+to the Go symbols. Use `EXPORTS_STUBS_MODE=bootstrap` for entrypoint-style
+libraries that should call `runtime_kolibri_start` for their exported function.
+
+Library builds now default to `OBJ_FORMAT=coff-i386` and require an `objcopy`
+that supports `coff-i386`. The repo ships `tooling/bin/i386-elf-objcopy` (built
+from GNU binutils with COFF enabled), and the library makefile prefers it
+automatically. If you want to use a different `objcopy`, set `OBJCOPY=...`.
+If your toolchain lacks `coff-i386`, you can still set
+`OBJ_REQUIRE_COFF=0 OBJ_FORMAT=pei-i386` (PEI output may not be loadable by
+Kolibri's DLL loader).
 
 Build all apps/examples in one pass (full rebuild, then clean artifacts except
 `.kex`):
@@ -72,8 +107,19 @@ Create a new app from the shared template:
 ./new-app.sh demo "KolibriOS Demo"
 ```
 
-This creates `examples/demo` with `package main`, a minimal window loop, and the
+This creates `apps/examples/demo` with `package main`, a minimal window loop, and the
 shared `tooling/kolibri-app.mk` build wiring in a single `main.go`.
+
+## New Library Template
+
+Create a new library from the shared template:
+
+```sh
+./new-lib.sh mylib
+```
+
+This creates `libs/mylib` with a minimal export, `exports.txt`, and
+`tooling/kolibri-lib.mk` build wiring.
 
 ## Makefile Knobs
 
@@ -92,17 +138,27 @@ You can override these variables per target:
 - `KPACK=1` to run `kpack` on the final `.kex`
 - `KPACK_BIN=/path/to/kpack` to override the `kpack` binary path
 - `KPACK_FLAGS=--nologo` to pass flags to `kpack`
+- Library-only knobs (via `tooling/kolibri-lib.mk`): `OBJ_FORMAT=coff-i386` (or
+  `OBJ_FORMAT=pei-i386` if your `objcopy` lacks `coff-i386` support),
+  `OBJ_WITH_LIBGCC=1`, `OBJ_EXTRA_OBJS=...`, `OBJ_REQUIRE_EXPORTS=0`,
+  `DEBUG=1` (keep debug info), `OBJ_STRIP=0` (skip stripping debug info),
+  `OBJ_GC_SECTIONS=0` (disable section GC during `.obj` link),
+  `OBJ_GC_ROOT=SYMBOL` (override GC root when `--gc-sections` is enabled),
+  `EXPORTS_STUBS=0` (disable auto-generated C stubs),
+  `EXPORTS_STUBS_MODE=direct|bootstrap` (stub behavior),
+  `EXPORTS_STUBS_STRICT=0` (allow missing arg counts).
 
 Example:
 
 ```sh
-make -C examples/uiwindow OPT_LEVEL=-O0
+make -C apps/examples/uiwindow OPT_LEVEL=-O0
 ```
 
 ## Notes
 
 - The final `.kex` is written next to each target directory.
+- `make` (or `make obj`) in a library target writes `$(PROGRAM).obj`.
 - Intermediate `.o` and `.gox` files are removed after a successful build.
-- `.kex` build outputs are ignored by git.
+- `.kex`, `.obj`, `.gccgo.o`, `.gox`, `.o`, and `.pkg/` build outputs are ignored by git.
 - The bundled `tooling/bin/kpack` is a Linux x86_64 binary; override
   `KPACK_BIN` if you are on another host.

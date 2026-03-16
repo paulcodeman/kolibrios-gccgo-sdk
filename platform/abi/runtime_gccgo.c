@@ -27,6 +27,22 @@ extern void* realloc(void* ptr, size_t size);
 extern void free(void* ptr);
 void* memset(void* dest, int value, size_t size);
 void* memmove(void* dest, const void* src, size_t size);
+
+void* calloc(size_t count, size_t size) {
+    if (count == 0 || size == 0) {
+        return malloc(0);
+    }
+    size_t total = count * size;
+    if (size != 0 && total / size != count) {
+        return NULL;
+    }
+    void* ptr = malloc(total);
+    if (ptr == NULL) {
+        return NULL;
+    }
+    memset(ptr, 0, total);
+    return ptr;
+}
 extern uint32_t runtime_kos_heap_init_raw(void);
 extern uint32_t runtime_kos_heap_alloc_raw(uint32_t size);
 extern uint32_t runtime_kos_heap_free_raw(uint32_t ptr);

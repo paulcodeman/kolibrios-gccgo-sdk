@@ -51,7 +51,7 @@ Evidence source in the bootstrap repo:
 
 - `tooling/app-startup.c.in`
 - `tooling/static.lds.in`
-- `examples/uiwindow`
+- `apps/examples/uiwindow`
 
 Likely Go-tree files:
 
@@ -130,7 +130,7 @@ Evidence source in the bootstrap repo:
 - `stdlib/fmt`
 - `stdlib/log`
 - `apps/diag`
-- `examples/console`
+- `apps/examples/console`
 
 Likely Go-tree files:
 

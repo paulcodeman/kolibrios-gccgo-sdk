@@ -1,2 +1,8 @@
 # Build outputs
 *.kex
+*.obj
+*.gccgo.o
+*.gox
+*.o
+.pkg/
+.build/

@@ -56,7 +56,12 @@ clean_artifacts() {
 
 clean_artifacts
 
-mapfile -t targets < <(find "${REPO_ROOT}/examples" "${REPO_ROOT}/apps" -type f -name Makefile -printf '%h\n' | sort -u)
+find_roots=()
+if [[ -d "${REPO_ROOT}/apps" ]]; then
+  find_roots+=("${REPO_ROOT}/apps")
+fi
+
+mapfile -t targets < <(find "${find_roots[@]}" -type f -name Makefile -printf '%h\n' | sort -u)
 echo "Found ${#targets[@]} targets"
 
 for dir in "${targets[@]}"; do

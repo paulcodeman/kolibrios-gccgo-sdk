@@ -35,12 +35,12 @@ bring-up bar.
 | startup | loader hands the process path and parameter buffers to the startup code before user `main.main`; runtime startup must own init ordering | `tooling/app-startup.c.in`, `platform/kos/loader.go`, `stdlib/os/os.go` |
 | paths | slash-first paths, `/` separator, `:` list separator, no volume names, no Windows drive semantics | `stdlib/path`, `stdlib/path/filepath` |
 | argv | `os.Args[0]` comes from the loader path, remaining args come from the loader parameter string | `platform/kos/loader.go`, `stdlib/os/os.go` |
-| environment | process-local environment is acceptable for the first native slice; stronger global semantics can wait until there is real demand | `stdlib/os/os.go`, `examples/os`, `apps/diag` |
-| files | ordinary Go file flows should preserve the current slash-first KolibriOS behavior for stat/open/read/write/seek/create/mkdir/rename/remove | `stdlib/os`, `examples/files`, `examples/os` |
+| environment | process-local environment is acceptable for the first native slice; stronger global semantics can wait until there is real demand | `stdlib/os/os.go`, `apps/examples/os`, `apps/diag` |
+| files | ordinary Go file flows should preserve the current slash-first KolibriOS behavior for stat/open/read/write/seek/create/mkdir/rename/remove | `stdlib/os`, `apps/examples/files`, `apps/examples/os` |
 | time | wall clock comes from the current date/time syscalls, monotonic timing from the uptime counter, and sleep remains explicit and syscall-backed | `platform/kos/time.go`, `stdlib/time` |
-| stdio | ordinary stdout/stderr/stdin flows must work for pipe/file-backed cases first; console-backed integration remains a later integration layer on top | `stdlib/fmt`, `stdlib/log`, `examples/console`, `apps/diag` |
+| stdio | ordinary stdout/stderr/stdin flows must work for pipe/file-backed cases first; console-backed integration remains a later integration layer on top | `stdlib/fmt`, `stdlib/log`, `apps/examples/console`, `apps/diag` |
 | process model | process exit is explicit; pid/ppid and child-start behavior can start with the current narrow contract before a broader process API exists | `stdlib/os/os.go`, `platform/kos/process.go` |
-| scheduler | native port can start single-threaded; goroutines/channels and multi-threaded scheduling are supported in the bootstrap runtime, but are not a bring-up prerequisite | `platform/abi/runtime_gccgo.c`, `examples/goroutines`, `examples/threads` |
+| scheduler | native port can start single-threaded; goroutines/channels and multi-threaded scheduling are supported in the bootstrap runtime, but are not a bring-up prerequisite | `platform/abi/runtime_gccgo.c`, `apps/examples/goroutines`, `apps/examples/threads` |
 
 ## Bootstrap Runtime TODOs
 
