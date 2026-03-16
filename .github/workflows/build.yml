@@ -40,6 +40,7 @@ jobs:
           chmod +x tooling/bin/objcopy
           chmod +x tooling/bin/strip
           chmod +x tooling/bin/ld
+          chmod +x make-all.sh build-app.sh build-lib.sh new-app.sh new-lib.sh
 
       - name: Build all apps and examples
         shell: bash
