@@ -1,4 +1,4 @@
-package otto
+package ottolib
 
 import (
 	"unsafe"
