@@ -26,10 +26,15 @@ such as:
 Those artifacts are not the original MIT-licensed code of this repository and
 retain the license terms of their respective upstream sources.
 
-## GNU Binutils (objcopy)
+## GNU Binutils
 
 - `tooling/bin/i386-elf-objcopy`
   - Built from GNU binutils 2.30
+  - License: GNU GPL v3 or later
+- `tooling/bin/objcopy`
+- `tooling/bin/strip`
+- `tooling/bin/ld`
+  - Built from GNU binutils 2.42 (Ubuntu 24.04 build)
   - License: GNU GPL v3 or later
 
 ## NASM (Netwide Assembler)

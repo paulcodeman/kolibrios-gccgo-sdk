@@ -36,6 +36,9 @@ jobs:
         run: |
           chmod +x tooling/bin/i386-elf-objcopy
           chmod +x tooling/bin/nasm
+          chmod +x tooling/bin/objcopy
+          chmod +x tooling/bin/strip
+          chmod +x tooling/bin/ld
 
       - name: Build all apps and examples
         shell: bash
