@@ -52,6 +52,10 @@ Install the toolchain with your package manager:
 - `mtools`
 - `qemu-system-x86`
 
+To avoid system installs, you can drop prebuilt binaries into `tooling/bin`.
+The build prefers these when present: `gccgo-15`/`gccgo`, `gcc`, `ld`, `strip`,
+`nasm`, and `objcopy`.
+
 ## Quick Start
 
 Use `build-app.sh` for apps and `build-lib.sh` for DLL-style `.obj` libraries.

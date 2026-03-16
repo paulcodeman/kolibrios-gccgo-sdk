@@ -14,11 +14,36 @@ ABI_DIR = $(ROOT)/platform/abi
 MK_DIR = $(ROOT)/tooling
 BUILD_DIR = .build
 
-GO ?= gccgo-15
-GCC = gcc
+TOOLING_BIN ?= $(ROOT_ABS)/tooling/bin
+GO ?= $(firstword \
+  $(wildcard $(TOOLING_BIN)/gccgo-15) \
+  $(wildcard $(TOOLING_BIN)/gccgo) \
+  $(shell command -v gccgo-15 2>/dev/null) \
+  $(shell command -v gccgo 2>/dev/null) \
+  gccgo-15)
+GCC ?= $(firstword \
+  $(wildcard $(TOOLING_BIN)/gcc) \
+  $(shell command -v gcc 2>/dev/null) \
+  gcc)
+LD ?= $(firstword \
+  $(wildcard $(TOOLING_BIN)/ld) \
+  $(shell command -v ld 2>/dev/null) \
+  ld)
+STRIP ?= $(firstword \
+  $(wildcard $(TOOLING_BIN)/strip) \
+  $(shell command -v strip 2>/dev/null) \
+  strip)
 ASM_COMPILER_FLAGS = -g -f elf32 -F dwarf
-NASM = nasm $(ASM_COMPILER_FLAGS)
-OBJCOPY = objcopy
+NASM_BIN ?= $(firstword \
+  $(wildcard $(TOOLING_BIN)/nasm) \
+  $(shell command -v nasm 2>/dev/null) \
+  nasm)
+NASM = $(NASM_BIN) $(ASM_COMPILER_FLAGS)
+OBJCOPY ?= $(firstword \
+  $(wildcard $(TOOLING_BIN)/objcopy) \
+  $(wildcard $(TOOLING_BIN)/i386-elf-objcopy) \
+  $(shell command -v objcopy 2>/dev/null) \
+  objcopy)
 SED = sed
 OPT_LEVEL ?= -Os
 GO_OPT_LEVEL ?= -Os
@@ -142,8 +167,8 @@ $(STARTUP_OBJ): $(STARTUP_SOURCE)
 	$(GCC) $(GCC_COMPILER_FLAGS) $< -o $@
 
 $(PROGRAM).kex: $(OBJS) $(PACKAGE_GOXS) $(LDSCRIPT)
-	ld $(LDFLAGS) -o $(PROGRAM).kex $(OBJS) $(RUNTIME_LIBS)
-	strip $(PROGRAM).kex
+	$(LD) $(LDFLAGS) -o $(PROGRAM).kex $(OBJS) $(RUNTIME_LIBS)
+	$(STRIP) $(PROGRAM).kex
 	$(OBJCOPY) $(PROGRAM).kex -O binary
 ifneq ($(KPACK),0)
 	$(KPACK_BIN) $(KPACK_FLAGS) $(PROGRAM).kex

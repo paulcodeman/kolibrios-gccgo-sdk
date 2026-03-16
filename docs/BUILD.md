@@ -28,6 +28,10 @@ override it per build:
 make -C apps/examples/uiwindow GO=gccgo
 ```
 
+If you want to use bundled tools instead of system installs, drop prebuilt
+binaries into `tooling/bin`. The build will prefer these when present:
+`gccgo-15`/`gccgo`, `gcc`, `ld`, `strip`, `nasm`, and `objcopy`.
+
 ## Build Commands
 
 Use `build-app.sh` for apps and `build-lib.sh` for DLL-style `.obj` libraries.
