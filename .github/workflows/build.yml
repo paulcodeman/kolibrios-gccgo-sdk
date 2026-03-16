@@ -28,7 +28,6 @@ jobs:
             gcc-multilib \
             gccgo-multilib \
             make \
-            binutils \
             mtools \
             qemu-system-x86
 
