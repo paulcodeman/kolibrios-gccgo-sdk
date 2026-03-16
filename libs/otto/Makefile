@@ -1,4 +1,4 @@
-PROGRAM = js_console
+PROGRAM = otto
 PACKAGE_DIRS =
 ROOT = ../..
 

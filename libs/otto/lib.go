@@ -1,18 +1,18 @@
-package js_console
+package otto
 
 import (
 	"unsafe"
 
-	"github.com/robertkrimen/otto"
+	ottojs "github.com/robertkrimen/otto"
 )
 
 const evalError = uint32(0xFFFFFFFF)
 
-var vm *otto.Otto
+var vm *ottojs.Otto
 
-func ensureVM() *otto.Otto {
+func ensureVM() *ottojs.Otto {
 	if vm == nil {
-		vm = otto.New()
+		vm = ottojs.New()
 	}
 	return vm
 }

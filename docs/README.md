@@ -4,7 +4,7 @@ This directory contains build and porting notes for the KolibriOS GCCGO SDK.
 
 ## Console readline (KolibriOS)
 
-The Kolibri-native `gopkg.in/readline.v1` implementation (used by `apps/js_console` and any REPLs that depend on it) supports:
+The Kolibri-native `gopkg.in/readline.v1` implementation (used by `apps/otto` and any REPLs that depend on it) supports:
 
 - `Enter`: submit line
 - `Backspace` and `Delete`: edit line

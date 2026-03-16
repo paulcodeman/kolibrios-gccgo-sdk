@@ -1,0 +1,2 @@
+# exports for otto.obj
+js_eval(4) -> JsEval

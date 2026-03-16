@@ -9,12 +9,12 @@ import (
 	"kos"
 )
 
-const consoleTitle = "KolibriOS JS Console"
+const consoleTitle = "Otto JS Console"
 
 func main() {
 	console, ok := kos.OpenConsole(consoleTitle)
 	if !ok {
-		kos.DebugString("js console: failed to open /sys/lib/console.obj")
+		kos.DebugString("otto: failed to open /sys/lib/console.obj")
 		os.Exit(1)
 		return
 	}
@@ -26,7 +26,7 @@ func main() {
 	vm := otto.New()
 	_, _ = vm.Run("var print = console.log;")
 
-	prelude := "KolibriOS JavaScript Console (Otto)\n" +
+	prelude := "Otto JavaScript Console (KolibriOS)\n" +
 		"Enter JavaScript and press Enter.\n" +
 		"Press Ctrl+C or Esc to exit."
 
