@@ -80,9 +80,11 @@ type Window struct {
 	nodeBounds              map[Node]Rect
 	renderIndex             map[Node]int
 	renderVisited           map[Node]struct{}
-	layoutVisited           map[Node]struct{}
 	dirtyCandidates         map[Node]struct{}
 	dirtyList               []Node
+	renderVisitGen          uint32
+	layoutVisitGen          uint32
+	dirtyQueueGen           uint32
 }
 
 type FrameStats struct {

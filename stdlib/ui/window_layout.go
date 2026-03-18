@@ -5,18 +5,12 @@ func (window *Window) layoutFlow() {
 		return
 	}
 	container := window.contentRect()
-	visited := window.layoutVisited
-	if visited == nil {
-		visited = make(map[Node]struct{})
-		window.layoutVisited = visited
-	} else {
-		clearVisited(visited)
-	}
-	window.layoutFlowIn(container, window.nodes, visited)
+	gen := nextNodeGeneration(&window.layoutVisitGen)
+	window.layoutFlowIn(container, window.nodes, gen)
 	window.renderListValid = false
 }
 
-func (window *Window) layoutFlowIn(container Rect, nodes []Node, visited map[Node]struct{}) {
+func (window *Window) layoutFlowIn(container Rect, nodes []Node, gen uint32) {
 	if window == nil || window.canvas == nil {
 		return
 	}
@@ -32,12 +26,10 @@ func (window *Window) layoutFlowIn(container Rect, nodes []Node, visited map[Nod
 		if !ok || element == nil {
 			continue
 		}
-		if visited != nil {
-			if _, ok := visited[element]; ok {
-				continue
-			}
-			visited[element] = struct{}{}
+		if element.layoutVisitGen == gen {
+			continue
 		}
+		element.layoutVisitGen = gen
 		style := element.effectiveStyle()
 		display := DisplayInline
 		if value, ok := resolveDisplay(style.Display); ok {
@@ -62,7 +54,7 @@ func (window *Window) layoutFlowIn(container Rect, nodes []Node, visited map[Nod
 			element.applyLayoutIn(window.canvas, container, style)
 			if len(element.Children) > 0 {
 				childContainer := contentRectFor(element.layoutRect, style)
-				window.layoutFlowIn(childContainer, element.Children, visited)
+				window.layoutFlowIn(childContainer, element.Children, gen)
 			}
 			continue
 		}
@@ -102,7 +94,7 @@ func (window *Window) layoutFlowIn(container Rect, nodes []Node, visited map[Nod
 		element.applyLayoutIn(window.canvas, container, style)
 		if len(element.Children) > 0 {
 			childContainer := contentRectFor(element.layoutRect, style)
-			window.layoutFlowIn(childContainer, element.Children, visited)
+			window.layoutFlowIn(childContainer, element.Children, gen)
 			window.adjustAutoWidth(element, style)
 			window.adjustAutoHeight(element, style)
 		}

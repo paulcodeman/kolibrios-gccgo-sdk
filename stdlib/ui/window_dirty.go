@@ -4,10 +4,45 @@ func (window *Window) noteDirty(node Node) {
 	if window == nil || node == nil {
 		return
 	}
+	if window.dirtyQueueGen == 0 {
+		window.dirtyQueueGen = 1
+	}
+	if element, ok := node.(*Element); ok && element != nil {
+		if element.dirtyQueueGen == window.dirtyQueueGen {
+			return
+		}
+		element.dirtyQueueGen = window.dirtyQueueGen
+		window.dirtyList = append(window.dirtyList, node)
+		return
+	}
 	if window.dirtyCandidates == nil {
 		window.dirtyCandidates = make(map[Node]struct{})
 	}
+	if _, ok := window.dirtyCandidates[node]; ok {
+		return
+	}
 	window.dirtyCandidates[node] = struct{}{}
+	window.dirtyList = append(window.dirtyList, node)
+}
+
+func (window *Window) resetDirtyQueue() {
+	if window == nil {
+		return
+	}
+	if window.dirtyQueueGen == 0 {
+		window.dirtyQueueGen = 1
+	} else {
+		window.dirtyQueueGen++
+		if window.dirtyQueueGen == 0 {
+			window.dirtyQueueGen = 1
+		}
+	}
+	if window.dirtyCandidates != nil {
+		clearVisited(window.dirtyCandidates)
+	}
+	if window.dirtyList != nil {
+		window.dirtyList = window.dirtyList[:0]
+	}
 }
 
 func (window *Window) noteHandlerMayMutate(target Node) {
@@ -91,9 +126,7 @@ func (window *Window) collectDirty() bool {
 		window.hoverDirty = true
 		window.lastMouseValid = false
 		window.layoutDirty = false
-		if window.dirtyCandidates != nil {
-			clearVisited(window.dirtyCandidates)
-		}
+		window.resetDirtyQueue()
 		if dirtySet {
 			window.dirty = dirty
 			window.dirtySet = true
@@ -109,9 +142,7 @@ func (window *Window) collectDirty() bool {
 			scrollOffset = 0
 		}
 		dirty, dirtySet = mergeDirtyBounds(dirty, dirtySet, oldBounds, window.nodeBounds, scrollOffset)
-		if window.dirtyCandidates != nil {
-			clearVisited(window.dirtyCandidates)
-		}
+		window.resetDirtyQueue()
 		if dirtySet {
 			window.dirty = dirty
 			window.dirtySet = true
@@ -121,6 +152,7 @@ func (window *Window) collectDirty() bool {
 
 	nodes := window.allNodes
 	if len(nodes) == 0 {
+		window.resetDirtyQueue()
 		if dirtySet {
 			window.dirty = dirty
 			window.dirtySet = true
@@ -128,7 +160,6 @@ func (window *Window) collectDirty() bool {
 		return window.dirtySet
 	}
 
-	dirtyMap := window.dirtyCandidates
 	if window.ImplicitDirty {
 		for _, node := range nodes {
 			if node == nil {
@@ -138,14 +169,10 @@ func (window *Window) collectDirty() bool {
 			if !ok || !aware.Dirty() {
 				continue
 			}
-			if dirtyMap == nil {
-				dirtyMap = make(map[Node]struct{})
-				window.dirtyCandidates = dirtyMap
-			}
-			dirtyMap[node] = struct{}{}
+			window.noteDirty(node)
 		}
 	}
-	if len(dirtyMap) == 0 {
+	if len(window.dirtyList) == 0 {
 		if dirtySet {
 			window.dirty = dirty
 			window.dirtySet = true
@@ -153,13 +180,13 @@ func (window *Window) collectDirty() bool {
 		return window.dirtySet
 	}
 
-	dirtyList := window.dirtyList[:0]
+	dirtyList := window.dirtyList
+	window.resetDirtyQueue()
 	needsLayout := false
-	for node := range dirtyMap {
+	for _, node := range dirtyList {
 		if node == nil {
 			continue
 		}
-		dirtyList = append(dirtyList, node)
 		if needsLayout {
 			continue
 		}
@@ -172,18 +199,6 @@ func (window *Window) collectDirty() bool {
 		if aware, ok := node.(interface{ LayoutDirty() bool }); ok && aware.LayoutDirty() {
 			needsLayout = true
 		}
-	}
-	window.dirtyList = dirtyList
-	if dirtyMap != nil {
-		clearVisited(dirtyMap)
-	}
-
-	if len(dirtyList) == 0 {
-		if dirtySet {
-			window.dirty = dirty
-			window.dirtySet = true
-		}
-		return window.dirtySet
 	}
 
 	if needsLayout {
@@ -304,32 +319,4 @@ func mergeDirtyBounds(dirty Rect, dirtySet bool, oldBounds map[Node]Rect, newBou
 		}
 	}
 	return dirty, dirtySet
-}
-
-type nodeState struct {
-	node   Node
-	bounds Rect
-	dirty  bool
-}
-
-func (window *Window) collectNodeStates(nodes []Node, out *[]nodeState, recompute bool) {
-	if window == nil {
-		return
-	}
-	for _, node := range nodes {
-		if node == nil {
-			continue
-		}
-		state := nodeState{
-			node:   node,
-			bounds: window.nodeVisualBoundsFor(node, recompute),
-		}
-		if aware, ok := node.(DirtyAware); ok {
-			state.dirty = aware.Dirty()
-		}
-		*out = append(*out, state)
-		if element, ok := node.(*Element); ok && len(element.Children) > 0 {
-			window.collectNodeStates(element.Children, out, recompute)
-		}
-	}
 }

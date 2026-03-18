@@ -43,6 +43,10 @@ func (window *Window) drawRenderList(full bool, dirty Rect, stats *FrameStats) {
 		window.canvas.PushClip(clip.rect)
 		defer window.canvas.PopClip()
 	}
+	if !full && !dirty.Empty() {
+		window.canvas.PushClip(dirty)
+		defer window.canvas.PopClip()
+	}
 	renderList := window.renderList
 	for _, item := range renderList {
 		if item.node == nil {

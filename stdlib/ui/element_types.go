@@ -42,6 +42,9 @@ type Element struct {
 	dragScrollOffset int
 	dragMoved        bool
 	cache            *elementCache
+	renderVisitGen   uint32
+	layoutVisitGen   uint32
+	dirtyQueueGen    uint32
 }
 
 type textDragMode uint8

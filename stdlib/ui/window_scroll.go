@@ -193,6 +193,8 @@ func (window *Window) drawWindowScrollbar(full bool, dirty Rect) {
 		if IntersectRect(union, dirty).Empty() {
 			return
 		}
+		window.canvas.PushClip(dirty)
+		defer window.canvas.PopClip()
 	}
 	scrollbar := resolveScrollbarStyle(window.Style)
 	radii := scrollBarRadii(scrollbar.radius)

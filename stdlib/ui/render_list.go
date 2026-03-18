@@ -25,6 +25,14 @@ func clearVisited(m map[Node]struct{}) {
 	}
 }
 
+func nextNodeGeneration(gen *uint32) uint32 {
+	*gen = *gen + 1
+	if *gen == 0 {
+		*gen = 1
+	}
+	return *gen
+}
+
 func (window *Window) ensureRenderList() {
 	if window == nil || window.canvas == nil {
 		return
@@ -56,14 +64,11 @@ func (window *Window) buildRenderList() {
 		window.renderListValid = true
 		return
 	}
-	visited := window.renderVisited
-	if visited == nil {
-		visited = make(map[Node]struct{})
-		window.renderVisited = visited
-	} else {
-		clearVisited(visited)
+	gen := nextNodeGeneration(&window.renderVisitGen)
+	if window.renderVisited != nil {
+		clearVisited(window.renderVisited)
 	}
-	window.appendRenderItems(window.nodes, clipState{}, visited)
+	window.appendRenderItems(window.nodes, clipState{}, gen)
 	window.updateScrollMetrics()
 	scrollOffset := 0
 	if window.scrollEnabled() && window.scrollY != 0 {
@@ -73,12 +78,22 @@ func (window *Window) buildRenderList() {
 	window.renderListValid = true
 }
 
-func (window *Window) appendRenderItems(nodes []Node, clip clipState, visited map[Node]struct{}) {
+func (window *Window) appendRenderItems(nodes []Node, clip clipState, gen uint32) {
 	for _, node := range nodes {
 		if node == nil {
 			continue
 		}
-		if visited != nil {
+		if element, ok := node.(*Element); ok && element != nil {
+			if element.renderVisitGen == gen {
+				continue
+			}
+			element.renderVisitGen = gen
+		} else {
+			visited := window.renderVisited
+			if visited == nil {
+				visited = make(map[Node]struct{})
+				window.renderVisited = visited
+			}
 			if _, ok := visited[node]; ok {
 				continue
 			}
@@ -121,7 +136,7 @@ func (window *Window) appendRenderItems(nodes []Node, clip clipState, visited ma
 		if clipX || clipY {
 			childClip = window.mergeClip(clip, rect, style, clipX, clipY)
 		}
-		window.appendRenderItems(element.Children, childClip, visited)
+		window.appendRenderItems(element.Children, childClip, gen)
 	}
 }
 
