@@ -10,6 +10,19 @@ const (
 	TextAlignRight
 )
 
+func (value TextAlign) String() string {
+	switch value {
+	case TextAlignLeft:
+		return "left"
+	case TextAlignCenter:
+		return "center"
+	case TextAlignRight:
+		return "right"
+	default:
+		return ""
+	}
+}
+
 type PositionMode int
 
 const (
@@ -17,6 +30,19 @@ const (
 	PositionRelative
 	PositionAbsolute
 )
+
+func (value PositionMode) String() string {
+	switch value {
+	case PositionStatic:
+		return "static"
+	case PositionRelative:
+		return "relative"
+	case PositionAbsolute:
+		return "absolute"
+	default:
+		return ""
+	}
+}
 
 type DisplayMode int
 
@@ -27,6 +53,21 @@ const (
 	DisplayNone
 )
 
+func (value DisplayMode) String() string {
+	switch value {
+	case DisplayInline:
+		return "inline"
+	case DisplayInlineBlock:
+		return "inline-block"
+	case DisplayBlock:
+		return "block"
+	case DisplayNone:
+		return "none"
+	default:
+		return ""
+	}
+}
+
 type OverflowMode int
 
 const (
@@ -36,6 +77,21 @@ const (
 	OverflowAuto
 )
 
+func (value OverflowMode) String() string {
+	switch value {
+	case OverflowVisible:
+		return "visible"
+	case OverflowHidden:
+		return "hidden"
+	case OverflowScroll:
+		return "scroll"
+	case OverflowAuto:
+		return "auto"
+	default:
+		return ""
+	}
+}
+
 type BackgroundAttachment int
 
 const (
@@ -44,12 +100,36 @@ const (
 	BackgroundAttachmentLocal
 )
 
+func (value BackgroundAttachment) String() string {
+	switch value {
+	case BackgroundAttachmentScroll:
+		return "scroll"
+	case BackgroundAttachmentFixed:
+		return "fixed"
+	case BackgroundAttachmentLocal:
+		return "local"
+	default:
+		return ""
+	}
+}
+
 type GradientDirection int
 
 const (
 	GradientVertical GradientDirection = iota
 	GradientHorizontal
 )
+
+func (value GradientDirection) String() string {
+	switch value {
+	case GradientVertical:
+		return "vertical"
+	case GradientHorizontal:
+		return "horizontal"
+	default:
+		return ""
+	}
+}
 
 type Gradient struct {
 	From      kos.Color

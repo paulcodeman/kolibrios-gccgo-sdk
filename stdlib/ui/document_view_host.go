@@ -606,11 +606,40 @@ func (view *DocumentView) scrollDocumentByPage(delta int) bool {
 	return view.scrollDocumentTo(view.scrollY + delta*step)
 }
 
+func (view *DocumentView) noteDocumentScrollChanged() {
+	if view == nil {
+		return
+	}
+	view.dirty = true
+	if view.window == nil || view.layoutRect.Empty() {
+		view.MarkDirty()
+		return
+	}
+	style := view.effectiveStyle()
+	viewport := view.documentViewportRect(style)
+	if viewport.Empty() {
+		view.MarkDirty()
+		return
+	}
+	dirty := viewport
+	if view.canUseScrollBlit(style, viewport) {
+		exposed := scrollExposeRect(viewport, view.pendingScrollDelta())
+		if !exposed.Empty() {
+			dirty = exposed
+		}
+		view.window.markPresentRect(viewport)
+	}
+	if track, _, ok := view.documentScrollbarLayoutIn(view.layoutRect, style); ok {
+		dirty = UnionRect(dirty, track)
+	}
+	view.window.Invalidate(dirty)
+}
+
 func (view *DocumentView) scrollDocumentTo(next int) bool {
 	if view == nil || view.scrollMaxY <= 0 {
 		if view != nil && view.scrollY != 0 {
 			view.scrollY = 0
-			view.MarkDirty()
+			view.noteDocumentScrollChanged()
 			return true
 		}
 		return false
@@ -625,7 +654,7 @@ func (view *DocumentView) scrollDocumentTo(next int) bool {
 		return false
 	}
 	view.scrollY = next
-	view.MarkDirty()
+	view.noteDocumentScrollChanged()
 	return true
 }
 

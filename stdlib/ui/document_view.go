@@ -41,6 +41,7 @@ type DocumentView struct {
 	active         bool
 	focused        bool
 	scrollY        int
+	drawnScrollY   int
 	scrollMaxY     int
 	scrollDrag     bool
 	scrollDragOff  int
@@ -116,6 +117,7 @@ func (view *DocumentView) setDocument(document *Document) {
 	view.activeNode = nil
 	view.focusNode = nil
 	view.scrollY = 0
+	view.drawnScrollY = 0
 	view.scrollMaxY = 0
 }
 

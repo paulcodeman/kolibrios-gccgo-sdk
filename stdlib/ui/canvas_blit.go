@@ -84,3 +84,35 @@ func (canvas *Canvas) BlitRectToWindow(rect Rect, x int, y int) {
 	rowOffset := (canvas.width - cw) * 4
 	kos.PutPaletteImage(ptr, cw, ch, x, y, 32, nil, rowOffset)
 }
+
+func (canvas *Canvas) ScrollRectY(rect Rect, deltaY int) {
+	if canvas == nil || canvas.width <= 0 || canvas.height <= 0 || rect.Empty() || deltaY == 0 {
+		return
+	}
+	bounds := Rect{X: 0, Y: 0, Width: canvas.width, Height: canvas.height}
+	rect = IntersectRect(rect, bounds)
+	if rect.Empty() {
+		return
+	}
+	if deltaY >= rect.Height || deltaY <= -rect.Height {
+		return
+	}
+	if deltaY > 0 {
+		for row := rect.Height - deltaY - 1; row >= 0; row-- {
+			srcY := rect.Y + row
+			dstY := srcY + deltaY
+			srcIndex := 2 + srcY*canvas.width + rect.X
+			dstIndex := 2 + dstY*canvas.width + rect.X
+			copy(canvas.data[dstIndex:dstIndex+rect.Width], canvas.data[srcIndex:srcIndex+rect.Width])
+		}
+		return
+	}
+	shift := -deltaY
+	for row := shift; row < rect.Height; row++ {
+		srcY := rect.Y + row
+		dstY := srcY - shift
+		srcIndex := 2 + srcY*canvas.width + rect.X
+		dstIndex := 2 + dstY*canvas.width + rect.X
+		copy(canvas.data[dstIndex:dstIndex+rect.Width], canvas.data[srcIndex:srcIndex+rect.Width])
+	}
+}

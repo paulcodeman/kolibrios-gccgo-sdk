@@ -17,6 +17,8 @@ func (window *Window) Redraw() {
 		window.drawTinyGL(true, Rect{})
 	}
 	window.dirtySet = false
+	window.clearPresentRect()
+	window.syncScrollDrawState()
 	window.noteCaretBlinkDrawn()
 }
 
@@ -94,6 +96,8 @@ func (window *Window) RenderStats(stats *FrameStats) {
 	stats.TotalNs = end - start
 	// No blit in headless mode; mark dirty as processed.
 	window.dirtySet = false
+	window.clearPresentRect()
+	window.syncScrollDrawState()
 }
 
 // RenderListStats draws the current render list without layout or render-list rebuilds.
@@ -114,6 +118,8 @@ func (window *Window) RenderListStats(stats *FrameStats) {
 	stats.DrawNs = kos.UptimeNanoseconds() - start
 	stats.TotalNs = stats.DrawNs
 	window.dirtySet = false
+	window.clearPresentRect()
+	window.syncScrollDrawState()
 }
 
 // RenderStatsFull performs a full render pass (layout + full redraw) for headless runs.
@@ -131,6 +137,8 @@ func (window *Window) RenderStatsFull(stats *FrameStats) {
 	window.drawFrameStats(stats)
 	end := kos.UptimeNanoseconds()
 	stats.TotalNs = end - start
+	window.clearPresentRect()
+	window.syncScrollDrawState()
 }
 
 func (window *Window) drawFrame() {
@@ -146,6 +154,8 @@ func (window *Window) drawFrame() {
 	window.drawWindowScrollbar(true, Rect{})
 	window.dirtySet = false
 	window.layoutDirty = false
+	window.clearPresentRect()
+	window.syncScrollDrawState()
 }
 
 func (window *Window) drawFrameStats(stats *FrameStats) {
@@ -169,6 +179,8 @@ func (window *Window) drawFrameStats(stats *FrameStats) {
 	stats.DrawNs = kos.UptimeNanoseconds() - start
 	window.dirtySet = false
 	window.layoutDirty = false
+	window.clearPresentRect()
+	window.syncScrollDrawState()
 }
 
 func (window *Window) drawDirty() {
@@ -182,6 +194,7 @@ func (window *Window) drawDirty() {
 		window.dirtySet = true
 		return
 	}
+	window.applyPendingScrollBlit()
 	if color, ok := window.simpleBackgroundColor(); ok {
 		window.canvas.FillRect(window.dirty.X, window.dirty.Y, window.dirty.Width, window.dirty.Height, color)
 	} else if cache := window.ensureBackgroundCache(); cache != nil {
@@ -195,6 +208,7 @@ func (window *Window) drawDirty() {
 	window.ensureRenderList()
 	window.drawRenderList(false, window.dirty, nil)
 	window.drawWindowScrollbar(false, window.dirty)
+	window.syncScrollDrawState()
 }
 
 func (window *Window) drawDirtyStats(stats *FrameStats) {
@@ -209,6 +223,7 @@ func (window *Window) drawDirtyStats(stats *FrameStats) {
 		window.dirtySet = true
 		return
 	}
+	window.applyPendingScrollBlit()
 	if color, ok := window.simpleBackgroundColor(); ok {
 		window.canvas.FillRect(window.dirty.X, window.dirty.Y, window.dirty.Width, window.dirty.Height, color)
 	} else if cache := window.ensureBackgroundCache(); cache != nil {
@@ -227,6 +242,7 @@ func (window *Window) drawDirtyStats(stats *FrameStats) {
 	window.drawRenderList(false, window.dirty, stats)
 	window.drawWindowScrollbar(false, window.dirty)
 	stats.DrawNs = kos.UptimeNanoseconds() - start
+	window.syncScrollDrawState()
 }
 
 func (window *Window) blitDirty() {
@@ -234,8 +250,12 @@ func (window *Window) blitDirty() {
 		return
 	}
 	rect := window.dirty
+	if window.presentRectSet {
+		rect = UnionRect(rect, window.presentRect)
+	}
 	if presenter := window.presenter(); presenter != nil {
 		presenter.PresentRect(window.canvas, rect)
 	}
 	window.dirtySet = false
+	window.clearPresentRect()
 }

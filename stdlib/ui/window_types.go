@@ -57,10 +57,13 @@ type Window struct {
 	pendingEvent            kos.EventType
 	dirty                   Rect
 	dirtySet                bool
+	presentRect             Rect
+	presentRectSet          bool
 	lastBackground          kos.Color
 	lastGCPollAt            uint32
 	lastEventAt             uint32
 	scrollY                 int
+	drawnScrollY            int
 	scrollMaxY              int
 	scrollDragActive        bool
 	scrollDragOffset        int

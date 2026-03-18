@@ -42,16 +42,20 @@ func (view *DocumentView) drawToOffset(canvas *Canvas, offsetY int) {
 	}
 	drawStyledBox(canvas, rect, style, rect, nil)
 	if view.Document == nil {
+		view.drawnScrollY = view.scrollY
 		return
 	}
 	viewport := view.documentViewportRectIn(rect, style)
 	if viewport.Empty() {
+		view.drawnScrollY = view.scrollY
 		return
 	}
+	view.applyPendingScrollBlit(canvas, style, viewport)
 	canvas.PushClip(viewport)
 	view.Document.PaintOffset(canvas, 0, offsetY-view.scrollY)
 	canvas.PopClip()
 	view.drawDocumentScrollbar(canvas, rect, style)
+	view.drawnScrollY = view.scrollY
 }
 
 func (view *DocumentView) applyLayoutWithContext(ctx LayoutContext, container Rect, style Style) {

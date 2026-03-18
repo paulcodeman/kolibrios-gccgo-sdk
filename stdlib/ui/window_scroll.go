@@ -212,8 +212,25 @@ func (window *Window) noteScrollChanged() {
 	if window.renderListValid {
 		window.hitGrid.build(window.client, window.currentDisplayList())
 	}
-	full := Rect{X: 0, Y: 0, Width: window.client.Width, Height: window.client.Height}
-	window.Invalidate(full)
+	viewport := window.scrollViewportRect()
+	if viewport.Empty() {
+		full := Rect{X: 0, Y: 0, Width: window.client.Width, Height: window.client.Height}
+		window.Invalidate(full)
+		return
+	}
+	dirty := viewport
+	delta := window.pendingScrollDelta()
+	if window.canUseScrollBlit(viewport) {
+		exposed := scrollExposeRect(viewport, delta)
+		if !exposed.Empty() {
+			dirty = exposed
+		}
+		window.markPresentRect(viewport)
+	}
+	if track, _, _, ok := window.windowScrollbarLayout(); ok {
+		dirty = UnionRect(dirty, track)
+	}
+	window.Invalidate(dirty)
 }
 
 func (window *Window) scrollWindowBy(deltaY int) bool {
