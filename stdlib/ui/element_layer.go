@@ -9,6 +9,8 @@ const (
 	elementRetainedLayerMinDescendants = 4
 	elementRetainedLayerMinArea        = 16384
 	elementRetainedLayerMaxDirtyRects  = 4
+	elementRetainedLayerTileSize       = 256
+	elementRetainedLayerTileMinArea    = 262144
 )
 
 func (element *Element) invalidateRetainedLayerChain() {
@@ -117,6 +119,88 @@ func (element *Element) useRetainedSubtreeLayer(style Style) bool {
 		return false
 	}
 	return true
+}
+
+func useRetainedSubtreeLayerTiles(visual Rect) bool {
+	if visual.Empty() || visual.Width <= 0 || visual.Height <= 0 {
+		return false
+	}
+	if visual.Width <= elementRetainedLayerTileSize && visual.Height <= elementRetainedLayerTileSize {
+		return false
+	}
+	if visual.Width > elementRetainedLayerTileSize*2 || visual.Height > elementRetainedLayerTileSize*2 {
+		return true
+	}
+	return visual.Width*visual.Height >= elementRetainedLayerTileMinArea
+}
+
+func retainedSubtreeTileCount(size int) int {
+	if size <= 0 {
+		return 0
+	}
+	return (size + elementRetainedLayerTileSize - 1) / elementRetainedLayerTileSize
+}
+
+func (element *Element) retainedSubtreeUsesTiles() bool {
+	return element != nil && len(element.subtreeLayerTiles) != 0
+}
+
+func (element *Element) retainedSubtreeTileRect(col int, row int) Rect {
+	if element == nil || col < 0 || row < 0 || col >= element.subtreeLayerTileCols || row >= element.subtreeLayerTileRows {
+		return Rect{}
+	}
+	x := col * elementRetainedLayerTileSize
+	y := row * elementRetainedLayerTileSize
+	width := elementRetainedLayerTileSize
+	height := elementRetainedLayerTileSize
+	if right := x + width; right > element.subtreeLayerWidth {
+		width = element.subtreeLayerWidth - x
+	}
+	if bottom := y + height; bottom > element.subtreeLayerHeight {
+		height = element.subtreeLayerHeight - y
+	}
+	if width <= 0 || height <= 0 {
+		return Rect{}
+	}
+	return Rect{X: x, Y: y, Width: width, Height: height}
+}
+
+func (element *Element) ensureRetainedSubtreeTileBacking(width int, height int) {
+	if element == nil {
+		return
+	}
+	cols := retainedSubtreeTileCount(width)
+	rows := retainedSubtreeTileCount(height)
+	count := cols * rows
+	if count <= 0 {
+		element.subtreeLayerTiles = nil
+		element.subtreeLayerTileCols = 0
+		element.subtreeLayerTileRows = 0
+		return
+	}
+	tiles := make([]*Canvas, count)
+	for row := 0; row < rows; row++ {
+		for col := 0; col < cols; col++ {
+			index := row*cols + col
+			rect := Rect{
+				X:      col * elementRetainedLayerTileSize,
+				Y:      row * elementRetainedLayerTileSize,
+				Width:  elementRetainedLayerTileSize,
+				Height: elementRetainedLayerTileSize,
+			}
+			if right := rect.X + rect.Width; right > width {
+				rect.Width = width - rect.X
+			}
+			if bottom := rect.Y + rect.Height; bottom > height {
+				rect.Height = height - rect.Y
+			}
+			tiles[index] = NewCanvasAlpha(rect.Width, rect.Height)
+		}
+	}
+	element.subtreeLayer = nil
+	element.subtreeLayerTiles = tiles
+	element.subtreeLayerTileCols = cols
+	element.subtreeLayerTileRows = rows
 }
 
 func (element *Element) retainedSubtreeDescendants() (int, bool) {
@@ -255,14 +339,25 @@ func (element *Element) ensureRetainedSubtreeLayer(style Style) (Rect, bool) {
 	if visual.Empty() {
 		return Rect{}, false
 	}
-	if element.subtreeLayer == nil || element.subtreeLayerWidth != visual.Width || element.subtreeLayerHeight != visual.Height {
-		element.subtreeLayer = NewCanvasAlpha(visual.Width, visual.Height)
+	useTiles := useRetainedSubtreeLayerTiles(visual)
+	if element.subtreeLayerWidth != visual.Width || element.subtreeLayerHeight != visual.Height ||
+		(useTiles != element.retainedSubtreeUsesTiles()) ||
+		(useTiles && (element.subtreeLayerTileCols != retainedSubtreeTileCount(visual.Width) || element.subtreeLayerTileRows != retainedSubtreeTileCount(visual.Height))) ||
+		(!useTiles && element.subtreeLayer == nil) {
 		element.subtreeLayerWidth = visual.Width
 		element.subtreeLayerHeight = visual.Height
+		if useTiles {
+			element.ensureRetainedSubtreeTileBacking(visual.Width, visual.Height)
+		} else {
+			element.subtreeLayerTiles = nil
+			element.subtreeLayerTileCols = 0
+			element.subtreeLayerTileRows = 0
+			element.subtreeLayer = NewCanvasAlpha(visual.Width, visual.Height)
+		}
 		element.subtreeLayerValid = false
 		element.clearRetainedSubtreeDirty()
 	}
-	if element.subtreeLayer == nil {
+	if element.subtreeLayer == nil && len(element.subtreeLayerTiles) == 0 {
 		return Rect{}, false
 	}
 	if !element.subtreeLayerValid {
@@ -271,8 +366,51 @@ func (element *Element) ensureRetainedSubtreeLayer(style Style) (Rect, bool) {
 	return visual, true
 }
 
+func (element *Element) redrawRetainedSubtreeTile(visual Rect, col int, row int, localClip Rect, clipSet bool) bool {
+	if element == nil {
+		return false
+	}
+	tileRect := element.retainedSubtreeTileRect(col, row)
+	if tileRect.Empty() {
+		return false
+	}
+	index := row*element.subtreeLayerTileCols + col
+	if index < 0 || index >= len(element.subtreeLayerTiles) {
+		return false
+	}
+	tile := element.subtreeLayerTiles[index]
+	if tile == nil {
+		return false
+	}
+	if clipSet {
+		localClip = IntersectRect(localClip, Rect{X: 0, Y: 0, Width: tileRect.Width, Height: tileRect.Height})
+		if localClip.Empty() {
+			return false
+		}
+		tile.ClearRectTransparent(localClip.X, localClip.Y, localClip.Width, localClip.Height)
+		element.drawRetainedSubtreeNode(tile, visual.X+tileRect.X, visual.Y+tileRect.Y, clipState{rect: localClip, set: true})
+		return true
+	}
+	tile.ClearTransparent()
+	element.drawRetainedSubtreeNode(tile, visual.X+tileRect.X, visual.Y+tileRect.Y, clipState{})
+	return true
+}
+
 func (element *Element) redrawRetainedSubtreeLayer(style Style, visual Rect) {
-	if element == nil || element.subtreeLayer == nil || visual.Empty() {
+	if element == nil || visual.Empty() {
+		return
+	}
+	if element.retainedSubtreeUsesTiles() {
+		for row := 0; row < element.subtreeLayerTileRows; row++ {
+			for col := 0; col < element.subtreeLayerTileCols; col++ {
+				element.redrawRetainedSubtreeTile(visual, col, row, Rect{}, false)
+			}
+		}
+		element.subtreeLayerValid = true
+		element.clearRetainedSubtreeDirty()
+		return
+	}
+	if element.subtreeLayer == nil {
 		return
 	}
 	element.subtreeLayer.ClearTransparent()
@@ -282,7 +420,10 @@ func (element *Element) redrawRetainedSubtreeLayer(style Style, visual Rect) {
 }
 
 func (element *Element) updateRetainedSubtreeLayer(style Style, visual Rect) bool {
-	if element == nil || element.subtreeLayer == nil || !element.subtreeLayerValid || !element.hasRetainedSubtreeDirty() {
+	if element == nil || !element.subtreeLayerValid || !element.hasRetainedSubtreeDirty() {
+		return false
+	}
+	if element.subtreeLayer == nil && !element.retainedSubtreeUsesTiles() {
 		return false
 	}
 	dirtyFull := element.subtreeLayerDirtyFull
@@ -295,6 +436,47 @@ func (element *Element) updateRetainedSubtreeLayer(style Style, visual Rect) boo
 	}
 	if dirtyCount == 0 {
 		return false
+	}
+	if element.retainedSubtreeUsesTiles() {
+		for row := 0; row < element.subtreeLayerTileRows; row++ {
+			for col := 0; col < element.subtreeLayerTileCols; col++ {
+				tileRect := element.retainedSubtreeTileRect(col, row)
+				if tileRect.Empty() {
+					continue
+				}
+				var tileDirty Rect
+				tileDirtySet := false
+				for index := 0; index < dirtyCount; index++ {
+					dirty := IntersectRect(dirtyRects[index], visual)
+					if dirty.Empty() {
+						continue
+					}
+					localDirty := Rect{
+						X:      dirty.X - visual.X,
+						Y:      dirty.Y - visual.Y,
+						Width:  dirty.Width,
+						Height: dirty.Height,
+					}
+					inter := IntersectRect(localDirty, tileRect)
+					if inter.Empty() {
+						continue
+					}
+					inter.X -= tileRect.X
+					inter.Y -= tileRect.Y
+					if tileDirtySet {
+						tileDirty = UnionRect(tileDirty, inter)
+					} else {
+						tileDirty = inter
+						tileDirtySet = true
+					}
+				}
+				if !tileDirtySet {
+					continue
+				}
+				element.redrawRetainedSubtreeTile(visual, col, row, tileDirty, true)
+			}
+		}
+		return true
 	}
 	updated := false
 	for index := 0; index < dirtyCount; index++ {
@@ -323,7 +505,7 @@ func (element *Element) tryDrawFromRetainedSubtreeLayer(canvas *Canvas, style St
 		return false
 	}
 	visual, ok := element.ensureRetainedSubtreeLayer(style)
-	if !ok || element.subtreeLayer == nil {
+	if !ok || (element.subtreeLayer == nil && !element.retainedSubtreeUsesTiles()) {
 		return false
 	}
 	if element.hasRetainedSubtreeDirty() && element.subtreeLayerValid {
@@ -333,6 +515,30 @@ func (element *Element) tryDrawFromRetainedSubtreeLayer(canvas *Canvas, style St
 	}
 	if offsetY != 0 {
 		visual.Y += offsetY
+	}
+	if element.retainedSubtreeUsesTiles() {
+		for row := 0; row < element.subtreeLayerTileRows; row++ {
+			for col := 0; col < element.subtreeLayerTileCols; col++ {
+				tileRect := element.retainedSubtreeTileRect(col, row)
+				if tileRect.Empty() {
+					continue
+				}
+				dstRect := Rect{X: visual.X + tileRect.X, Y: visual.Y + tileRect.Y, Width: tileRect.Width, Height: tileRect.Height}
+				if canvas.clip.set && IntersectRect(dstRect, canvas.clip.rect).Empty() {
+					continue
+				}
+				index := row*element.subtreeLayerTileCols + col
+				if index < 0 || index >= len(element.subtreeLayerTiles) {
+					continue
+				}
+				tile := element.subtreeLayerTiles[index]
+				if tile == nil {
+					continue
+				}
+				canvas.BlitFrom(tile, Rect{X: 0, Y: 0, Width: tileRect.Width, Height: tileRect.Height}, dstRect.X, dstRect.Y)
+			}
+		}
+		return true
 	}
 	canvas.BlitFrom(element.subtreeLayer, Rect{X: 0, Y: 0, Width: element.subtreeLayerWidth, Height: element.subtreeLayerHeight}, visual.X, visual.Y)
 	return true

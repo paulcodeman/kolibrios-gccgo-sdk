@@ -44,9 +44,12 @@ type Element struct {
 	dragMoved              bool
 	cache                  *elementCache
 	subtreeLayer           *Canvas
+	subtreeLayerTiles      []*Canvas
 	subtreeLayerValid      bool
 	subtreeLayerWidth      int
 	subtreeLayerHeight     int
+	subtreeLayerTileCols   int
+	subtreeLayerTileRows   int
 	subtreeLayerDirty      [elementRetainedLayerMaxDirtyRects]Rect
 	subtreeLayerDirtyCount int
 	subtreeLayerDirtyFull  bool
