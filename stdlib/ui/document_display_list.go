@@ -4,38 +4,107 @@ func (list FragmentDisplayList) Paint(canvas *Canvas, full bool, dirty Rect) {
 	list.PaintOffset(canvas, full, dirty, 0, 0)
 }
 
+func (list FragmentDisplayList) itemPaintState(item FragmentDisplayItem, full bool, dirty Rect, offsetX int, offsetY int) (Rect, Rect, bool, bool) {
+	if item.Fragment == nil {
+		return Rect{}, Rect{}, false, false
+	}
+	paint := item.Paint
+	if offsetX != 0 || offsetY != 0 {
+		paint.X += offsetX
+		paint.Y += offsetY
+	}
+	if paint.Empty() {
+		return Rect{}, Rect{}, false, false
+	}
+	actual := paint
+	clipSet := false
+	clipRect := Rect{}
+	if !full {
+		if dirty.Empty() || IntersectRect(actual, dirty).Empty() {
+			return Rect{}, Rect{}, false, false
+		}
+		if !fragmentNeedsFullDirtyPaint(item.Fragment) {
+			actual = IntersectRect(actual, dirty)
+			clipRect = dirty
+			clipSet = true
+		}
+	}
+	if item.ClipSet {
+		clip := item.Clip
+		if offsetX != 0 || offsetY != 0 {
+			clip.X += offsetX
+			clip.Y += offsetY
+		}
+		if clipSet {
+			clipRect = IntersectRect(clipRect, clip)
+		} else {
+			clipRect = clip
+			clipSet = true
+		}
+		actual = IntersectRect(actual, clip)
+	}
+	if actual.Empty() {
+		return Rect{}, Rect{}, false, false
+	}
+	return actual, clipRect, clipSet, true
+}
+
+func (list FragmentDisplayList) itemOpaqueCoverRect(item FragmentDisplayItem, full bool, dirty Rect, offsetX int, offsetY int) (Rect, bool) {
+	paint, _, _, ok := list.itemPaintState(item, full, dirty, offsetX, offsetY)
+	if !ok {
+		return Rect{}, false
+	}
+	cover, ok := fragmentOpaqueCoverRect(item.Fragment)
+	if !ok {
+		return Rect{}, false
+	}
+	if offsetX != 0 || offsetY != 0 {
+		cover.X += offsetX
+		cover.Y += offsetY
+	}
+	cover = IntersectRect(cover, paint)
+	if cover.Empty() {
+		return Rect{}, false
+	}
+	return cover, true
+}
+
 func (list FragmentDisplayList) PaintOffset(canvas *Canvas, full bool, dirty Rect, offsetX int, offsetY int) {
 	if canvas == nil {
 		return
 	}
-	for _, item := range list.items {
+	var skip []bool
+	if DisplayListOcclusionCulling && len(list.items) > 1 {
+		skip = make([]bool, len(list.items))
+		covers := make([]Rect, 0, 8)
+		for i := len(list.items) - 1; i >= 0; i-- {
+			item := list.items[i]
+			paint, _, _, ok := list.itemPaintState(item, full, dirty, offsetX, offsetY)
+			if !ok {
+				continue
+			}
+			if rectCoveredByAny(paint, covers) {
+				skip[i] = true
+				continue
+			}
+			if cover, ok := list.itemOpaqueCoverRect(item, full, dirty, offsetX, offsetY); ok {
+				covers = append(covers, cover)
+			}
+		}
+	}
+	for i, item := range list.items {
 		if item.Fragment == nil {
 			continue
 		}
-		paint := fragmentPaintBounds(item.Fragment)
-		if paint.Empty() {
+		paint, clipRect, clipSet, ok := list.itemPaintState(item, full, dirty, offsetX, offsetY)
+		if !ok {
 			continue
 		}
-		if offsetX != 0 || offsetY != 0 {
-			paint.X += offsetX
-			paint.Y += offsetY
+		if skip != nil && skip[i] {
+			continue
 		}
-		if !full {
-			if dirty.Empty() {
-				continue
-			}
-			paint = IntersectRect(paint, dirty)
-			if paint.Empty() {
-				continue
-			}
-		}
-		if item.ClipSet {
-			clip := item.Clip
-			if offsetX != 0 || offsetY != 0 {
-				clip.X += offsetX
-				clip.Y += offsetY
-			}
-			canvas.PushClip(clip)
+		if clipSet {
+			canvas.PushClip(clipRect)
 		}
 		if !full && !fragmentNeedsFullDirtyPaint(item.Fragment) {
 			canvas.PushClip(paint)
@@ -44,7 +113,7 @@ func (list FragmentDisplayList) PaintOffset(canvas *Canvas, full bool, dirty Rec
 		if !full && !fragmentNeedsFullDirtyPaint(item.Fragment) {
 			canvas.PopClip()
 		}
-		if item.ClipSet {
+		if clipSet {
 			canvas.PopClip()
 		}
 	}

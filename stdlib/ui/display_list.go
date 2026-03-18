@@ -8,6 +8,74 @@ type DisplayList struct {
 	scrollOffset int
 }
 
+func (list DisplayList) itemPaintState(item renderItem, full bool, dirty Rect) (Rect, Rect, bool, bool) {
+	if item.node == nil {
+		return Rect{}, Rect{}, false, false
+	}
+	paint := item.paint
+	if list.scrollOffset != 0 {
+		paint.Y += list.scrollOffset
+	}
+	if paint.Empty() {
+		return Rect{}, Rect{}, false, false
+	}
+	actual := paint
+	if list.rootClip.set {
+		actual = IntersectRect(actual, list.rootClip.rect)
+		if actual.Empty() {
+			return Rect{}, Rect{}, false, false
+		}
+	}
+	if !full {
+		if dirty.Empty() || IntersectRect(actual, dirty).Empty() {
+			return Rect{}, Rect{}, false, false
+		}
+	}
+	clipSet := false
+	clipRect := Rect{}
+	if !full && !dirty.Empty() && !nodeNeedsFullDirtyPaint(item.node) {
+		clipRect = dirty
+		clipSet = true
+		actual = IntersectRect(actual, dirty)
+	}
+	if item.clip.set {
+		itemClip := item.clip.rect
+		if list.scrollOffset != 0 {
+			itemClip.Y += list.scrollOffset
+		}
+		if clipSet {
+			clipRect = IntersectRect(clipRect, itemClip)
+		} else {
+			clipRect = itemClip
+			clipSet = true
+		}
+		actual = IntersectRect(actual, itemClip)
+	}
+	if actual.Empty() {
+		return Rect{}, Rect{}, false, false
+	}
+	return actual, clipRect, clipSet, true
+}
+
+func (list DisplayList) itemOpaqueCoverRect(item renderItem, full bool, dirty Rect) (Rect, bool) {
+	paint, _, _, ok := list.itemPaintState(item, full, dirty)
+	if !ok {
+		return Rect{}, false
+	}
+	cover, ok := nodeOpaqueCoverRect(item.node)
+	if !ok {
+		return Rect{}, false
+	}
+	if list.scrollOffset != 0 {
+		cover.Y += list.scrollOffset
+	}
+	cover = IntersectRect(cover, paint)
+	if cover.Empty() {
+		return Rect{}, false
+	}
+	return cover, true
+}
+
 func nodeNeedsFullDirtyPaint(node Node) bool {
 	if node == nil {
 		return false
@@ -99,51 +167,48 @@ func (list DisplayList) Paint(window *Window, full bool, dirty Rect, stats *Fram
 	if window == nil || window.canvas == nil {
 		return
 	}
+	var skip []bool
+	if DisplayListOcclusionCulling && len(list.items) > 1 {
+		skip = make([]bool, len(list.items))
+		covers := make([]Rect, 0, 8)
+		for i := len(list.items) - 1; i >= 0; i-- {
+			item := list.items[i]
+			paint, _, _, ok := list.itemPaintState(item, full, dirty)
+			if !ok {
+				continue
+			}
+			if rectCoveredByAny(paint, covers) {
+				skip[i] = true
+				continue
+			}
+			if cover, ok := list.itemOpaqueCoverRect(item, full, dirty); ok {
+				covers = append(covers, cover)
+			}
+		}
+	}
 	if list.rootClip.set {
 		window.canvas.PushClip(list.rootClip.rect)
 		defer window.canvas.PopClip()
 	}
-	for _, item := range list.items {
+	for i, item := range list.items {
 		if item.node == nil {
 			continue
 		}
-		paint := item.paint
-		if list.scrollOffset != 0 {
-			paint.Y += list.scrollOffset
-		}
-		if paint.Empty() {
+		if skip != nil && skip[i] {
+			if aware, ok := item.node.(DirtyAware); ok {
+				aware.ClearDirty()
+			}
 			continue
 		}
-		if !full && IntersectRect(paint, dirty).Empty() {
+		_, clipRect, clipSet, ok := list.itemPaintState(item, full, dirty)
+		if !ok {
 			continue
 		}
 		var element *Element
 		if el, ok := item.node.(*Element); ok && el != nil {
 			element = el
 		}
-		clipSet := false
-		clipRect := Rect{}
-		useDirtyClip := !full && !dirty.Empty() && !nodeNeedsFullDirtyPaint(item.node)
-		if useDirtyClip {
-			clipRect = dirty
-			clipSet = true
-		}
-		if item.clip.set {
-			itemClip := item.clip.rect
-			if list.scrollOffset != 0 {
-				itemClip.Y += list.scrollOffset
-			}
-			if clipSet {
-				clipRect = IntersectRect(clipRect, itemClip)
-			} else {
-				clipRect = itemClip
-				clipSet = true
-			}
-		}
 		if clipSet {
-			if clipRect.Empty() {
-				continue
-			}
 			window.canvas.PushClip(clipRect)
 		}
 		if stats != nil && !window.DisableNodeTiming {
