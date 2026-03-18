@@ -70,11 +70,7 @@ func (window *Window) buildRenderList() {
 	}
 	window.appendRenderItems(window.nodes, clipState{}, gen)
 	window.updateScrollMetrics()
-	scrollOffset := 0
-	if window.scrollEnabled() && window.scrollY != 0 {
-		scrollOffset = -window.scrollY
-	}
-	window.hitGrid.build(window.client, window.renderList, scrollOffset)
+	window.hitGrid.build(window.client, window.currentDisplayList())
 	window.renderListValid = true
 }
 

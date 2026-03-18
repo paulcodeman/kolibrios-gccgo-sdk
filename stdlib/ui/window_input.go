@@ -5,27 +5,11 @@ func (window *Window) hitTest(x int, y int) Node {
 		return nil
 	}
 	if window.renderListValid && len(window.renderList) > 0 {
-		if node, ok := window.hitGrid.find(x, y, window.renderList); ok {
+		display := window.currentDisplayList()
+		if node, ok := window.hitGrid.find(x, y, display); ok {
 			return node
 		}
-		offsetY := 0
-		if window.scrollEnabled() && window.scrollY != 0 {
-			offsetY = -window.scrollY
-		}
-		for i := len(window.renderList) - 1; i >= 0; i-- {
-			item := window.renderList[i]
-			if item.node == nil {
-				continue
-			}
-			paint := item.paint
-			if offsetY != 0 {
-				paint.Y += offsetY
-			}
-			if paint.Contains(x, y) {
-				return item.node
-			}
-		}
-		return nil
+		return display.Find(x, y)
 	}
 	if window.scrollEnabled() && window.scrollY != 0 {
 		y += window.scrollY
@@ -75,6 +59,12 @@ func (window *Window) hitTestNodes(nodes []Node, x int, y int) Node {
 			}
 			visual := element.visualBoundsFor(rect, element.effectiveStyle())
 			if visual.Contains(x, y) {
+				return node
+			}
+			continue
+		}
+		if visual, ok := node.(VisualBoundsAware); ok {
+			if visual.VisualBounds().Contains(x, y) {
 				return node
 			}
 			continue

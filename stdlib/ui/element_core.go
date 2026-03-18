@@ -25,8 +25,8 @@ func (element *Element) setWindow(window *Window) {
 	element.layoutVisitGen = 0
 	element.dirtyQueueGen = 0
 	for _, child := range element.Children {
-		if childEl, ok := child.(*Element); ok && childEl != nil {
-			childEl.setWindow(window)
+		if aware, ok := child.(windowAware); ok && aware != nil {
+			aware.setWindow(window)
 		}
 	}
 }

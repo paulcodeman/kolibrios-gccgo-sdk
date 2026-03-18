@@ -23,7 +23,9 @@ func (grid *hitTestGrid) reset() {
 	grid.offsetY = 0
 }
 
-func (grid *hitTestGrid) build(client Rect, items []renderItem, offsetY int) {
+func (grid *hitTestGrid) build(client Rect, list DisplayList) {
+	items := list.Items()
+	offsetY := list.ScrollOffset()
 	if grid == nil || client.Empty() || len(items) == 0 {
 		if grid != nil {
 			grid.reset()
@@ -117,7 +119,8 @@ func (grid *hitTestGrid) build(client Rect, items []renderItem, offsetY int) {
 	grid.offsetY = offsetY
 }
 
-func (grid *hitTestGrid) find(x int, y int, items []renderItem) (Node, bool) {
+func (grid *hitTestGrid) find(x int, y int, list DisplayList) (Node, bool) {
+	items := list.Items()
 	if grid == nil || grid.cols == 0 || grid.rows == 0 || len(grid.cells) == 0 {
 		return nil, false
 	}
@@ -134,8 +137,8 @@ func (grid *hitTestGrid) find(x int, y int, items []renderItem) (Node, bool) {
 	if top >= 0 && top < len(items) {
 		item := items[top]
 		paint := item.paint
-		if grid.offsetY != 0 {
-			paint.Y += grid.offsetY
+		if list.scrollOffset != 0 {
+			paint.Y += list.scrollOffset
 		}
 		if paint.Contains(x, y) {
 			return item.node, true
@@ -148,8 +151,8 @@ func (grid *hitTestGrid) find(x int, y int, items []renderItem) (Node, bool) {
 		}
 		item := items[index]
 		paint := item.paint
-		if grid.offsetY != 0 {
-			paint.Y += grid.offsetY
+		if list.scrollOffset != 0 {
+			paint.Y += list.scrollOffset
 		}
 		if paint.Contains(x, y) {
 			return item.node, true

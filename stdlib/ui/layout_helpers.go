@@ -32,16 +32,26 @@ func borderWidthFor(style Style) int {
 	return 0
 }
 
+func boxInsets(style Style) Spacing {
+	padding, _ := resolveSpacingNormalized(style.Padding)
+	border := borderWidthFor(style)
+	return Spacing{
+		Left:   padding.Left + border,
+		Top:    padding.Top + border,
+		Right:  padding.Right + border,
+		Bottom: padding.Bottom + border,
+	}
+}
+
 func contentRectFor(rect Rect, style Style) Rect {
 	if rect.Empty() {
 		return rect
 	}
-	padding, _ := resolveSpacingNormalized(style.Padding)
-	border := borderWidthFor(style)
-	insetLeft := padding.Left + border
-	insetTop := padding.Top + border
-	insetRight := padding.Right + border
-	insetBottom := padding.Bottom + border
+	insets := boxInsets(style)
+	insetLeft := insets.Left
+	insetTop := insets.Top
+	insetRight := insets.Right
+	insetBottom := insets.Bottom
 	width := rect.Width - insetLeft - insetRight
 	height := rect.Height - insetTop - insetBottom
 	if width < 0 {
@@ -64,20 +74,22 @@ func maxChildBottom(element *Element) int {
 	}
 	maxBottom := element.layoutRect.Y
 	for _, child := range element.Children {
-		childElement, ok := child.(*Element)
-		if !ok || childElement == nil {
+		if child == nil {
 			continue
 		}
-		if childElement.layoutHidden {
+		if nodeHidden(child) {
 			continue
 		}
-		if childElement.layoutPosition == PositionAbsolute {
+		style, bounds, margin, marginSet, ok := childLayoutMetrics(child)
+		if !ok {
 			continue
 		}
-		bounds := childElement.layoutRect
+		if effectivePosition(style) == PositionAbsolute {
+			continue
+		}
 		bottom := bounds.Y + bounds.Height
-		if childElement.layoutMarginSet {
-			bottom += childElement.layoutMargin.Bottom
+		if marginSet {
+			bottom += margin.Bottom
 		}
 		if bottom > maxBottom {
 			maxBottom = bottom
@@ -92,26 +104,46 @@ func maxChildRight(element *Element) int {
 	}
 	maxRight := element.layoutRect.X
 	for _, child := range element.Children {
-		childElement, ok := child.(*Element)
-		if !ok || childElement == nil {
+		if child == nil {
 			continue
 		}
-		if childElement.layoutHidden {
+		if nodeHidden(child) {
 			continue
 		}
-		if childElement.layoutPosition == PositionAbsolute {
+		style, bounds, margin, marginSet, ok := childLayoutMetrics(child)
+		if !ok {
 			continue
 		}
-		bounds := childElement.layoutRect
+		if effectivePosition(style) == PositionAbsolute {
+			continue
+		}
 		right := bounds.X + bounds.Width
-		if childElement.layoutMarginSet {
-			right += childElement.layoutMargin.Right
+		if marginSet {
+			right += margin.Right
 		}
 		if right > maxRight {
 			maxRight = right
 		}
 	}
 	return maxRight
+}
+
+func childLayoutMetrics(node Node) (Style, Rect, Spacing, bool, bool) {
+	switch child := node.(type) {
+	case *Element:
+		if child == nil {
+			return Style{}, Rect{}, Spacing{}, false, false
+		}
+		return child.effectiveStyle(), child.layoutRect, child.layoutMargin, child.layoutMarginSet, true
+	case *DocumentView:
+		if child == nil {
+			return Style{}, Rect{}, Spacing{}, false, false
+		}
+		margin, marginSet := resolvedMargin(child.effectiveStyle())
+		return child.effectiveStyle(), child.layoutRect, margin, marginSet, true
+	default:
+		return Style{}, Rect{}, Spacing{}, false, false
+	}
 }
 
 func overflowClipAxes(style Style) (bool, bool) {

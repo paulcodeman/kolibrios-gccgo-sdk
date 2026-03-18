@@ -41,8 +41,8 @@ func (window *Window) Append(node Node) {
 	if window == nil || node == nil {
 		return
 	}
-	if element, ok := node.(*Element); ok && element != nil {
-		element.setWindow(window)
+	if aware, ok := node.(windowAware); ok && aware != nil {
+		aware.setWindow(window)
 	}
 	window.nodes = append(window.nodes, node)
 	window.layoutDirty = true

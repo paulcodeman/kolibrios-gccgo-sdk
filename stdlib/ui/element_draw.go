@@ -136,52 +136,11 @@ func (element *Element) drawToRect(canvas *Canvas, rect Rect, style Style) {
 	if element == nil || canvas == nil || rect.Width <= 0 || rect.Height <= 0 {
 		return
 	}
-	borderRadius := resolveBorderRadius(style)
-	if FastNoRadius {
-		borderRadius = CornerRadii{}
-	}
-	if !FastNoShadows {
-		if shadow, ok := resolveShadow(style.Shadow); ok {
-			if borderRadius.Active() {
-				canvas.DrawShadowRounded(rect, *shadow, borderRadius)
-			} else {
-				canvas.DrawShadow(rect, *shadow)
-			}
-		}
-	}
-
-	gradient, gradientSet := resolveGradient(style.Gradient)
-	if FastNoGradients {
-		gradientSet = false
-	}
-	background, backgroundSet := resolveColor(style.Background)
 	bgRect := rect
-	if gradientSet {
+	if style.Gradient != nil && !FastNoGradients {
 		bgRect = element.backgroundRect(rect, style)
 	}
-	if gradientSet {
-		if opacity, ok := resolveOpacity(style.Opacity); ok && opacity < 255 {
-			canvas.FillRoundedRectGradientAreaAlpha(rect.X, rect.Y, rect.Width, rect.Height, borderRadius, *gradient, bgRect, opacity)
-		} else {
-			canvas.FillRoundedRectGradientArea(rect.X, rect.Y, rect.Width, rect.Height, borderRadius, *gradient, bgRect)
-		}
-	} else if backgroundSet {
-		if opacity, ok := resolveOpacity(style.Opacity); ok && opacity < 255 {
-			canvas.FillRoundedRectAlpha(rect.X, rect.Y, rect.Width, rect.Height, borderRadius, background, opacity)
-		} else {
-			canvas.FillRoundedRect(rect.X, rect.Y, rect.Width, rect.Height, borderRadius, background)
-		}
-	}
-
-	if !FastNoBorders {
-		if borderWidth, ok := resolveLength(style.BorderWidth); ok && borderWidth > 0 {
-			borderColor := kos.Color(0)
-			if value, ok := resolveColor(style.BorderColor); ok {
-				borderColor = value
-			}
-			canvas.StrokeRoundedRectWidth(rect.X, rect.Y, rect.Width, rect.Height, borderRadius, borderWidth, borderColor)
-		}
-	}
+	drawStyledBox(canvas, rect, style, bgRect, nil)
 
 	if element.isTextInput() {
 		if FastNoText {
@@ -417,53 +376,16 @@ func (element *Element) updateSubtreeRect() {
 			rect = UnionRect(rect, childEl.subtreeBounds())
 			continue
 		}
+		if visual, ok := child.(VisualBoundsAware); ok {
+			rect = UnionRect(rect, visual.VisualBounds())
+			continue
+		}
 		rect = UnionRect(rect, child.Bounds())
 	}
 	element.subtreeRect = rect
 }
 
 func (element *Element) visualBoundsFor(rect Rect, style Style) Rect {
-	if rect.Empty() {
-		return rect
-	}
-	visual := rect
-	if shadow, ok := resolveShadow(style.Shadow); ok {
-		blur := shadow.Blur
-		if blur < 0 {
-			blur = 0
-		}
-		left := visual.X
-		top := visual.Y
-		right := visual.X + visual.Width
-		bottom := visual.Y + visual.Height
-		shadowLeft := rect.X + shadow.OffsetX - blur
-		shadowTop := rect.Y + shadow.OffsetY - blur
-		shadowRight := rect.X + shadow.OffsetX + rect.Width + blur
-		shadowBottom := rect.Y + shadow.OffsetY + rect.Height + blur
-		if shadowLeft < left {
-			left = shadowLeft
-		}
-		if shadowTop < top {
-			top = shadowTop
-		}
-		if shadowRight > right {
-			right = shadowRight
-		}
-		if shadowBottom > bottom {
-			bottom = shadowBottom
-		}
-		visual = Rect{X: left, Y: top, Width: right - left, Height: bottom - top}
-	}
-	if element.kind == ElementKindLabel {
-		if shadow, ok := resolveTextShadow(style.TextShadow); ok {
-			shadowRect := Rect{
-				X:      rect.X + shadow.OffsetX,
-				Y:      rect.Y + shadow.OffsetY,
-				Width:  rect.Width,
-				Height: rect.Height,
-			}
-			visual = UnionRect(visual, shadowRect)
-		}
-	}
-	return visual
+	includeTextShadow := !element.isTextInput() && element.kind != ElementKindTinyGL && element.text() != ""
+	return visualBoundsForStyle(rect, style, includeTextShadow)
 }

@@ -126,52 +126,8 @@ func (window *Window) drawBackgroundRectWith(canvas *Canvas, rect Rect, style St
 	if window == nil || canvas == nil || rect.Empty() {
 		return
 	}
-	borderRadius := resolveBorderRadius(style)
-	if FastNoRadius {
-		borderRadius = CornerRadii{}
-	}
-	if !FastNoShadows {
-		if shadow, ok := resolveShadow(style.Shadow); ok {
-			if borderRadius.Active() {
-				canvas.DrawShadowRounded(rect, *shadow, borderRadius)
-			} else {
-				canvas.DrawShadow(rect, *shadow)
-			}
-		}
-	}
-
-	gradient, gradientSet := resolveGradient(style.Gradient)
-	if FastNoGradients {
-		gradientSet = false
-	}
-	background, backgroundSet := resolveColor(style.Background)
-	if !backgroundSet && !gradientSet {
-		background = window.Background
-		backgroundSet = true
-	}
-	if gradientSet {
-		if opacity, ok := resolveOpacity(style.Opacity); ok && opacity < 255 {
-			canvas.FillRoundedRectGradientAreaAlpha(rect.X, rect.Y, rect.Width, rect.Height, borderRadius, *gradient, bgRect, opacity)
-		} else {
-			canvas.FillRoundedRectGradientArea(rect.X, rect.Y, rect.Width, rect.Height, borderRadius, *gradient, bgRect)
-		}
-	} else if backgroundSet {
-		if opacity, ok := resolveOpacity(style.Opacity); ok && opacity < 255 {
-			canvas.FillRoundedRectAlpha(rect.X, rect.Y, rect.Width, rect.Height, borderRadius, background, opacity)
-		} else {
-			canvas.FillRoundedRect(rect.X, rect.Y, rect.Width, rect.Height, borderRadius, background)
-		}
-	}
-
-	if !FastNoBorders {
-		if borderWidth, ok := resolveLength(style.BorderWidth); ok && borderWidth > 0 {
-			borderColor := kos.Color(0)
-			if value, ok := resolveColor(style.BorderColor); ok {
-				borderColor = value
-			}
-			canvas.StrokeRoundedRectWidth(rect.X, rect.Y, rect.Width, rect.Height, borderRadius, borderWidth, borderColor)
-		}
-	}
+	background := window.Background
+	drawStyledBox(canvas, rect, style, bgRect, &background)
 }
 
 func (window *Window) drawBackgroundRect(rect Rect) {

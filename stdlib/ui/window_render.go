@@ -10,15 +10,12 @@ func (window *Window) Redraw() {
 	window.ensureCanvas()
 
 	window.drawFrame()
-	kos.BeginRedraw()
-	kos.OpenWindow(window.X, window.Y, window.Width, window.Height, window.Title)
-	if window.canvas != nil {
-		window.canvas.BlitToWindow(window.client.X, window.client.Y)
+	if presenter := window.presenter(); presenter != nil {
+		presenter.PresentFull(window.canvas)
 	}
 	if WindowEnableTinyGL {
 		window.drawTinyGL(true, Rect{})
 	}
-	kos.EndRedraw()
 	window.dirtySet = false
 	window.noteCaretBlinkDrawn()
 }
@@ -233,6 +230,8 @@ func (window *Window) blitDirty() {
 		return
 	}
 	rect := window.dirty
-	window.canvas.BlitRectToWindow(rect, window.client.X+rect.X, window.client.Y+rect.Y)
+	if presenter := window.presenter(); presenter != nil {
+		presenter.PresentRect(window.canvas, rect)
+	}
 	window.dirtySet = false
 }

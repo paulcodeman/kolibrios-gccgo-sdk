@@ -4,9 +4,16 @@ func (element *Element) Layout(canvas *Canvas) {
 	if element == nil || canvas == nil {
 		return
 	}
+	element.LayoutWithContext(layoutContextForCanvas(canvas))
+}
+
+func (element *Element) LayoutWithContext(ctx LayoutContext) {
+	if element == nil {
+		return
+	}
 	style := element.effectiveStyle()
 	element.updateRenderKey(style)
-	element.applyLayout(canvas, style)
+	element.applyLayoutWithContext(ctx, ctx.Viewport, style)
 }
 
 func (element *Element) LayoutDirty() bool {
@@ -38,15 +45,21 @@ func (element *Element) applyLayout(canvas *Canvas, style Style) {
 	if element == nil || canvas == nil {
 		return
 	}
-	container := Rect{X: 0, Y: 0, Width: canvas.Width(), Height: canvas.Height()}
-	element.applyLayoutIn(canvas, container, style)
+	element.applyLayoutWithContext(layoutContextForCanvas(canvas), Rect{X: 0, Y: 0, Width: canvas.Width(), Height: canvas.Height()}, style)
 }
 
 func (element *Element) applyLayoutIn(canvas *Canvas, container Rect, style Style) {
 	if element == nil || canvas == nil {
 		return
 	}
-	key := element.layoutKeyFor(style, container)
+	element.applyLayoutWithContext(layoutContextForCanvas(canvas), container, style)
+}
+
+func (element *Element) applyLayoutWithContext(ctx LayoutContext, container Rect, style Style) {
+	if element == nil {
+		return
+	}
+	key := element.layoutKeyForContext(ctx, style, container)
 	if elementLayoutKeyEqual(key, element.layoutKey) && element.layoutRect.Width > 0 && element.layoutRect.Height > 0 {
 		return
 	}
@@ -57,6 +70,10 @@ func (element *Element) applyLayoutIn(canvas *Canvas, container Rect, style Styl
 }
 
 func (element *Element) layoutKeyFor(style Style, container Rect) elementLayoutKey {
+	return element.layoutKeyForContext(DefaultLayoutContext(container), style, container)
+}
+
+func (element *Element) layoutKeyForContext(ctx LayoutContext, style Style, container Rect) elementLayoutKey {
 	var position *PositionMode
 	if value, ok := resolvePosition(style.Position); ok {
 		v := value
@@ -123,8 +140,8 @@ func (element *Element) layoutKeyFor(style Style, container Rect) elementLayoutK
 		top:         top,
 		right:       right,
 		bottom:      bottom,
-		width:       element.resolvedWidthIn(style, container),
-		height:      element.resolvedHeightIn(style, container),
+		width:       element.resolvedWidthInWithContext(ctx, style, container),
+		height:      element.resolvedHeightInWithContext(ctx, style, container),
 		styleWidth:  styleWidth,
 		styleHeight: styleHeight,
 		margin:      margin,
@@ -233,16 +250,20 @@ func (element *Element) clearFlow() bool {
 }
 
 func (element *Element) resolvedWidth(style Style) int {
+	return element.resolvedWidthWithContext(DefaultLayoutContext(Rect{}), style)
+}
+
+func (element *Element) resolvedWidthWithContext(ctx LayoutContext, style Style) int {
 	if value, ok := resolveLength(style.Width); ok {
 		return value
 	}
 	text := element.text()
-	font, metrics := fontAndMetricsForStyle(style)
+	font, metrics := ctx.FontForStyle(style)
 	charWidth := metrics.width
 	if charWidth <= 0 {
 		charWidth = defaultCharWidth
 	}
-	textWidth := textWidthWithFont(text, font, charWidth)
+	textWidth := ctx.MeasureText(text, font, charWidth)
 	leftPad := 0
 	rightPad := 0
 	if padding, ok := resolveSpacingNormalized(style.Padding); ok {
@@ -266,6 +287,10 @@ func (element *Element) resolvedWidth(style Style) int {
 }
 
 func (element *Element) resolvedWidthIn(style Style, container Rect) int {
+	return element.resolvedWidthInWithContext(DefaultLayoutContext(container), style, container)
+}
+
+func (element *Element) resolvedWidthInWithContext(ctx LayoutContext, style Style, container Rect) int {
 	if value, ok := resolveLength(style.Width); ok {
 		return value
 	}
@@ -281,20 +306,28 @@ func (element *Element) resolvedWidthIn(style Style, container Rect) int {
 			return width
 		}
 	}
-	return element.resolvedWidth(style)
+	return element.resolvedWidthWithContext(ctx, style)
 }
 
 func (element *Element) resolvedHeight(style Style) int {
-	return element.resolvedHeightIn(style, Rect{})
+	return element.resolvedHeightWithContext(DefaultLayoutContext(Rect{}), style)
+}
+
+func (element *Element) resolvedHeightWithContext(ctx LayoutContext, style Style) int {
+	return element.resolvedHeightInWithContext(ctx, style, Rect{})
 }
 
 func (element *Element) resolvedHeightIn(style Style, container Rect) int {
+	return element.resolvedHeightInWithContext(DefaultLayoutContext(container), style, container)
+}
+
+func (element *Element) resolvedHeightInWithContext(ctx LayoutContext, style Style, container Rect) int {
 	if value, ok := resolveLength(style.Height); ok {
 		return value
 	}
 	text := element.text()
 	textHeight := 0
-	font, metrics := fontAndMetricsForStyle(style)
+	font, metrics := ctx.FontForStyle(style)
 	lineHeight := metrics.height
 	charWidth := metrics.width
 	if lineHeight <= 0 {
@@ -304,9 +337,9 @@ func (element *Element) resolvedHeightIn(style Style, container Rect) int {
 		charWidth = defaultCharWidth
 	}
 	if text != "" {
-		width := element.resolvedWidth(style)
+		width := element.resolvedWidthWithContext(ctx, style)
 		if container.Width > 0 || container.Height > 0 {
-			width = element.resolvedWidthIn(style, container)
+			width = element.resolvedWidthInWithContext(ctx, style, container)
 		}
 		leftPad := 0
 		rightPad := 0
@@ -323,19 +356,19 @@ func (element *Element) resolvedHeightIn(style Style, container Rect) int {
 		if availableW < 0 {
 			availableW = 0
 		}
-			if element.kind == ElementKindInput {
-				textHeight = lineHeight
-			} else if element.kind == ElementKindTextarea {
-				lines := element.wrapTextPreserveCached(text, availableW, true, font, charWidth)
-				if len(lines) > 0 {
-					textHeight = len(lines) * lineHeight
-				}
-			} else {
-				lines := element.wrapTextLinesCached(text, availableW, font, charWidth)
-				if len(lines) > 0 {
-					textHeight = len(lines) * lineHeight
-				}
+		if element.kind == ElementKindInput {
+			textHeight = lineHeight
+		} else if element.kind == ElementKindTextarea {
+			lines := element.wrapTextPreserveCached(text, availableW, true, font, charWidth)
+			if len(lines) > 0 {
+				textHeight = len(lines) * lineHeight
 			}
+		} else {
+			lines := element.wrapTextLinesCached(text, availableW, font, charWidth)
+			if len(lines) > 0 {
+				textHeight = len(lines) * lineHeight
+			}
+		}
 		baseHeight := textHeight + topPad + bottomPad + border*2
 		switch element.kind {
 		case ElementKindButton:

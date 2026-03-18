@@ -210,11 +210,7 @@ func (window *Window) noteScrollChanged() {
 	window.lastMouseValid = false
 	window.scrollRedraw = true
 	if window.renderListValid {
-		scrollOffset := 0
-		if window.scrollEnabled() && window.scrollY != 0 {
-			scrollOffset = -window.scrollY
-		}
-		window.hitGrid.build(window.client, window.renderList, scrollOffset)
+		window.hitGrid.build(window.client, window.currentDisplayList())
 	}
 	full := Rect{X: 0, Y: 0, Width: window.client.Width, Height: window.client.Height}
 	window.Invalidate(full)

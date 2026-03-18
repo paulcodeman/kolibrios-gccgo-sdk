@@ -8,6 +8,14 @@ type Node interface {
 	Handle(Event) bool
 }
 
+type windowAware interface {
+	setWindow(*Window)
+}
+
+type OffsetDrawAware interface {
+	DrawToOffset(*Canvas, int)
+}
+
 type DirtyAware interface {
 	Dirty() bool
 	ClearDirty()
@@ -15,6 +23,10 @@ type DirtyAware interface {
 
 type LayoutAware interface {
 	Layout(*Canvas)
+}
+
+type LayoutContextAware interface {
+	LayoutWithContext(LayoutContext)
 }
 
 type LayoutDirtyAware interface {

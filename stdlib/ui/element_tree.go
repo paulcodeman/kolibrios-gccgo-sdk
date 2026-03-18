@@ -102,7 +102,9 @@ func (element *Element) Append(child Node) {
 	}
 	if node, ok := child.(*Element); ok {
 		node.Parent = element
-		node.setWindow(element.window)
+	}
+	if aware, ok := child.(windowAware); ok && aware != nil {
+		aware.setWindow(element.window)
 	}
 	element.Children = append(element.Children, child)
 	if element.window != nil {
@@ -121,7 +123,9 @@ func (element *Element) Remove(child Node) bool {
 		if node == child {
 			if el, ok := node.(*Element); ok && el.Parent == element {
 				el.Parent = nil
-				el.setWindow(nil)
+			}
+			if aware, ok := node.(windowAware); ok && aware != nil {
+				aware.setWindow(nil)
 			}
 			element.Children = append(element.Children[:i], element.Children[i+1:]...)
 			if element.window != nil {
@@ -143,7 +147,9 @@ func (element *Element) ClearChildren() {
 	for _, node := range element.Children {
 		if el, ok := node.(*Element); ok && el.Parent == element {
 			el.Parent = nil
-			el.setWindow(nil)
+		}
+		if aware, ok := node.(windowAware); ok && aware != nil {
+			aware.setWindow(nil)
 		}
 	}
 	element.Children = nil
