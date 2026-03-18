@@ -3,6 +3,7 @@ package os
 import (
 	"io"
 	"kos"
+	"path"
 	"syscall"
 	"time"
 )
@@ -521,6 +522,36 @@ func Mkdir(name string, perm FileMode) error {
 	return nil
 }
 
+// MkdirAll creates a directory named path, along with any necessary parents,
+// and returns nil, or else returns an error. The permission bits are ignored.
+func MkdirAll(name string, perm FileMode) error {
+	if name == "" {
+		return &PathError{Op: "mkdir", Path: name, Err: ErrInvalid}
+	}
+	name = path.Clean(name)
+	if name == "." || name == "/" {
+		return nil
+	}
+
+	if info, err := Stat(name); err == nil {
+		if info.IsDir() {
+			return nil
+		}
+		return &PathError{Op: "mkdir", Path: name, Err: ErrExist}
+	} else if !IsNotExist(err) {
+		return err
+	}
+
+	parent := path.Dir(name)
+	if parent != "." && parent != "/" && parent != name {
+		if err := MkdirAll(parent, perm); err != nil {
+			return err
+		}
+	}
+
+	return Mkdir(name, perm)
+}
+
 func Remove(name string) error {
 	status := kos.DeletePath(name)
 	if status != kos.FileSystemOK {
@@ -821,6 +852,10 @@ func (file *File) Write(buffer []byte) (int, error) {
 	}
 
 	return int(written), nil
+}
+
+func (file *File) WriteString(value string) (int, error) {
+	return file.Write([]byte(value))
 }
 
 func (file *File) readActiveConsole(buffer []byte) (int, error) {

@@ -2,7 +2,7 @@ package otto
 
 import (
 	"math"
-	"math/rand"
+	rand "math/rand"
 )
 
 // Math

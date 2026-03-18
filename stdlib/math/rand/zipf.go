@@ -7,7 +7,7 @@
 // from Monotone Discrete Distributions"
 // http://eeyore.wu-wien.ac.at/papers/96-04-04.wh-der.ps.gz
 
-package rand
+package mathrand
 
 import "math"
 

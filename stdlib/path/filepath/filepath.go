@@ -40,6 +40,11 @@ func Split(p string) (dir, file string) {
     return p[:i+1], p[i+1:]
 }
 
+// Dir returns all but the last element of path, typically the path's directory.
+func Dir(p string) string {
+    return path.Dir(ToSlash(p))
+}
+
 // Base returns the last element of path. Trailing separators are removed.
 func Base(p string) string {
     return path.Base(ToSlash(p))

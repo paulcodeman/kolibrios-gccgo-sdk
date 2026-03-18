@@ -19,6 +19,25 @@ const (
 	Hour                 = 60 * Minute
 )
 
+func durationUnit(value string) (Duration, bool) {
+	switch value {
+	case "ns":
+		return Nanosecond, true
+	case "us", "\u00b5s", "\u03bcs":
+		return Microsecond, true
+	case "ms":
+		return Millisecond, true
+	case "s":
+		return Second, true
+	case "m":
+		return Minute, true
+	case "h":
+		return Hour, true
+	default:
+		return 0, false
+	}
+}
+
 func (d Duration) Seconds() float64 {
 	return float64(d) / float64(Second)
 }
@@ -162,6 +181,102 @@ func Parse(layout string, value string) (Time, error) {
 	return parseNumericLayout(layout, value)
 }
 
+// ParseDuration parses a duration string.
+// A duration string is a possibly signed sequence of decimal numbers, each with
+// optional fraction and a unit suffix, such as "300ms", "-1.5h" or "2h45m".
+// Valid time units are "ns", "us", "ms", "s", "m", "h".
+func ParseDuration(value string) (Duration, error) {
+	orig := value
+	neg := false
+	if value != "" {
+		switch value[0] {
+		case '-':
+			neg = true
+			value = value[1:]
+		case '+':
+			value = value[1:]
+		}
+	}
+	if value == "0" {
+		return 0, nil
+	}
+	if value == "" {
+		return 0, errors.New("time: invalid duration " + orig)
+	}
+
+	var total int64
+	for value != "" {
+		hasInt := false
+		intPart := int64(0)
+		i := 0
+		for i < len(value) && value[i] >= '0' && value[i] <= '9' {
+			i++
+		}
+		if i > 0 {
+			hasInt = true
+			parsed, err := strconv.ParseInt(value[:i], 10, 64)
+			if err != nil {
+				return 0, errors.New("time: invalid duration " + orig)
+			}
+			intPart = parsed
+		}
+		value = value[i:]
+
+		fracPart := int64(0)
+		scale := int64(1)
+		if len(value) > 0 && value[0] == '.' {
+			value = value[1:]
+			j := 0
+			for j < len(value) && value[j] >= '0' && value[j] <= '9' {
+				if fracPart <= maxInt64/10 {
+					fracPart = fracPart*10 + int64(value[j]-'0')
+					scale *= 10
+				}
+				j++
+			}
+			if j == 0 && !hasInt {
+				return 0, errors.New("time: invalid duration " + orig)
+			}
+			value = value[j:]
+		} else if !hasInt {
+			return 0, errors.New("time: invalid duration " + orig)
+		}
+
+		k := 0
+		for k < len(value) && (value[k] < '0' || value[k] > '9') && value[k] != '.' {
+			k++
+		}
+		if k == 0 {
+			return 0, errors.New("time: missing unit in duration " + orig)
+		}
+		unitStr := value[:k]
+		value = value[k:]
+
+		unit, ok := durationUnit(unitStr)
+		if !ok {
+			return 0, errors.New("time: unknown unit " + unitStr + " in duration " + orig)
+		}
+
+		if intPart != 0 {
+			if intPart > maxInt64/int64(unit) {
+				return 0, errors.New("time: invalid duration " + orig)
+			}
+			total += intPart * int64(unit)
+		}
+		if fracPart != 0 {
+			total += int64(float64(fracPart) * (float64(unit) / float64(scale)))
+		}
+		if total > maxInt64 {
+			return 0, errors.New("time: invalid duration " + orig)
+		}
+	}
+
+	if neg {
+		total = -total
+	}
+	return Duration(total), nil
+}
+
 func Sleep(duration Duration) {
 	if duration <= 0 {
 		return
@@ -276,6 +391,11 @@ func (value Time) Day() int {
 	return day
 }
 
+func (value Time) Date() (year int, month Month, day int) {
+	year, month, day, _, _, _ = value.dateTime()
+	return
+}
+
 func (value Time) Month() Month {
 	_, month, _, _, _, _ := value.dateTime()
 	return month
@@ -284,6 +404,30 @@ func (value Time) Month() Month {
 func (value Time) Year() int {
 	year, _, _, _, _, _ := value.dateTime()
 	return year
+}
+
+func (value Time) Clock() (hour int, min int, sec int) {
+	_, _, _, hour, min, sec = value.dateTime()
+	return
+}
+
+// AddDate returns the time corresponding to adding the given number of years,
+// months, and days to t.
+func (value Time) AddDate(years int, months int, days int) Time {
+	year, month, day, hour, minute, second := value.dateTime()
+	year += years
+
+	monthIndex := int(month) - 1
+	monthIndex += months
+	year += monthIndex / 12
+	monthIndex = monthIndex % 12
+	if monthIndex < 0 {
+		monthIndex += 12
+		year--
+	}
+
+	month = Month(monthIndex + 1)
+	return Date(year, month, day+days, hour, minute, second, value.Nanosecond(), value.Location())
 }
 
 func (value Time) Weekday() Weekday {

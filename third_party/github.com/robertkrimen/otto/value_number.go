@@ -234,6 +234,37 @@ func (value Value) number() (number _number) {
 	return
 }
 
+func valueIntegerExact(value Value) (int64, bool) {
+	switch value := value.value.(type) {
+	case int:
+		return int64(value), true
+	case int8:
+		return int64(value), true
+	case int16:
+		return int64(value), true
+	case int32:
+		return int64(value), true
+	case int64:
+		return value, true
+	case uint:
+		if uint64(value) <= uint64(int64_maxInt) {
+			return int64(value), true
+		}
+	case uint8:
+		return int64(value), true
+	case uint16:
+		return int64(value), true
+	case uint32:
+		return int64(value), true
+	case uint64:
+		if value <= uint64(int64_maxInt) {
+			return int64(value), true
+		}
+	}
+
+	return 0, false
+}
+
 // ECMA 262: 9.5
 func toInt32(value Value) int32 {
 	{

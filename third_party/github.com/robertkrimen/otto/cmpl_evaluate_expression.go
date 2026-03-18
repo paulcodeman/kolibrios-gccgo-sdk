@@ -372,6 +372,16 @@ func (self *_runtime) cmpl_evaluate_nodeUnaryExpression(node *_nodeUnaryExpressi
 		return toValue_float64(math.Copysign(value, sign))
 	case token.INCREMENT:
 		targetValue := target.resolve()
+		if integerValue, ok := valueIntegerExact(targetValue); ok && integerValue < math.MaxInt64 {
+			if node.postfix {
+				newValue := toValue_int64(integerValue + 1)
+				self.putValue(target.reference(), newValue)
+				return toValue_int64(integerValue)
+			}
+			newValue := toValue_int64(integerValue + 1)
+			self.putValue(target.reference(), newValue)
+			return newValue
+		}
 		if node.postfix {
 			// Postfix++
 			oldValue := targetValue.float64()
@@ -386,6 +396,16 @@ func (self *_runtime) cmpl_evaluate_nodeUnaryExpression(node *_nodeUnaryExpressi
 		}
 	case token.DECREMENT:
 		targetValue := target.resolve()
+		if integerValue, ok := valueIntegerExact(targetValue); ok && integerValue > math.MinInt64 {
+			if node.postfix {
+				newValue := toValue_int64(integerValue - 1)
+				self.putValue(target.reference(), newValue)
+				return toValue_int64(integerValue)
+			}
+			newValue := toValue_int64(integerValue - 1)
+			self.putValue(target.reference(), newValue)
+			return newValue
+		}
 		if node.postfix {
 			// Postfix--
 			oldValue := targetValue.float64()

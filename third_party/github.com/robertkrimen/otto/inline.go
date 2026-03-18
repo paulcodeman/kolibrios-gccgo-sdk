@@ -6596,6 +6596,12 @@ func toValue_int32(value int32) Value {
 }
 
 func toValue_int64(value int64) Value {
+	if value >= int64_minInt && value <= int64_maxInt {
+		return Value{
+			kind:  valueNumber,
+			value: int(value),
+		}
+	}
 	return Value{
 		kind:  valueNumber,
 		value: value,
@@ -6631,6 +6637,12 @@ func toValue_uint32(value uint32) Value {
 }
 
 func toValue_uint64(value uint64) Value {
+	if value <= uint64(maxUint) {
+		return Value{
+			kind:  valueNumber,
+			value: uint(value),
+		}
+	}
 	return Value{
 		kind:  valueNumber,
 		value: value,

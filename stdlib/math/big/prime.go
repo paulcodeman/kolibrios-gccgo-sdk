@@ -4,7 +4,7 @@
 
 package big
 
-import "math/rand"
+import rand "math/rand"
 
 // ProbablyPrime reports whether x is probably prime,
 // applying the Miller-Rabin test with n pseudorandomly chosen bases

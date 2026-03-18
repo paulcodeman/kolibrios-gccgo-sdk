@@ -9,7 +9,7 @@ package big
 import (
 	"fmt"
 	"io"
-	"math/rand"
+	rand "math/rand"
 	"strings"
 )
 

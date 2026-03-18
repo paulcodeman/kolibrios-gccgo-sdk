@@ -47,14 +47,19 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-clean_artifacts() {
+clean_intermediate_artifacts() {
   rm -rf "${REPO_ROOT}/.pkg"
   find "${REPO_ROOT}/platform/abi" -maxdepth 1 -name '*.o' -delete
   find "${REPO_ROOT}" -type d -name '.build' -prune -exec rm -rf {} +
   find "${REPO_ROOT}" -type f \( -name '*.gccgo.o' -o -name '*.gox' \) -delete
 }
 
-clean_artifacts
+clean_outputs() {
+  find "${REPO_ROOT}" -type f \( -name '*.kex' -o -name '*.obj' \) -delete
+}
+
+clean_outputs
+clean_intermediate_artifacts
 
 find_roots=()
 if [[ -d "${REPO_ROOT}/apps" ]]; then
@@ -77,4 +82,4 @@ for dir in "${targets[@]}"; do
   KEEP_PKG=1 KEEP_ABI=1 FAST_PKG=1 ./build-app.sh "${build_args[@]}" "${dir}"
 done
 
-clean_artifacts
+clean_intermediate_artifacts

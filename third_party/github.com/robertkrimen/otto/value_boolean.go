@@ -3,7 +3,6 @@ package otto
 import (
 	"fmt"
 	"math"
-	"reflect"
 	"unicode/utf16"
 )
 
@@ -20,10 +19,26 @@ func (value Value) bool() bool {
 	switch value := value.value.(type) {
 	case bool:
 		return value
-	case int, int8, int16, int32, int64:
-		return 0 != reflect.ValueOf(value).Int()
-	case uint, uint8, uint16, uint32, uint64:
-		return 0 != reflect.ValueOf(value).Uint()
+	case int:
+		return value != 0
+	case int8:
+		return value != 0
+	case int16:
+		return value != 0
+	case int32:
+		return value != 0
+	case int64:
+		return value != 0
+	case uint:
+		return value != 0
+	case uint8:
+		return value != 0
+	case uint16:
+		return value != 0
+	case uint32:
+		return value != 0
+	case uint64:
+		return value != 0
 	case float32:
 		return 0 != value
 	case float64:
