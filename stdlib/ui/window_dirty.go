@@ -15,6 +15,18 @@ func (window *Window) noteRetainedLayerDirty(node Node, rect Rect) {
 	}
 }
 
+func (window *Window) noteRetainedLayerDirtyBounds(node Node, oldBounds Rect, newBounds Rect) {
+	if window == nil || node == nil {
+		return
+	}
+	if !oldBounds.Empty() {
+		window.noteRetainedLayerDirty(node, oldBounds)
+	}
+	if newBounds != oldBounds && !newBounds.Empty() {
+		window.noteRetainedLayerDirty(node, newBounds)
+	}
+}
+
 func (window *Window) noteDirty(node Node) {
 	if window == nil || node == nil {
 		return
@@ -243,8 +255,8 @@ func (window *Window) collectDirty() bool {
 		oldBounds := window.nodeBounds[node]
 		newBounds := window.nodeVisualBoundsFor(node, true)
 		window.nodeBounds[node] = newBounds
+		window.noteRetainedLayerDirtyBounds(node, oldBounds, newBounds)
 		rawUpdated := UnionRect(oldBounds, newBounds)
-		window.noteRetainedLayerDirty(node, rawUpdated)
 		updated := rawUpdated
 		if exposed, ok := window.tryTranslateBlit(node, oldBounds, newBounds, nil, scrollOffset); ok {
 			updated = exposed
@@ -298,8 +310,8 @@ func (window *Window) mergeDirtyBounds(dirty Rect, dirtySet bool, oldBounds map[
 	for node, bounds := range newBounds {
 		if old, ok := oldBounds[node]; ok {
 			if old != bounds {
+				window.noteRetainedLayerDirtyBounds(node, old, bounds)
 				rawUpdated := UnionRect(old, bounds)
-				window.noteRetainedLayerDirty(node, rawUpdated)
 				updated := rawUpdated
 				if exposed, ok := window.tryTranslateBlit(node, old, bounds, oldKeys, scrollOffset); ok {
 					updated = exposed

@@ -8,34 +8,88 @@ var ElementRetainedLayers = true
 const (
 	elementRetainedLayerMinDescendants = 4
 	elementRetainedLayerMinArea        = 16384
+	elementRetainedLayerMaxDirtyRects  = 4
 )
 
 func (element *Element) invalidateRetainedLayerChain() {
 	for current := element; current != nil; current = current.Parent {
 		current.subtreeLayerValid = false
-		current.subtreeLayerDirty = Rect{}
-		current.subtreeLayerDirtySet = false
+		current.clearRetainedSubtreeDirty()
 	}
+}
+
+func retainedLayerDirtyRectsMergeable(a Rect, b Rect) bool {
+	if a.Empty() || b.Empty() {
+		return false
+	}
+	if !IntersectRect(a, b).Empty() {
+		return true
+	}
+	if a.Y == b.Y && a.Height == b.Height {
+		aRight := a.X + a.Width
+		bRight := b.X + b.Width
+		if aRight == b.X || bRight == a.X {
+			return true
+		}
+	}
+	if a.X == b.X && a.Width == b.Width {
+		aBottom := a.Y + a.Height
+		bBottom := b.Y + b.Height
+		if aBottom == b.Y || bBottom == a.Y {
+			return true
+		}
+	}
+	return false
+}
+
+func (element *Element) hasRetainedSubtreeDirty() bool {
+	return element != nil && (element.subtreeLayerDirtyFull || element.subtreeLayerDirtyCount != 0)
 }
 
 func (element *Element) noteRetainedSubtreeDirty(rect Rect) {
 	if element == nil || rect.Empty() {
 		return
 	}
-	if element.subtreeLayerDirtySet {
-		element.subtreeLayerDirty = UnionRect(element.subtreeLayerDirty, rect)
-	} else {
-		element.subtreeLayerDirty = rect
-		element.subtreeLayerDirtySet = true
+	if element.subtreeLayerDirtyFull {
+		return
 	}
+	for {
+		merged := false
+		for index := 0; index < element.subtreeLayerDirtyCount; index++ {
+			existing := element.subtreeLayerDirty[index]
+			if !retainedLayerDirtyRectsMergeable(existing, rect) {
+				continue
+			}
+			rect = UnionRect(rect, existing)
+			last := element.subtreeLayerDirtyCount - 1
+			element.subtreeLayerDirty[index] = element.subtreeLayerDirty[last]
+			element.subtreeLayerDirty[last] = Rect{}
+			element.subtreeLayerDirtyCount--
+			merged = true
+			break
+		}
+		if !merged {
+			break
+		}
+	}
+	if element.subtreeLayerDirtyCount < elementRetainedLayerMaxDirtyRects {
+		element.subtreeLayerDirty[element.subtreeLayerDirtyCount] = rect
+		element.subtreeLayerDirtyCount++
+		return
+	}
+	element.clearRetainedSubtreeDirty()
+	element.subtreeLayerDirtyFull = true
 }
 
 func (element *Element) clearRetainedSubtreeDirty() {
 	if element == nil {
 		return
 	}
-	element.subtreeLayerDirty = Rect{}
-	element.subtreeLayerDirtySet = false
+	for index := range element.subtreeLayerDirty {
+		element.subtreeLayerDirty[index] = Rect{}
+	}
+	element.subtreeLayerDirtyCount = 0
+	element.subtreeLayerDirtyFull = false
 }
 
 func (element *Element) useRetainedSubtreeLayer(style Style) bool {
@@ -194,22 +248,39 @@ func (element *Element) redrawRetainedSubtreeLayer(style Style, visual Rect) {
 }
 
 func (element *Element) updateRetainedSubtreeLayer(style Style, visual Rect) bool {
-	if element == nil || element.subtreeLayer == nil || !element.subtreeLayerValid || !element.subtreeLayerDirtySet {
+	if element == nil || element.subtreeLayer == nil || !element.subtreeLayerValid || !element.hasRetainedSubtreeDirty() {
 		return false
 	}
-	dirty := IntersectRect(element.subtreeLayerDirty, visual)
+	dirtyFull := element.subtreeLayerDirtyFull
+	dirtyCount := element.subtreeLayerDirtyCount
+	dirtyRects := element.subtreeLayerDirty
 	element.clearRetainedSubtreeDirty()
-	if dirty.Empty() {
+	if dirtyFull {
+		element.redrawRetainedSubtreeLayer(style, visual)
 		return true
 	}
-	localDirty := Rect{
-		X:      dirty.X - visual.X,
-		Y:      dirty.Y - visual.Y,
-		Width:  dirty.Width,
-		Height: dirty.Height,
+	if dirtyCount == 0 {
+		return false
 	}
-	element.subtreeLayer.ClearRectTransparent(localDirty.X, localDirty.Y, localDirty.Width, localDirty.Height)
-	element.drawRetainedSubtreeNode(element.subtreeLayer, visual.X, visual.Y, clipState{rect: localDirty, set: true})
+	updated := false
+	for index := 0; index < dirtyCount; index++ {
+		dirty := IntersectRect(dirtyRects[index], visual)
+		if dirty.Empty() {
+			continue
+		}
+		localDirty := Rect{
+			X:      dirty.X - visual.X,
+			Y:      dirty.Y - visual.Y,
+			Width:  dirty.Width,
+			Height: dirty.Height,
+		}
+		element.subtreeLayer.ClearRectTransparent(localDirty.X, localDirty.Y, localDirty.Width, localDirty.Height)
+		element.drawRetainedSubtreeNode(element.subtreeLayer, visual.X, visual.Y, clipState{rect: localDirty, set: true})
+		updated = true
+	}
+	if !updated {
+		return true
+	}
 	return true
 }
 
@@ -221,7 +292,7 @@ func (element *Element) tryDrawFromRetainedSubtreeLayer(canvas *Canvas, style St
 	if !ok || element.subtreeLayer == nil {
 		return false
 	}
-	if element.subtreeLayerDirtySet && element.subtreeLayerValid {
+	if element.hasRetainedSubtreeDirty() && element.subtreeLayerValid {
 		if !element.updateRetainedSubtreeLayer(style, visual) {
 			element.redrawRetainedSubtreeLayer(style, visual)
 		}
