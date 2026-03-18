@@ -23,6 +23,29 @@ func (canvas *Canvas) ClearTransparent() {
 	fillSlice32(pixels, 0)
 }
 
+func (canvas *Canvas) ClearRectTransparent(x int, y int, width int, height int) {
+	if canvas == nil || len(canvas.data) < 2 {
+		return
+	}
+	if !canvas.alpha {
+		canvas.fillRectValue(x, y, width, height, 0xFF000000)
+		return
+	}
+	x, y, width, height, ok := canvas.clampRect(x, y, width, height)
+	if !ok {
+		return
+	}
+	rowStart := 2 + y*canvas.width + x
+	if x == 0 && width == canvas.width {
+		fillSlice32(canvas.data[rowStart:rowStart+width*height], 0)
+		return
+	}
+	for row := 0; row < height; row++ {
+		index := rowStart + row*canvas.width
+		fillSlice32(canvas.data[index:index+width], 0)
+	}
+}
+
 func (canvas *Canvas) FillRect(x int, y int, width int, height int, color kos.Color) {
 	x, y, width, height, ok := canvas.clampRect(x, y, width, height)
 	if !ok {

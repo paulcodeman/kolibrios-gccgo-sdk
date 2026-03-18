@@ -1,5 +1,20 @@
 package ui
 
+func (window *Window) noteRetainedLayerDirty(node Node, rect Rect) {
+	if window == nil || rect.Empty() {
+		return
+	}
+	element, ok := node.(*Element)
+	if !ok || element == nil {
+		return
+	}
+	for current := element; current != nil; current = current.Parent {
+		if current.useRetainedSubtreeLayer(current.effectiveStyle()) {
+			current.noteRetainedSubtreeDirty(rect)
+		}
+	}
+}
+
 func (window *Window) noteDirty(node Node) {
 	if window == nil || node == nil {
 		return
@@ -228,7 +243,9 @@ func (window *Window) collectDirty() bool {
 		oldBounds := window.nodeBounds[node]
 		newBounds := window.nodeVisualBoundsFor(node, true)
 		window.nodeBounds[node] = newBounds
-		updated := UnionRect(oldBounds, newBounds)
+		rawUpdated := UnionRect(oldBounds, newBounds)
+		window.noteRetainedLayerDirty(node, rawUpdated)
+		updated := rawUpdated
 		if exposed, ok := window.tryTranslateBlit(node, oldBounds, newBounds, nil, scrollOffset); ok {
 			updated = exposed
 		} else if scrollOffset != 0 && !updated.Empty() {
@@ -281,7 +298,9 @@ func (window *Window) mergeDirtyBounds(dirty Rect, dirtySet bool, oldBounds map[
 	for node, bounds := range newBounds {
 		if old, ok := oldBounds[node]; ok {
 			if old != bounds {
-				updated := UnionRect(old, bounds)
+				rawUpdated := UnionRect(old, bounds)
+				window.noteRetainedLayerDirty(node, rawUpdated)
+				updated := rawUpdated
 				if exposed, ok := window.tryTranslateBlit(node, old, bounds, oldKeys, scrollOffset); ok {
 					updated = exposed
 				} else if scrollOffset != 0 && !updated.Empty() {
@@ -302,6 +321,7 @@ func (window *Window) mergeDirtyBounds(dirty Rect, dirtySet bool, oldBounds map[
 		if bounds.Empty() {
 			continue
 		}
+		window.noteRetainedLayerDirty(node, bounds)
 		if scrollOffset != 0 {
 			bounds.Y += scrollOffset
 		}

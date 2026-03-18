@@ -41,7 +41,6 @@ func (element *Element) markDirtyIn(window *Window) {
 		return
 	}
 	element.dirty = true
-	element.invalidateRetainedLayerChain()
 	target := window
 	if target == nil {
 		target = element.window
@@ -50,12 +49,6 @@ func (element *Element) markDirtyIn(window *Window) {
 		return
 	}
 	target.noteDirty(element)
-	for parent := element.Parent; parent != nil; parent = parent.Parent {
-		if parent.useRetainedSubtreeLayer(parent.effectiveStyle()) {
-			parent.dirty = true
-			target.noteDirty(parent)
-		}
-	}
 	if element.layoutDirtyInCurrentContainer() {
 		target.layoutDirty = true
 		target.renderListValid = false
