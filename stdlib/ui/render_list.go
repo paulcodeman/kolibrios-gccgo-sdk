@@ -1,10 +1,11 @@
 package ui
 
 type renderItem struct {
-	node   Node
-	bounds Rect
-	paint  Rect
-	clip   clipState
+	node      Node
+	bounds    Rect
+	paint     Rect
+	clip      clipState
+	skipPaint bool
 }
 
 func clearRenderIndex(m map[Node]int) {
@@ -68,13 +69,13 @@ func (window *Window) buildRenderList() {
 	if window.renderVisited != nil {
 		clearVisited(window.renderVisited)
 	}
-	window.appendRenderItems(window.nodes, clipState{}, gen, false)
+	window.appendRenderItems(window.nodes, clipState{}, gen, false, false)
 	window.updateScrollMetrics()
 	window.hitGrid.build(window.client, window.currentDisplayList())
 	window.renderListValid = true
 }
 
-func (window *Window) appendRenderItems(nodes []Node, clip clipState, gen uint32, inheritedHidden bool) {
+func (window *Window) appendRenderItems(nodes []Node, clip clipState, gen uint32, inheritedHidden bool, suppressPaint bool) {
 	for _, node := range nodes {
 		if node == nil {
 			continue
@@ -120,10 +121,11 @@ func (window *Window) appendRenderItems(nodes []Node, clip clipState, gen uint32
 			}
 			index := len(window.renderList)
 			window.renderList = append(window.renderList, renderItem{
-				node:   node,
-				bounds: bounds,
-				paint:  paint,
-				clip:   clip,
+				node:      node,
+				bounds:    bounds,
+				paint:     paint,
+				clip:      clip,
+				skipPaint: suppressPaint,
 			})
 			window.renderIndex[node] = index
 			if WindowEnableTinyGL && isElement && element != nil && element.kind == ElementKindTinyGL {
@@ -143,7 +145,8 @@ func (window *Window) appendRenderItems(nodes []Node, clip clipState, gen uint32
 		if clipX || clipY {
 			childClip = window.mergeClip(clip, rect, style, clipX, clipY)
 		}
-		window.appendRenderItems(element.Children, childClip, gen, currentHidden)
+		childSuppress := suppressPaint || element.useRetainedSubtreeLayer(style)
+		window.appendRenderItems(element.Children, childClip, gen, currentHidden, childSuppress)
 	}
 }
 

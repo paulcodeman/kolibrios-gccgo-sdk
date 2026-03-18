@@ -107,6 +107,7 @@ func (element *Element) Append(child Node) {
 		aware.setWindow(element.window)
 	}
 	element.Children = append(element.Children, child)
+	element.invalidateRetainedLayerChain()
 	if element.window != nil {
 		element.window.layoutDirty = true
 		element.window.renderListValid = false
@@ -128,6 +129,7 @@ func (element *Element) Remove(child Node) bool {
 				aware.setWindow(nil)
 			}
 			element.Children = append(element.Children[:i], element.Children[i+1:]...)
+			element.invalidateRetainedLayerChain()
 			if element.window != nil {
 				element.window.layoutDirty = true
 				element.window.renderListValid = false
@@ -153,6 +155,7 @@ func (element *Element) ClearChildren() {
 		}
 	}
 	element.Children = nil
+	element.invalidateRetainedLayerChain()
 	if element.window != nil {
 		element.window.layoutDirty = true
 		element.window.renderListValid = false

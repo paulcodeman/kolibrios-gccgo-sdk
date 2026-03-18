@@ -9,7 +9,7 @@ type DisplayList struct {
 }
 
 func (list DisplayList) itemPaintState(item renderItem, full bool, dirty Rect) (Rect, Rect, bool, bool) {
-	if item.node == nil {
+	if item.node == nil || item.skipPaint {
 		return Rect{}, Rect{}, false, false
 	}
 	paint := item.paint
@@ -192,6 +192,12 @@ func (list DisplayList) Paint(window *Window, full bool, dirty Rect, stats *Fram
 	}
 	for i, item := range list.items {
 		if item.node == nil {
+			continue
+		}
+		if item.skipPaint {
+			if aware, ok := item.node.(DirtyAware); ok {
+				aware.ClearDirty()
+			}
 			continue
 		}
 		if skip != nil && skip[i] {

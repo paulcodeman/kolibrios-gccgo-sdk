@@ -121,6 +121,9 @@ func (element *Element) DrawTo(canvas *Canvas) {
 	if rect.Width <= 0 || rect.Height <= 0 {
 		return
 	}
+	if element.tryDrawFromRetainedSubtreeLayer(canvas, style, 0) {
+		return
+	}
 	if element.tryDrawFromCache(canvas, rect, style) {
 		return
 	}

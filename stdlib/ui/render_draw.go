@@ -53,6 +53,9 @@ func (window *Window) drawElementWithOffset(element *Element, offsetY int) {
 	if rect.Width <= 0 || rect.Height <= 0 {
 		return
 	}
+	if element.tryDrawFromRetainedSubtreeLayer(window.canvas, style, offsetY) {
+		return
+	}
 	if offsetY != 0 {
 		rect.Y += offsetY
 	}
