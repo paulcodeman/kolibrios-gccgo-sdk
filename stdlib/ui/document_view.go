@@ -48,6 +48,13 @@ type DocumentView struct {
 	hoverNode      *DocumentNode
 	activeNode     *DocumentNode
 	focusNode      *DocumentNode
+	layerCanvas    *Canvas
+	layerValid     bool
+	layerWidth     int
+	layerHeight    int
+	layerOffsetX   int
+	layerOffsetY   int
+	layerVisualKey styleVisualKey
 	renderVisitGen uint32
 	layoutVisitGen uint32
 	dirtyQueueGen  uint32
@@ -91,6 +98,7 @@ func (view *DocumentView) setWindow(window *Window) {
 		return
 	}
 	view.window = window
+	view.layerValid = false
 	view.renderVisitGen = 0
 	view.layoutVisitGen = 0
 	view.dirtyQueueGen = 0
@@ -119,6 +127,7 @@ func (view *DocumentView) setDocument(document *Document) {
 	view.scrollY = 0
 	view.drawnScrollY = 0
 	view.scrollMaxY = 0
+	view.layerValid = false
 }
 
 func (view *DocumentView) SetDocument(document *Document) bool {
@@ -200,6 +209,7 @@ func (view *DocumentView) MarkDirty() {
 		return
 	}
 	view.dirty = true
+	view.layerValid = false
 	if view.window != nil {
 		view.window.noteDirty(view)
 	}
@@ -210,6 +220,7 @@ func (view *DocumentView) MarkLayoutDirty() {
 		return
 	}
 	view.layoutDirty = true
+	view.layerValid = false
 	view.MarkDirty()
 	if view.window != nil {
 		view.window.layoutDirty = true

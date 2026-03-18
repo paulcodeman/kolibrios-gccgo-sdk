@@ -36,6 +36,9 @@ func (view *DocumentView) drawToOffset(canvas *Canvas, offsetY int) {
 	if view.layoutRect.Empty() {
 		return
 	}
+	if view.drawRetainedLayer(canvas, style, offsetY) {
+		return
+	}
 	rect := view.layoutRect
 	if offsetY != 0 {
 		rect.Y += offsetY
