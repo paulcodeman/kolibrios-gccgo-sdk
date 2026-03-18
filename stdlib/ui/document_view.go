@@ -216,31 +216,15 @@ func (view *DocumentView) MarkDirty() {
 		return
 	}
 	view.dirty = true
-	if !view.visualRect.Empty() {
-		view.noteRetainedLayerDirty(view.visualRect)
-	}
+	view.layerValid = false
+	view.clearRetainedLayerDirty()
 	if view.window != nil {
 		view.window.noteDirty(view)
 	}
 }
 
 func (view *DocumentView) MarkDirtyRect(rect Rect) {
-	if view == nil {
-		return
-	}
-	if rect.Empty() || view.visualRect.Empty() {
-		view.MarkDirty()
-		return
-	}
-	rect = IntersectRect(rect, view.visualRect)
-	if rect.Empty() {
-		return
-	}
-	view.dirty = true
-	view.noteRetainedLayerDirty(rect)
-	if view.window != nil {
-		view.window.Invalidate(rect)
-	}
+	view.MarkDirty()
 }
 
 func (view *DocumentView) MarkLayoutDirty() {

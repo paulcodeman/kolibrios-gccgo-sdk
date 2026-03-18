@@ -318,6 +318,6 @@ func (fragment *Fragment) paintTextOffset(canvas *Canvas, offsetX int, offsetY i
 		} else {
 			canvas.DrawText(x, y, foreground, line.text)
 		}
-		drawTextDecorations(canvas, x, y, line.text, style, font, charWidth, lineHeight, foreground)
+		drawTextDecorations(canvas, x, y, line.text, style, font, charWidth, foreground)
 	}
 }

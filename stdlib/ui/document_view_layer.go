@@ -2,7 +2,12 @@ package ui
 
 // DocumentViewRetainedLayer enables drawing DocumentView into its own retained
 // offscreen surface before compositing it into the window canvas.
-var DocumentViewRetainedLayer = true
+//
+// Disabled by default for now: the retained path for document hosts still has
+// correctness/startup issues under some document workloads. The non-retained
+// path is slower but stable, which is more important until the layer pipeline
+// is reworked.
+var DocumentViewRetainedLayer = false
 
 func (view *DocumentView) useRetainedLayer(style Style) bool {
 	if view == nil || !DocumentViewRetainedLayer || FastNoCache {
@@ -133,7 +138,11 @@ func (view *DocumentView) ensureRetainedLayer(style Style) (Rect, Rect, bool) {
 	if width <= 0 || height <= 0 {
 		return visual, localRect, false
 	}
-	useTiles := useRetainedLayerTiles(visual)
+	// Keep DocumentView on a single retained surface for now. The tiled path
+	// is more fragile because document paint currently mixes clip, scroll and
+	// retained backing updates; correctness matters more than keeping this
+	// optimization enabled.
+	useTiles := false
 	if view.layerWidth != width || view.layerHeight != height ||
 		(useTiles != view.retainedLayerUsesTiles()) ||
 		(useTiles && (view.layerTileCols != retainedLayerTileCount(width) || view.layerTileRows != retainedLayerTileCount(height))) ||
@@ -420,14 +429,7 @@ func (view *DocumentView) drawRetainedLayer(canvas *Canvas, style Style, offsetY
 		return false
 	}
 	if view.pendingScrollDelta() != 0 && view.layerValid {
-		if !view.updateRetainedLayerForScroll(style, visual, localRect) {
-			view.redrawRetainedLayer(style, visual, localRect)
-		}
-	}
-	if view.hasRetainedLayerDirty() && view.layerValid {
-		if !view.updateRetainedLayer(style, visual, localRect) {
-			view.redrawRetainedLayer(style, visual, localRect)
-		}
+		view.redrawRetainedLayer(style, visual, localRect)
 	}
 	targetVisual := visual
 	if offsetY != 0 {

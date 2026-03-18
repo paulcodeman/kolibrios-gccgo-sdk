@@ -28,7 +28,7 @@ func (element *Element) Draw() {
 		element.drawEditableTextLines(layout, style,
 			func(tx int, ty int, line string) {
 				kos.DrawText(tx, ty, foreground, line)
-				drawTextDecorationsRaw(tx, ty, line, style, layout.font, layout.charWidth, layout.lineHeight, foreground)
+				drawTextDecorationsRaw(tx, ty, line, style, layout.font, layout.charWidth, foreground)
 			},
 			func(cx int, cy int) {
 				height := layout.lineHeight
@@ -67,7 +67,7 @@ func (element *Element) Draw() {
 				foreground,
 				line,
 			)
-			drawTextDecorationsRaw(textX, textY, line, style, nil, defaultCharWidth, lineHeightForStyle(style, defaultFontHeight), foreground)
+			drawTextDecorationsRaw(textX, textY, line, style, nil, defaultCharWidth, foreground)
 		})
 	case ElementKindLabel:
 		x, y := element.rawPosition(style)
@@ -82,7 +82,7 @@ func (element *Element) Draw() {
 				foreground,
 				line,
 			)
-			drawTextDecorationsRaw(textX, textY, line, style, nil, defaultCharWidth, lineHeightForStyle(style, defaultFontHeight), foreground)
+			drawTextDecorationsRaw(textX, textY, line, style, nil, defaultCharWidth, foreground)
 		})
 	default:
 		x, y := element.rawPosition(style)
@@ -97,7 +97,7 @@ func (element *Element) Draw() {
 				foreground,
 				line,
 			)
-			drawTextDecorationsRaw(textX, textY, line, style, nil, defaultCharWidth, lineHeightForStyle(style, defaultFontHeight), foreground)
+			drawTextDecorationsRaw(textX, textY, line, style, nil, defaultCharWidth, foreground)
 		})
 	}
 }
@@ -179,7 +179,7 @@ func (element *Element) drawToRect(canvas *Canvas, rect Rect, style Style) {
 				} else {
 					canvas.DrawText(x, y, foreground, text)
 				}
-				drawTextDecorations(canvas, x, y, text, style, font, layout.charWidth, layout.lineHeight, foreground)
+				drawTextDecorations(canvas, x, y, text, style, font, layout.charWidth, foreground)
 			},
 			func(x int, y int) {
 				height := layout.lineHeight
@@ -230,7 +230,6 @@ func (element *Element) drawToRect(canvas *Canvas, rect Rect, style Style) {
 	if charWidth <= 0 {
 		charWidth = defaultCharWidth
 	}
-	lineHeight := lineHeightForStyle(style, metrics.height)
 	shadow, shadowOk := resolveTextShadow(style.textShadow)
 	if FastNoTextShadow || FastNoShadows {
 		shadowOk = false
@@ -248,7 +247,7 @@ func (element *Element) drawToRect(canvas *Canvas, rect Rect, style Style) {
 		} else {
 			canvas.DrawText(textX, textY, foreground, line)
 		}
-		drawTextDecorations(canvas, textX, textY, line, style, font, charWidth, lineHeight, foreground)
+		drawTextDecorations(canvas, textX, textY, line, style, font, charWidth, foreground)
 	})
 	if elementShowsDefaultFocusRing(element) {
 		drawDefaultFocusRing(canvas, rect, style)

@@ -384,10 +384,6 @@ func (view *DocumentView) markDocumentNodeStateChange(node *DocumentNode, needsL
 		view.MarkLayoutDirty()
 		return
 	}
-	if dirty := view.documentNodeDirtyRect(node); !dirty.Empty() {
-		view.MarkDirtyRect(dirty)
-		return
-	}
 	view.MarkDirty()
 }
 
