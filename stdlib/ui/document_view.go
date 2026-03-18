@@ -49,11 +49,14 @@ type DocumentView struct {
 	activeNode     *DocumentNode
 	focusNode      *DocumentNode
 	layerCanvas    *Canvas
+	layerTiles     []*Canvas
 	layerValid     bool
 	layerWidth     int
 	layerHeight    int
 	layerOffsetX   int
 	layerOffsetY   int
+	layerTileCols  int
+	layerTileRows  int
 	layerVisualKey styleVisualKey
 	renderVisitGen uint32
 	layoutVisitGen uint32

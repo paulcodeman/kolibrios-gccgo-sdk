@@ -9,8 +9,6 @@ const (
 	elementRetainedLayerMinDescendants = 4
 	elementRetainedLayerMinArea        = 16384
 	elementRetainedLayerMaxDirtyRects  = 4
-	elementRetainedLayerTileSize       = 256
-	elementRetainedLayerTileMinArea    = 262144
 )
 
 func (element *Element) invalidateRetainedLayerChain() {
@@ -122,23 +120,11 @@ func (element *Element) useRetainedSubtreeLayer(style Style) bool {
 }
 
 func useRetainedSubtreeLayerTiles(visual Rect) bool {
-	if visual.Empty() || visual.Width <= 0 || visual.Height <= 0 {
-		return false
-	}
-	if visual.Width <= elementRetainedLayerTileSize && visual.Height <= elementRetainedLayerTileSize {
-		return false
-	}
-	if visual.Width > elementRetainedLayerTileSize*2 || visual.Height > elementRetainedLayerTileSize*2 {
-		return true
-	}
-	return visual.Width*visual.Height >= elementRetainedLayerTileMinArea
+	return useRetainedLayerTiles(visual)
 }
 
 func retainedSubtreeTileCount(size int) int {
-	if size <= 0 {
-		return 0
-	}
-	return (size + elementRetainedLayerTileSize - 1) / elementRetainedLayerTileSize
+	return retainedLayerTileCount(size)
 }
 
 func (element *Element) retainedSubtreeUsesTiles() bool {
@@ -149,10 +135,10 @@ func (element *Element) retainedSubtreeTileRect(col int, row int) Rect {
 	if element == nil || col < 0 || row < 0 || col >= element.subtreeLayerTileCols || row >= element.subtreeLayerTileRows {
 		return Rect{}
 	}
-	x := col * elementRetainedLayerTileSize
-	y := row * elementRetainedLayerTileSize
-	width := elementRetainedLayerTileSize
-	height := elementRetainedLayerTileSize
+	x := col * retainedLayerTileSize
+	y := row * retainedLayerTileSize
+	width := retainedLayerTileSize
+	height := retainedLayerTileSize
 	if right := x + width; right > element.subtreeLayerWidth {
 		width = element.subtreeLayerWidth - x
 	}
@@ -183,10 +169,10 @@ func (element *Element) ensureRetainedSubtreeTileBacking(width int, height int) 
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
 			rect := Rect{
-				X:      col * elementRetainedLayerTileSize,
-				Y:      row * elementRetainedLayerTileSize,
-				Width:  elementRetainedLayerTileSize,
-				Height: elementRetainedLayerTileSize,
+				X:      col * retainedLayerTileSize,
+				Y:      row * retainedLayerTileSize,
+				Width:  retainedLayerTileSize,
+				Height: retainedLayerTileSize,
 			}
 			if right := rect.X + rect.Width; right > width {
 				rect.Width = width - rect.X
