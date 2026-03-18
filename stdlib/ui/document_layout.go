@@ -81,7 +81,7 @@ func (document *Document) layoutNode(ctx LayoutContext, parentStyle Style, node 
 	if node == nil {
 		return nil, flowY
 	}
-	style := documentComputedStyle(parentStyle, node.Style)
+	style := documentComputedStyle(parentStyle, node)
 	display := documentDisplay(style, node.Kind)
 	if display == DisplayNone {
 		return nil, flowY
@@ -154,14 +154,14 @@ func (document *Document) layoutElementNode(ctx LayoutContext, node *DocumentNod
 		Height: height,
 	}
 	fragment := &Fragment{
-		Kind:        FragmentKindBlock,
-		Node:        node,
-		Style:       style,
-		Bounds:      bounds,
-		PaintBounds: visualBoundsForStyle(bounds, style, false),
-		Content:     contentRectFor(bounds, style),
-		Children:    children,
+		Kind:     FragmentKindBlock,
+		Node:     node,
+		Style:    style,
+		Bounds:   bounds,
+		Content:  contentRectFor(bounds, style),
+		Children: children,
 	}
+	fragment.PaintBounds = fragmentPaintBounds(fragment)
 	return fragment, nextFlowY(plan, height, flowY)
 }
 
@@ -203,17 +203,17 @@ func (document *Document) layoutTextNode(ctx LayoutContext, node *DocumentNode, 
 		Height: height,
 	}
 	fragment := &Fragment{
-		Kind:        FragmentKindText,
-		Node:        node,
-		Style:       style,
-		Bounds:      bounds,
-		PaintBounds: visualBoundsForStyle(bounds, style, true),
-		Content:     contentRectFor(bounds, style),
-		Text:        node.Text,
-		font:        font,
-		metrics:     metrics,
-		lines:       lines,
+		Kind:    FragmentKindText,
+		Node:    node,
+		Style:   style,
+		Bounds:  bounds,
+		Content: contentRectFor(bounds, style),
+		Text:    node.Text,
+		font:    font,
+		metrics: metrics,
+		lines:   lines,
 	}
+	fragment.PaintBounds = fragmentPaintBounds(fragment)
 	return fragment, nextFlowY(plan, height, flowY)
 }
 
@@ -336,7 +336,7 @@ func documentDisplay(style Style, kind DocumentNodeKind) DisplayMode {
 	return DisplayBlock
 }
 
-func documentComputedStyle(parent Style, local Style) Style {
+func documentComputedStyle(parent Style, node *DocumentNode) Style {
 	inherited := Style{
 		Foreground: parent.Foreground,
 		TextAlign:  parent.TextAlign,
@@ -344,5 +344,9 @@ func documentComputedStyle(parent Style, local Style) Style {
 		FontPath:   parent.FontPath,
 		FontSize:   parent.FontSize,
 	}
-	return mergeStyle(inherited, local)
+	if node == nil {
+		return inherited
+	}
+	style := mergeStyle(inherited, node.Style)
+	return mergeStyle(style, documentNodeLayoutStyle(node))
 }

@@ -56,6 +56,26 @@ func (element *Element) UpdateActiveStyle(update func(style *Style)) bool {
 	return true
 }
 
+// UpdateFocusStyle mutates the focus style and redraws only if it affects current focus state.
+func (element *Element) UpdateFocusStyle(update func(style *Style)) bool {
+	if element == nil || update == nil {
+		return false
+	}
+	wasFocused := element.focused
+	oldStyle := element.effectiveStyle()
+	update(&element.StyleFocus)
+	if !wasFocused {
+		return false
+	}
+	newStyle := element.effectiveStyle()
+	if !styleChangeAffectsLayout(element, oldStyle, newStyle) &&
+		styleVisualKeyEqual(visualKeyFor(oldStyle), visualKeyFor(newStyle)) {
+		return false
+	}
+	element.markDirty()
+	return true
+}
+
 func styleChangeAffectsLayout(element *Element, oldStyle Style, newStyle Style) bool {
 	if element == nil {
 		return true
@@ -141,6 +161,9 @@ func (element *Element) Focused() bool {
 
 func (element *Element) effectiveStyle() Style {
 	style := element.Style
+	if element.focused && !element.StyleFocus.IsZero() {
+		style = mergeStyle(style, element.StyleFocus)
+	}
 	if element.active && !element.StyleActive.IsZero() {
 		style = mergeStyle(style, element.StyleActive)
 	} else if element.hovered && !element.StyleHover.IsZero() {
@@ -162,6 +185,7 @@ func (element *Element) updateRenderKey(style Style) {
 		kind:    element.kind,
 		text:    element.text(),
 		display: display,
+		focus:   elementShowsDefaultFocusRing(element),
 		visual:  visualKeyFor(style),
 	}
 	if !elementRenderKeyEqual(key, element.renderKey) {
@@ -200,6 +224,7 @@ func elementRenderKeyEqual(a elementRenderKey, b elementRenderKey) bool {
 	return a.kind == b.kind &&
 		a.text == b.text &&
 		equalDisplayPtr(a.display, b.display) &&
+		a.focus == b.focus &&
 		styleVisualKeyEqual(a.visual, b.visual)
 }
 

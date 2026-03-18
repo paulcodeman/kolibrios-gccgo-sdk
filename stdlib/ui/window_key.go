@@ -11,6 +11,15 @@ func (window *Window) handleKey() bool {
 		return false
 	}
 	if key.Code == 9 {
+		if window.focused != nil {
+			if aware, ok := window.focused.(TabAware); ok {
+				handled := aware.HandleTab(kos.ControlKeysStatus().Shift())
+				if handled {
+					window.noteDirty(window.focused)
+					return true
+				}
+			}
+		}
 		if kos.ControlKeysStatus().Shift() {
 			return window.focusPrev()
 		}

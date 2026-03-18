@@ -8,6 +8,49 @@ type DisplayList struct {
 	scrollOffset int
 }
 
+func nodeNeedsFullDirtyPaint(node Node) bool {
+	if node == nil {
+		return false
+	}
+	switch current := node.(type) {
+	case *Element:
+		if current == nil {
+			return false
+		}
+		style := current.effectiveStyle()
+		if current.isTextInput() {
+			return true
+		}
+		if elementShowsDefaultFocusRing(current) {
+			return true
+		}
+		if resolveBorderRadius(style).Active() {
+			return true
+		}
+		if shadow, ok := resolveShadow(style.Shadow); ok && shadow != nil {
+			return true
+		}
+		if opacity, ok := resolveOpacity(style.Opacity); ok && opacity < 255 {
+			return true
+		}
+	case *DocumentView:
+		if current == nil {
+			return false
+		}
+		style := current.effectiveStyle()
+		if resolveBorderRadius(style).Active() {
+			return true
+		}
+		if shadow, ok := resolveShadow(style.Shadow); ok && shadow != nil {
+			return true
+		}
+		if opacity, ok := resolveOpacity(style.Opacity); ok && opacity < 255 {
+			return true
+		}
+	}
+	return false
+}
+
 func (window *Window) scrollPaintOffset() int {
 	if window == nil {
 		return 0
@@ -45,10 +88,6 @@ func (list DisplayList) Paint(window *Window, full bool, dirty Rect, stats *Fram
 		window.canvas.PushClip(list.rootClip.rect)
 		defer window.canvas.PopClip()
 	}
-	if !full && !dirty.Empty() {
-		window.canvas.PushClip(dirty)
-		defer window.canvas.PopClip()
-	}
 	for _, item := range list.items {
 		if item.node == nil {
 			continue
@@ -67,10 +106,28 @@ func (list DisplayList) Paint(window *Window, full bool, dirty Rect, stats *Fram
 		if el, ok := item.node.(*Element); ok && el != nil {
 			element = el
 		}
+		clipSet := false
+		clipRect := Rect{}
+		useDirtyClip := !full && !dirty.Empty() && !nodeNeedsFullDirtyPaint(item.node)
+		if useDirtyClip {
+			clipRect = dirty
+			clipSet = true
+		}
 		if item.clip.set {
-			clipRect := item.clip.rect
+			itemClip := item.clip.rect
 			if list.scrollOffset != 0 {
-				clipRect.Y += list.scrollOffset
+				itemClip.Y += list.scrollOffset
+			}
+			if clipSet {
+				clipRect = IntersectRect(clipRect, itemClip)
+			} else {
+				clipRect = itemClip
+				clipSet = true
+			}
+		}
+		if clipSet {
+			if clipRect.Empty() {
+				continue
 			}
 			window.canvas.PushClip(clipRect)
 		}
@@ -99,7 +156,7 @@ func (list DisplayList) Paint(window *Window, full bool, dirty Rect, stats *Fram
 		} else {
 			item.node.DrawTo(window.canvas)
 		}
-		if item.clip.set {
+		if clipSet {
 			window.canvas.PopClip()
 		}
 		if aware, ok := item.node.(DirtyAware); ok {

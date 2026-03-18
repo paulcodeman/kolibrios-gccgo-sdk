@@ -55,6 +55,19 @@ func documentAction(title string, subtitle string, fill kos.Color, handler func(
 		value.SetBorder(1, ui.Silver)
 		value.SetBackground(fill)
 	}), titleNode, subtitleNode)
+	card.Focusable = true
+	card.StyleHover = style(func(value *ui.Style) {
+		value.SetBorderColor(ui.Teal)
+		value.SetBackground(ui.White)
+	})
+	card.StyleActive = style(func(value *ui.Style) {
+		value.SetBorderColor(ui.Navy)
+		value.SetBackground(ui.Silver)
+	})
+	card.StyleFocus = style(func(value *ui.Style) {
+		value.SetBorderColor(ui.Blue)
+		value.SetBorderWidth(2)
+	})
 	attachDocumentClick(card, handler)
 	return card
 }
@@ -229,6 +242,37 @@ func Run() {
 		state.details = !state.details
 		updateState()
 	})
+	notes := ui.NewDocumentElement("notes", style(func(value *ui.Style) {
+		value.SetDisplay(ui.DisplayBlock)
+		value.SetMargin(8, 0, 0, 0)
+		value.SetPadding(8, 10)
+		value.SetBorderRadius(10)
+		value.SetBackground(ui.White)
+		value.SetBorder(1, ui.Silver)
+	}), ui.NewDocumentText("Host checks", style(func(value *ui.Style) {
+		value.SetForeground(ui.Navy)
+		value.SetFontSize(12)
+		value.SetMargin(0, 0, 4, 0)
+	})), ui.NewDocumentText("1. Wheel inside this area should scroll only the embedded document.", style(func(value *ui.Style) {
+		value.SetForeground(ui.Gray)
+		value.SetFontSize(11)
+		value.SetMargin(0, 0, 3, 0)
+	})), ui.NewDocumentText("2. Click once inside the document, then use Tab and Shift+Tab to move focus between action cards.", style(func(value *ui.Style) {
+		value.SetForeground(ui.Gray)
+		value.SetFontSize(11)
+		value.SetMargin(0, 0, 3, 0)
+	})), ui.NewDocumentText("3. Press Enter or Space on a focused card to trigger its click handler.", style(func(value *ui.Style) {
+		value.SetForeground(ui.Gray)
+		value.SetFontSize(11)
+		value.SetMargin(0, 0, 3, 0)
+	})), ui.NewDocumentText("4. Hover, active and focus styles are now handled inside the document host, not by native widgets.", style(func(value *ui.Style) {
+		value.SetForeground(ui.Gray)
+		value.SetFontSize(11)
+		value.SetMargin(0, 0, 3, 0)
+	})), ui.NewDocumentText("5. Native buttons below still mutate the same shared state, so both frontends stay in sync.", style(func(value *ui.Style) {
+		value.SetForeground(ui.Gray)
+		value.SetFontSize(11)
+	})))
 
 	documentRoot := ui.NewDocumentElement("root", style(func(value *ui.Style) {
 		value.SetDisplay(ui.DisplayBlock)
@@ -236,17 +280,24 @@ func Run() {
 		value.SetForeground(ui.Navy)
 		value.SetFontSize(13)
 		value.SetMargin(0, 0, 6, 0)
-	})), incrementCard, resetCard, accentCard, detailsToggleCard, detailsCard)
+	})), incrementCard, resetCard, accentCard, detailsToggleCard, detailsCard, notes)
 	document := ui.NewDocument(documentRoot)
 	view := ui.CreateDocumentView(document)
 	view.Style.SetDisplay(ui.DisplayBlock)
 	view.Style.SetPadding(10)
+	view.Style.SetHeight(210)
+	view.Style.SetOverflow(ui.OverflowAuto)
+	view.Style.SetScrollbarWidth(8)
 	view.Style.SetBorderRadius(12)
 	view.Style.SetBorder(1, ui.Silver)
 	view.Style.SetBackground(ui.White)
 	view.Style.SetMargin(0, 0, 8, 0)
+	view.StyleFocus = style(func(value *ui.Style) {
+		value.SetBorderColor(ui.Blue)
+		value.SetBorderWidth(2)
+	})
 
-	panelHint := elements.Label("Clicks inside the document and clicks on native buttons below both update the same model.")
+	panelHint := elements.Label("Clicks, wheel, Tab and Enter/Space now route inside the document host before they fall back to the window.")
 	apply(panelHint, func(value *ui.Style) {
 		value.SetDisplay(ui.DisplayBlock)
 		value.SetForeground(ui.Gray)

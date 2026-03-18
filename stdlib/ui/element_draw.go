@@ -144,6 +144,9 @@ func (element *Element) drawToRect(canvas *Canvas, rect Rect, style Style) {
 
 	if element.isTextInput() {
 		if FastNoText {
+			if elementShowsDefaultFocusRing(element) {
+				drawDefaultFocusRing(canvas, rect, style)
+			}
 			return
 		}
 		foreground, ok := resolveColor(style.Foreground)
@@ -179,16 +182,28 @@ func (element *Element) drawToRect(canvas *Canvas, rect Rect, style Style) {
 		)
 		canvas.PopClip()
 		element.drawInputScrollbars(canvas, layout)
+		if elementShowsDefaultFocusRing(element) {
+			drawDefaultFocusRing(canvas, rect, style)
+		}
 		return
 	}
 	if element.kind == ElementKindTinyGL {
+		if elementShowsDefaultFocusRing(element) {
+			drawDefaultFocusRing(canvas, rect, style)
+		}
 		return
 	}
 	if FastNoText {
+		if elementShowsDefaultFocusRing(element) {
+			drawDefaultFocusRing(canvas, rect, style)
+		}
 		return
 	}
 	text := element.text()
 	if text == "" {
+		if elementShowsDefaultFocusRing(element) {
+			drawDefaultFocusRing(canvas, rect, style)
+		}
 		return
 	}
 	foreground, ok := resolveColor(style.Foreground)
@@ -214,6 +229,9 @@ func (element *Element) drawToRect(canvas *Canvas, rect Rect, style Style) {
 			canvas.DrawText(textX, textY, foreground, line)
 		}
 	})
+	if elementShowsDefaultFocusRing(element) {
+		drawDefaultFocusRing(canvas, rect, style)
+	}
 }
 
 func (element *Element) tryDrawFromCache(canvas *Canvas, rect Rect, style Style) bool {
@@ -387,5 +405,9 @@ func (element *Element) updateSubtreeRect() {
 
 func (element *Element) visualBoundsFor(rect Rect, style Style) Rect {
 	includeTextShadow := !element.isTextInput() && element.kind != ElementKindTinyGL && element.text() != ""
-	return visualBoundsForStyle(rect, style, includeTextShadow)
+	visual := visualBoundsForStyle(rect, style, includeTextShadow)
+	if elementShowsDefaultFocusRing(element) {
+		visual = UnionRect(visual, focusRingBounds(rect))
+	}
+	return visual
 }

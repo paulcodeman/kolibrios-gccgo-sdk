@@ -15,13 +15,30 @@ const (
 )
 
 type DocumentNode struct {
-	Kind     DocumentNodeKind
-	Name     string
-	Text     string
-	Style    Style
-	OnClick  interface{}
-	Parent   *DocumentNode
-	Children []*DocumentNode
+	Kind         DocumentNodeKind
+	Name         string
+	Text         string
+	Style        Style
+	StyleHover   Style
+	StyleActive  Style
+	StyleFocus   Style
+	Focusable    bool
+	OnClick      interface{}
+	OnMouseDown  interface{}
+	OnMouseUp    interface{}
+	OnMouseMove  interface{}
+	OnMouseEnter interface{}
+	OnMouseLeave interface{}
+	OnFocus      interface{}
+	OnBlur       interface{}
+	OnScroll     interface{}
+	OnKeyDown    interface{}
+	Parent       *DocumentNode
+	Children     []*DocumentNode
+
+	hovered bool
+	active  bool
+	focused bool
 }
 
 type Fragment struct {
@@ -129,6 +146,13 @@ func (document *Document) RootFragment() *Fragment {
 	return document.rootFragment
 }
 
+func (document *Document) FragmentForNode(node *DocumentNode) *Fragment {
+	if document == nil || node == nil {
+		return nil
+	}
+	return findDocumentFragment(document.rootFragment, node)
+}
+
 func (document *Document) DisplayList() FragmentDisplayList {
 	if document == nil {
 		return FragmentDisplayList{}
@@ -176,4 +200,19 @@ func linkDocumentTree(parent *DocumentNode, node *DocumentNode) {
 	for _, child := range node.Children {
 		linkDocumentTree(node, child)
 	}
+}
+
+func findDocumentFragment(fragment *Fragment, node *DocumentNode) *Fragment {
+	if fragment == nil || node == nil {
+		return nil
+	}
+	if fragment.Node == node {
+		return fragment
+	}
+	for _, child := range fragment.Children {
+		if match := findDocumentFragment(child, node); match != nil {
+			return match
+		}
+	}
+	return nil
 }

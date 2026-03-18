@@ -88,6 +88,7 @@ func (window *Window) handleMouse() bool {
 
 	hover := window.mouseHover
 	inside := x >= 0 && y >= 0 && x < window.client.Width && y < window.client.Height
+	mouseMoved := inside && (window.hoverDirty || !window.lastMouseValid || window.lastMouseX != x || window.lastMouseY != y)
 	if !inside {
 		hover = nil
 		window.lastMouseX = x
@@ -95,7 +96,7 @@ func (window *Window) handleMouse() bool {
 		window.lastMouseValid = false
 		window.hoverDirty = false
 	} else {
-		if window.hoverDirty || !window.lastMouseValid || window.lastMouseX != x || window.lastMouseY != y {
+		if mouseMoved {
 			hover = window.hitTest(x, y)
 		}
 		if scrollbarHit {
@@ -119,6 +120,22 @@ func (window *Window) handleMouse() bool {
 			if aware.SetHover(true) {
 				needsRedraw = true
 				window.noteDirty(hover)
+			}
+		}
+	}
+	if mouseMoved {
+		if aware, ok := hover.(MouseMoveAware); ok {
+			if aware.HandleMouseMove(eventX, eventY) {
+				needsRedraw = true
+				window.noteDirty(hover)
+			}
+		}
+	}
+	if leftHeld && window.mouseDown != nil && window.mouseDown != hover {
+		if aware, ok := window.mouseDown.(MouseMoveAware); ok {
+			if aware.HandleMouseMove(eventX, eventY) {
+				needsRedraw = true
+				window.noteDirty(window.mouseDown)
 			}
 		}
 	}
@@ -150,6 +167,12 @@ func (window *Window) handleMouse() bool {
 				window.noteDirty(window.mouseDown)
 			}
 		}
+		if aware, ok := window.mouseDown.(MouseDownAware); ok {
+			if aware.HandleMouseDown(eventX, eventY, MouseLeft) {
+				needsRedraw = true
+				window.noteDirty(window.mouseDown)
+			}
+		}
 		if element, ok := window.mouseDown.(*Element); ok && element.isTextInput() {
 			if element.handleTextMouseDown(eventX, eventY) {
 				needsRedraw = true
@@ -173,10 +196,17 @@ func (window *Window) handleMouse() bool {
 		}
 	}
 	if leftReleased {
+		mouseDown := window.mouseDown
 		if element, ok := window.mouseDown.(*Element); ok && element.isTextInput() {
 			if element.handleTextMouseUp() {
 				needsRedraw = true
 				window.noteDirty(element)
+			}
+		}
+		if aware, ok := mouseDown.(MouseUpAware); ok {
+			if aware.HandleMouseUp(eventX, eventY, MouseLeft) {
+				needsRedraw = true
+				window.noteDirty(mouseDown)
 			}
 		}
 		focusTarget := hover

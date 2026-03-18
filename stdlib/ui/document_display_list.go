@@ -9,10 +9,13 @@ func (list FragmentDisplayList) PaintOffset(canvas *Canvas, full bool, dirty Rec
 		return
 	}
 	for _, item := range list.items {
-		if item.Fragment == nil || item.Paint.Empty() {
+		if item.Fragment == nil {
 			continue
 		}
-		paint := item.Paint
+		paint := fragmentPaintBounds(item.Fragment)
+		if paint.Empty() {
+			continue
+		}
 		if offsetX != 0 || offsetY != 0 {
 			paint.X += offsetX
 			paint.Y += offsetY
@@ -34,11 +37,11 @@ func (list FragmentDisplayList) PaintOffset(canvas *Canvas, full bool, dirty Rec
 			}
 			canvas.PushClip(clip)
 		}
-		if !full {
+		if !full && !fragmentNeedsFullDirtyPaint(item.Fragment) {
 			canvas.PushClip(paint)
 		}
 		item.Fragment.paintOffset(canvas, offsetX, offsetY)
-		if !full {
+		if !full && !fragmentNeedsFullDirtyPaint(item.Fragment) {
 			canvas.PopClip()
 		}
 		if item.ClipSet {
@@ -73,11 +76,44 @@ func buildFragmentDisplayList(root *Fragment, viewport Rect) FragmentDisplayList
 	return FragmentDisplayList{items: items}
 }
 
+func fragmentNeedsFullDirtyPaint(fragment *Fragment) bool {
+	if fragment == nil {
+		return false
+	}
+	style := fragment.effectiveStyle()
+	if fragment.Node != nil && documentNodeShowsDefaultFocusRing(fragment.Node) {
+		return true
+	}
+	if resolveBorderRadius(style).Active() {
+		return true
+	}
+	if shadow, ok := resolveShadow(style.Shadow); ok && shadow != nil {
+		return true
+	}
+	if opacity, ok := resolveOpacity(style.Opacity); ok && opacity < 255 {
+		return true
+	}
+	return false
+}
+
+func fragmentPaintBounds(fragment *Fragment) Rect {
+	if fragment == nil {
+		return Rect{}
+	}
+	style := fragment.effectiveStyle()
+	includeTextShadow := fragment.Kind == FragmentKindText
+	bounds := visualBoundsForStyle(fragment.Bounds, style, includeTextShadow)
+	if fragment.Node != nil && documentNodeShowsDefaultFocusRing(fragment.Node) {
+		bounds = UnionRect(bounds, focusRingBounds(fragment.Bounds))
+	}
+	return bounds
+}
+
 func appendFragmentDisplayItems(items *[]FragmentDisplayItem, fragment *Fragment, clip clipState, viewport Rect) {
 	if fragment == nil {
 		return
 	}
-	paint := fragment.PaintBounds
+	paint := fragmentPaintBounds(fragment)
 	if paint.Empty() {
 		paint = fragment.Bounds
 	}
@@ -137,20 +173,29 @@ func (fragment *Fragment) paintOffset(canvas *Canvas, offsetX int, offsetY int) 
 	if fragment == nil || canvas == nil {
 		return
 	}
+	style := fragment.effectiveStyle()
 	switch fragment.Kind {
 	case FragmentKindText:
-		fragment.paintTextOffset(canvas, offsetX, offsetY)
+		fragment.paintTextOffset(canvas, offsetX, offsetY, style)
 	default:
 		bounds := fragment.Bounds
 		if offsetX != 0 || offsetY != 0 {
 			bounds.X += offsetX
 			bounds.Y += offsetY
 		}
-		drawStyledBox(canvas, bounds, fragment.Style, bounds, nil)
+		drawStyledBox(canvas, bounds, style, bounds, nil)
+	}
+	if fragment.Node != nil && documentNodeShowsDefaultFocusRing(fragment.Node) {
+		bounds := fragment.Bounds
+		if offsetX != 0 || offsetY != 0 {
+			bounds.X += offsetX
+			bounds.Y += offsetY
+		}
+		drawDefaultFocusRing(canvas, bounds, style)
 	}
 }
 
-func (fragment *Fragment) paintTextOffset(canvas *Canvas, offsetX int, offsetY int) {
+func (fragment *Fragment) paintTextOffset(canvas *Canvas, offsetX int, offsetY int, style Style) {
 	if fragment == nil || canvas == nil || fragment.Bounds.Empty() || fragment.Text == "" {
 		return
 	}
@@ -161,7 +206,7 @@ func (fragment *Fragment) paintTextOffset(canvas *Canvas, offsetX int, offsetY i
 	if len(lines) == 0 {
 		return
 	}
-	foreground, ok := resolveColor(fragment.Style.Foreground)
+	foreground, ok := resolveColor(style.Foreground)
 	if !ok {
 		foreground = Black
 	}
@@ -174,8 +219,8 @@ func (fragment *Fragment) paintTextOffset(canvas *Canvas, offsetX int, offsetY i
 	if lineHeight <= 0 {
 		lineHeight = defaultFontHeight
 	}
-	leftPad, topPad, rightPad, availableW := textPaddingAndWidth(fragment.Bounds, fragment.Style)
-	shadow, shadowOK := resolveTextShadow(fragment.Style.TextShadow)
+	leftPad, topPad, rightPad, availableW := textPaddingAndWidth(fragment.Bounds, style)
+	shadow, shadowOK := resolveTextShadow(style.TextShadow)
 	if FastNoTextShadow || FastNoShadows {
 		shadowOK = false
 	}
@@ -188,7 +233,7 @@ func (fragment *Fragment) paintTextOffset(canvas *Canvas, offsetX int, offsetY i
 			bounds.X += offsetX
 			bounds.Y += offsetY
 		}
-		x := textLineX(bounds, fragment.Style, leftPad, rightPad, availableW, line.text, font, charWidth)
+		x := textLineX(bounds, style, leftPad, rightPad, availableW, line.text, font, charWidth)
 		y := bounds.Y + topPad + i*lineHeight
 		if shadowOK {
 			if font != nil {

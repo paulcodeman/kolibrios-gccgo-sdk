@@ -44,17 +44,14 @@ func (view *DocumentView) drawToOffset(canvas *Canvas, offsetY int) {
 	if view.Document == nil {
 		return
 	}
-	content := contentRectFor(rect, style)
-	if content.Empty() {
+	viewport := view.documentViewportRectIn(rect, style)
+	if viewport.Empty() {
 		return
 	}
-	canvas.PushClip(content)
-	if offsetY != 0 {
-		view.Document.PaintOffset(canvas, 0, offsetY)
-	} else {
-		view.Document.Paint(canvas)
-	}
+	canvas.PushClip(viewport)
+	view.Document.PaintOffset(canvas, 0, offsetY-view.scrollY)
 	canvas.PopClip()
+	view.drawDocumentScrollbar(canvas, rect, style)
 }
 
 func (view *DocumentView) applyLayoutWithContext(ctx LayoutContext, container Rect, style Style) {
@@ -69,19 +66,26 @@ func (view *DocumentView) applyLayoutWithContext(ctx LayoutContext, container Re
 	width := view.resolvedWidthIn(style, container)
 	height, heightSet := resolveLength(style.Height)
 	rect := view.resolveRectIn(container, style, width, height)
-	content := contentRectFor(rect, style)
-	if view.Document != nil && !content.Empty() {
-		docCtx := layoutContextWithViewport(ctx, content)
-		view.Document.Layout(docCtx)
-		if !heightSet {
-			height = view.documentContentExtentHeight(content, style)
-			rect = view.resolveRectIn(container, style, width, height)
-			content = contentRectFor(rect, style)
-			if view.Document.Viewport() != content {
-				docCtx = layoutContextWithViewport(ctx, content)
-				view.Document.Layout(docCtx)
+	viewport := view.documentViewportRectIn(rect, style)
+	if view.Document != nil && !viewport.Empty() {
+		for i := 0; i < 3; i++ {
+			docCtx := layoutContextWithViewport(ctx, viewport)
+			view.Document.Layout(docCtx)
+			if !heightSet {
+				height = view.documentContentExtentHeight(viewport, style)
+				rect = view.resolveRectIn(container, style, width, height)
 			}
+			view.updateDocumentScrollMetrics(viewport, style)
+			nextViewport := view.documentViewportRectIn(rect, style)
+			if nextViewport == viewport {
+				break
+			}
+			viewport = nextViewport
 		}
+		view.updateDocumentScrollMetrics(viewport, style)
+	} else {
+		view.scrollMaxY = 0
+		view.scrollY = 0
 	}
 	if !heightSet && height < 0 {
 		height = 0

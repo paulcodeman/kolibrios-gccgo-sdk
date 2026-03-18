@@ -13,6 +13,7 @@ type Element struct {
 	Style            Style
 	StyleHover       Style
 	StyleActive      Style
+	StyleFocus       Style
 	OnClick          interface{}
 	tinygl           *tinyGLState
 	layoutRect       Rect
@@ -100,6 +101,7 @@ type elementRenderKey struct {
 	kind    ElementKind
 	text    string
 	display *DisplayMode
+	focus   bool
 	visual  styleVisualKey
 }
 

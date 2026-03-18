@@ -42,7 +42,80 @@ func (window *Window) setFocus(target Node) bool {
 	if window.invalidateFocusNode(window.focused) {
 		needsRedraw = true
 	}
+	if window.scrollNodeIntoView(window.focused) {
+		needsRedraw = true
+	}
 	return needsRedraw
+}
+
+func (window *Window) scrollNodeIntoView(node Node) bool {
+	if window == nil || node == nil || !window.scrollEnabled() {
+		return false
+	}
+	content := window.contentRect()
+	if content.Empty() || content.Height <= 0 {
+		return false
+	}
+	bounds := window.focusScrollBounds(node)
+	if bounds.Empty() {
+		return false
+	}
+	next := scrollRevealNearest(window.scrollY, content.Height, bounds.Y-content.Y, bounds.Height)
+	maxScroll := window.scrollMaxY
+	required := bounds.Y + bounds.Height - (content.Y + content.Height)
+	if required > maxScroll {
+		maxScroll = required
+	}
+	if next < 0 {
+		next = 0
+	}
+	if maxScroll > 0 && next > maxScroll {
+		next = maxScroll
+	}
+	if next == window.scrollY {
+		return false
+	}
+	if maxScroll > window.scrollMaxY {
+		window.scrollMaxY = maxScroll
+	}
+	window.scrollY = next
+	window.noteScrollChanged()
+	return true
+}
+
+func (window *Window) focusScrollBounds(node Node) Rect {
+	if window == nil || node == nil {
+		return Rect{}
+	}
+	switch current := node.(type) {
+	case *Element:
+		if current == nil {
+			return Rect{}
+		}
+		return window.nodeVisualBoundsFor(current, true)
+	case *DocumentView:
+		if current == nil {
+			return Rect{}
+		}
+		rect := current.layoutRect
+		if rect.Empty() {
+			rect = current.Bounds()
+		}
+		if rect.Empty() {
+			return Rect{}
+		}
+		return visualBoundsForStyle(rect, current.effectiveStyle(), false)
+	default:
+		if visual, ok := node.(VisualBoundsAware); ok {
+			return visual.VisualBounds()
+		}
+		if window.nodeBounds != nil {
+			if bounds, ok := window.nodeBounds[node]; ok {
+				return bounds
+			}
+		}
+		return node.Bounds()
+	}
 }
 
 func (window *Window) invalidateFocusNode(node Node) bool {

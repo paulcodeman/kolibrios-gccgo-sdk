@@ -1,17 +1,29 @@
 package ui
 
+import "kos"
+
 type DocumentEvent struct {
-	Type   EventType
-	X      int
-	Y      int
-	Button MouseButton
-	View   *DocumentView
-	Node   *DocumentNode
+	Type      EventType
+	X         int
+	Y         int
+	LocalX    int
+	LocalY    int
+	DocumentX int
+	DocumentY int
+	DeltaX    int
+	DeltaY    int
+	Button    MouseButton
+	Key       kos.KeyEvent
+	ScrollX   int
+	ScrollY   int
+	View      *DocumentView
+	Node      *DocumentNode
 }
 
 type DocumentView struct {
 	Document    *Document
 	Style       Style
+	StyleFocus  Style
 	StyleHover  Style
 	StyleActive Style
 	OnClick     interface{}
@@ -27,6 +39,14 @@ type DocumentView struct {
 	layoutDirty    bool
 	hovered        bool
 	active         bool
+	focused        bool
+	scrollY        int
+	scrollMaxY     int
+	scrollDrag     bool
+	scrollDragOff  int
+	hoverNode      *DocumentNode
+	activeNode     *DocumentNode
+	focusNode      *DocumentNode
 	renderVisitGen uint32
 	layoutVisitGen uint32
 	dirtyQueueGen  uint32
@@ -92,6 +112,11 @@ func (view *DocumentView) setDocument(document *Document) {
 	if document != nil {
 		document.host = view
 	}
+	view.hoverNode = nil
+	view.activeNode = nil
+	view.focusNode = nil
+	view.scrollY = 0
+	view.scrollMaxY = 0
 }
 
 func (view *DocumentView) SetDocument(document *Document) bool {
@@ -105,6 +130,9 @@ func (view *DocumentView) SetDocument(document *Document) bool {
 
 func (view *DocumentView) effectiveStyle() Style {
 	style := view.Style
+	if view.focused && !view.StyleFocus.IsZero() {
+		style = mergeStyle(style, view.StyleFocus)
+	}
 	if view.active && !view.StyleActive.IsZero() {
 		style = mergeStyle(style, view.StyleActive)
 	} else if view.hovered && !view.StyleHover.IsZero() {
@@ -118,10 +146,17 @@ func (view *DocumentView) SetHover(hover bool) bool {
 		return false
 	}
 	view.hovered = hover
-	if view.StyleHover.IsZero() {
-		return false
+	changed := false
+	if !hover {
+		changed = view.clearHoverNode()
 	}
-	return view.markDirtyForStyle(view.StyleHover)
+	if view.StyleHover.IsZero() {
+		return changed
+	}
+	if view.markDirtyForStyle(view.StyleHover) {
+		changed = true
+	}
+	return changed
 }
 
 func (view *DocumentView) SetActive(active bool) bool {
@@ -129,10 +164,18 @@ func (view *DocumentView) SetActive(active bool) bool {
 		return false
 	}
 	view.active = active
-	if view.StyleActive.IsZero() {
-		return false
+	changed := false
+	if !active {
+		view.scrollDrag = false
+		changed = view.setActiveNode(nil, DocumentEvent{Type: EventMouseUp, View: view})
 	}
-	return view.markDirtyForStyle(view.StyleActive)
+	if view.StyleActive.IsZero() {
+		return changed
+	}
+	if view.markDirtyForStyle(view.StyleActive) {
+		changed = true
+	}
+	return changed
 }
 
 func (view *DocumentView) markDirtyForStyle(style Style) bool {
@@ -214,40 +257,28 @@ func (view *DocumentView) Handle(event Event) bool {
 	if view == nil || event.Type != EventClick {
 		return false
 	}
-	documentEvent := DocumentEvent{
-		Type:   event.Type,
-		X:      event.X,
-		Y:      event.Y,
-		Button: event.Button,
-		View:   view,
-	}
-	content := contentRectFor(view.layoutRect, view.effectiveStyle())
-	if view.Document != nil && content.Contains(event.X, event.Y) {
-		documentEvent.Node = view.Document.HitTest(event.X, event.Y)
-		if dispatchDocumentClick(documentEvent.Node, documentEvent) {
-			return true
+	documentEvent, ok := view.documentEventFor(EventClick, event.X, event.Y, event.Button)
+	if !ok {
+		documentEvent = DocumentEvent{
+			Type:    EventClick,
+			X:       event.X,
+			Y:       event.Y,
+			Button:  event.Button,
+			ScrollY: view.scrollY,
+			View:    view,
 		}
+	}
+	if ok && dispatchDocumentClick(documentEvent.Node, documentEvent) {
+		return true
 	}
 	return dispatchDocumentViewClick(view, documentEvent)
 }
 
 func dispatchDocumentClick(node *DocumentNode, event DocumentEvent) bool {
-	if node == nil || node.OnClick == nil {
+	if node == nil {
 		return false
 	}
-	switch handler := node.OnClick.(type) {
-	case func():
-		handler()
-		return true
-	case func(*DocumentNode):
-		handler(node)
-		return true
-	case func(DocumentEvent):
-		handler(event)
-		return true
-	default:
-		return false
-	}
+	return dispatchDocumentNodeHandler(node.OnClick, node, event)
 }
 
 func dispatchDocumentViewClick(view *DocumentView, event DocumentEvent) bool {

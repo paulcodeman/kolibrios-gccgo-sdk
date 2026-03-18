@@ -45,9 +45,25 @@ type ActiveAware interface {
 	SetActive(bool) bool
 }
 
+type MouseMoveAware interface {
+	HandleMouseMove(x int, y int) bool
+}
+
+type MouseDownAware interface {
+	HandleMouseDown(x int, y int, button MouseButton) bool
+}
+
+type MouseUpAware interface {
+	HandleMouseUp(x int, y int, button MouseButton) bool
+}
+
 type FocusAware interface {
 	SetFocus(bool) bool
 	Focused() bool
+}
+
+type TabAware interface {
+	HandleTab(shift bool) bool
 }
 
 type KeyAware interface {
