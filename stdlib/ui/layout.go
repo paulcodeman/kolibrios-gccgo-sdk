@@ -2,11 +2,11 @@ package ui
 
 func effectivePosition(style Style) PositionMode {
 	position := PositionStatic
-	if resolved, ok := resolvePosition(style.Position); ok {
+	if resolved, ok := resolvePosition(style.position); ok {
 		position = resolved
 	}
 	if position == PositionStatic {
-		if style.Left != nil || style.Top != nil || style.Right != nil || style.Bottom != nil {
+		if style.left != nil || style.top != nil || style.right != nil || style.bottom != nil {
 			position = PositionAbsolute
 		}
 	}
@@ -18,12 +18,12 @@ func resolveRect(base Rect, container Rect, style Style) Rect {
 	width := rect.Width
 	height := rect.Height
 	widthSet := false
-	if resolved, ok := resolveLength(style.Width); ok {
+	if resolved, ok := resolveLength(style.width); ok {
 		width = resolved
 		widthSet = true
 	}
 	heightSet := false
-	if resolved, ok := resolveLength(style.Height); ok {
+	if resolved, ok := resolveLength(style.height); ok {
 		height = resolved
 		heightSet = true
 	}
@@ -31,10 +31,10 @@ func resolveRect(base Rect, container Rect, style Style) Rect {
 	position := effectivePosition(style)
 	switch position {
 	case PositionAbsolute:
-		leftValue, leftSet := resolveLength(style.Left)
-		rightValue, rightSet := resolveLength(style.Right)
-		topValue, topSet := resolveLength(style.Top)
-		bottomValue, bottomSet := resolveLength(style.Bottom)
+		leftValue, leftSet := resolveLength(style.left)
+		rightValue, rightSet := resolveLength(style.right)
+		topValue, topSet := resolveLength(style.top)
+		bottomValue, bottomSet := resolveLength(style.bottom)
 
 		if leftSet && rightSet && !widthSet {
 			width = container.Width - leftValue - rightValue
@@ -66,16 +66,16 @@ func resolveRect(base Rect, container Rect, style Style) Rect {
 	case PositionRelative:
 		rect.Width = width
 		rect.Height = height
-		if value, ok := resolveLength(style.Left); ok {
+		if value, ok := resolveLength(style.left); ok {
 			rect.X += value
 		}
-		if value, ok := resolveLength(style.Right); ok {
+		if value, ok := resolveLength(style.right); ok {
 			rect.X -= value
 		}
-		if value, ok := resolveLength(style.Top); ok {
+		if value, ok := resolveLength(style.top); ok {
 			rect.Y += value
 		}
-		if value, ok := resolveLength(style.Bottom); ok {
+		if value, ok := resolveLength(style.bottom); ok {
 			rect.Y -= value
 		}
 	default:

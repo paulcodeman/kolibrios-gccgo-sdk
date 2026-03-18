@@ -75,47 +75,47 @@ func (element *Element) layoutKeyFor(style Style, container Rect) elementLayoutK
 
 func (element *Element) layoutKeyForContext(ctx LayoutContext, style Style, container Rect) elementLayoutKey {
 	var position *PositionMode
-	if value, ok := resolvePosition(style.Position); ok {
+	if value, ok := resolvePosition(style.position); ok {
 		v := value
 		position = &v
 	}
 	var display *DisplayMode
-	if value, ok := resolveDisplay(style.Display); ok {
+	if value, ok := resolveDisplay(style.display); ok {
 		v := value
 		display = &v
 	}
 	var left *int
-	if value, ok := resolveLength(style.Left); ok {
+	if value, ok := resolveLength(style.left); ok {
 		v := value
 		left = &v
 	}
 	var top *int
-	if value, ok := resolveLength(style.Top); ok {
+	if value, ok := resolveLength(style.top); ok {
 		v := value
 		top = &v
 	}
 	var right *int
-	if value, ok := resolveLength(style.Right); ok {
+	if value, ok := resolveLength(style.right); ok {
 		v := value
 		right = &v
 	}
 	var bottom *int
-	if value, ok := resolveLength(style.Bottom); ok {
+	if value, ok := resolveLength(style.bottom); ok {
 		v := value
 		bottom = &v
 	}
 	var styleWidth *int
-	if value, ok := resolveLength(style.Width); ok {
+	if value, ok := resolveLength(style.width); ok {
 		v := value
 		styleWidth = &v
 	}
 	var styleHeight *int
-	if value, ok := resolveLength(style.Height); ok {
+	if value, ok := resolveLength(style.height); ok {
 		v := value
 		styleHeight = &v
 	}
 	var margin *Spacing
-	if value, ok := resolveSpacing(style.Margin); ok {
+	if value, ok := resolveSpacing(style.margin); ok {
 		if value != nil {
 			v := *value
 			margin = &v
@@ -197,10 +197,10 @@ func (element *Element) basePosition(style Style) (int, int) {
 		y = element.flowY
 	}
 	if position == PositionAbsolute {
-		if value, ok := resolveLength(style.Left); ok {
+		if value, ok := resolveLength(style.left); ok {
 			x = value
 		}
-		if value, ok := resolveLength(style.Top); ok {
+		if value, ok := resolveLength(style.top); ok {
 			y = value
 		}
 	}
@@ -210,16 +210,16 @@ func (element *Element) basePosition(style Style) (int, int) {
 func (element *Element) rawPosition(style Style) (int, int) {
 	x, y := element.basePosition(style)
 	if effectivePosition(style) == PositionRelative {
-		if value, ok := resolveLength(style.Left); ok {
+		if value, ok := resolveLength(style.left); ok {
 			x += value
 		}
-		if value, ok := resolveLength(style.Right); ok {
+		if value, ok := resolveLength(style.right); ok {
 			x -= value
 		}
-		if value, ok := resolveLength(style.Top); ok {
+		if value, ok := resolveLength(style.top); ok {
 			y += value
 		}
-		if value, ok := resolveLength(style.Bottom); ok {
+		if value, ok := resolveLength(style.bottom); ok {
 			y -= value
 		}
 	}
@@ -254,7 +254,7 @@ func (element *Element) resolvedWidth(style Style) int {
 }
 
 func (element *Element) resolvedWidthWithContext(ctx LayoutContext, style Style) int {
-	if value, ok := resolveLength(style.Width); ok {
+	if value, ok := resolveLength(style.width); ok {
 		return value
 	}
 	text := element.text()
@@ -266,7 +266,7 @@ func (element *Element) resolvedWidthWithContext(ctx LayoutContext, style Style)
 	textWidth := ctx.MeasureText(text, font, charWidth)
 	leftPad := 0
 	rightPad := 0
-	if padding, ok := resolveSpacingNormalized(style.Padding); ok {
+	if padding, ok := resolveSpacingNormalized(style.padding); ok {
 		leftPad = padding.Left
 		rightPad = padding.Right
 	}
@@ -291,13 +291,13 @@ func (element *Element) resolvedWidthIn(style Style, container Rect) int {
 }
 
 func (element *Element) resolvedWidthInWithContext(ctx LayoutContext, style Style, container Rect) int {
-	if value, ok := resolveLength(style.Width); ok {
+	if value, ok := resolveLength(style.width); ok {
 		return value
 	}
-	if display, ok := resolveDisplay(style.Display); ok && display == DisplayBlock {
+	if display, ok := resolveDisplay(style.display); ok && display == DisplayBlock {
 		if effectivePosition(style) != PositionAbsolute {
 			width := container.Width
-			if margin, ok := resolveSpacing(style.Margin); ok && margin != nil {
+			if margin, ok := resolveSpacing(style.margin); ok && margin != nil {
 				width -= margin.Left + margin.Right
 			}
 			if width < 0 {
@@ -322,7 +322,7 @@ func (element *Element) resolvedHeightIn(style Style, container Rect) int {
 }
 
 func (element *Element) resolvedHeightInWithContext(ctx LayoutContext, style Style, container Rect) int {
-	if value, ok := resolveLength(style.Height); ok {
+	if value, ok := resolveLength(style.height); ok {
 		return value
 	}
 	text := element.text()
@@ -345,7 +345,7 @@ func (element *Element) resolvedHeightInWithContext(ctx LayoutContext, style Sty
 		rightPad := 0
 		topPad := 0
 		bottomPad := 0
-		if padding, ok := resolveSpacingNormalized(style.Padding); ok {
+		if padding, ok := resolveSpacingNormalized(style.padding); ok {
 			leftPad = padding.Left
 			rightPad = padding.Right
 			topPad = padding.Top
@@ -387,7 +387,7 @@ func (element *Element) resolvedHeightInWithContext(ctx LayoutContext, style Sty
 	}
 	topPad := 0
 	bottomPad := 0
-	if padding, ok := resolveSpacingNormalized(style.Padding); ok {
+	if padding, ok := resolveSpacingNormalized(style.padding); ok {
 		topPad = padding.Top
 		bottomPad = padding.Bottom
 	}

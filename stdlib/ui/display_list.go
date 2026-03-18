@@ -18,6 +18,9 @@ func nodeNeedsFullDirtyPaint(node Node) bool {
 			return false
 		}
 		style := current.effectiveStyle()
+		if current.canUseDirtyClip(style) {
+			return false
+		}
 		if current.isTextInput() {
 			return true
 		}
@@ -27,10 +30,10 @@ func nodeNeedsFullDirtyPaint(node Node) bool {
 		if resolveBorderRadius(style).Active() {
 			return true
 		}
-		if shadow, ok := resolveShadow(style.Shadow); ok && shadow != nil {
+		if shadow, ok := resolveShadow(style.shadow); ok && shadow != nil {
 			return true
 		}
-		if opacity, ok := resolveOpacity(style.Opacity); ok && opacity < 255 {
+		if opacity, ok := resolveOpacity(style.opacity); ok && opacity < 255 {
 			return true
 		}
 	case *DocumentView:
@@ -41,14 +44,26 @@ func nodeNeedsFullDirtyPaint(node Node) bool {
 		if resolveBorderRadius(style).Active() {
 			return true
 		}
-		if shadow, ok := resolveShadow(style.Shadow); ok && shadow != nil {
+		if shadow, ok := resolveShadow(style.shadow); ok && shadow != nil {
 			return true
 		}
-		if opacity, ok := resolveOpacity(style.Opacity); ok && opacity < 255 {
+		if opacity, ok := resolveOpacity(style.opacity); ok && opacity < 255 {
 			return true
 		}
 	}
 	return false
+}
+
+func (element *Element) canUseDirtyClip(style Style) bool {
+	if element == nil || FastNoCache {
+		return false
+	}
+	rect := element.layoutRect
+	if rect.Empty() {
+		rect = element.Bounds()
+	}
+	cacheable, _, _ := element.cacheInfo(style, rect)
+	return cacheable
 }
 
 func (window *Window) scrollPaintOffset() int {

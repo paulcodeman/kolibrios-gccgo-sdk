@@ -16,10 +16,10 @@ func (window *Window) syncWindowInfo() {
 			window.Style.SetHeight(window.Height)
 		}
 	}
-	if window.Style.Width == nil {
+	if window.Style.width == nil {
 		window.Style.SetWidth(window.Width)
 	}
-	if window.Style.Height == nil {
+	if window.Style.height == nil {
 		window.Style.SetHeight(window.Height)
 	}
 

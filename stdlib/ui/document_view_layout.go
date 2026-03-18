@@ -27,7 +27,7 @@ func (view *DocumentView) drawToOffset(canvas *Canvas, offsetY int) {
 		return
 	}
 	style := view.effectiveStyle()
-	if display, ok := resolveDisplay(style.Display); ok && display == DisplayNone {
+	if display, ok := resolveDisplay(style.display); ok && display == DisplayNone {
 		return
 	}
 	if view.layoutRect.Empty() || view.LayoutDirty() {
@@ -64,7 +64,7 @@ func (view *DocumentView) applyLayoutWithContext(ctx LayoutContext, container Re
 	}
 	view.layoutKey = key
 	width := view.resolvedWidthIn(style, container)
-	height, heightSet := resolveLength(style.Height)
+	height, heightSet := resolveLength(style.height)
 	rect := view.resolveRectIn(container, style, width, height)
 	viewport := view.documentViewportRectIn(rect, style)
 	if view.Document != nil && !viewport.Empty() {
@@ -98,47 +98,47 @@ func (view *DocumentView) applyLayoutWithContext(ctx LayoutContext, container Re
 
 func (view *DocumentView) layoutKeyFor(style Style, container Rect) documentViewLayoutKey {
 	var position *PositionMode
-	if value, ok := resolvePosition(style.Position); ok {
+	if value, ok := resolvePosition(style.position); ok {
 		v := value
 		position = &v
 	}
 	var display *DisplayMode
-	if value, ok := resolveDisplay(style.Display); ok {
+	if value, ok := resolveDisplay(style.display); ok {
 		v := value
 		display = &v
 	}
 	var left *int
-	if value, ok := resolveLength(style.Left); ok {
+	if value, ok := resolveLength(style.left); ok {
 		v := value
 		left = &v
 	}
 	var top *int
-	if value, ok := resolveLength(style.Top); ok {
+	if value, ok := resolveLength(style.top); ok {
 		v := value
 		top = &v
 	}
 	var right *int
-	if value, ok := resolveLength(style.Right); ok {
+	if value, ok := resolveLength(style.right); ok {
 		v := value
 		right = &v
 	}
 	var bottom *int
-	if value, ok := resolveLength(style.Bottom); ok {
+	if value, ok := resolveLength(style.bottom); ok {
 		v := value
 		bottom = &v
 	}
 	var styleWidth *int
-	if value, ok := resolveLength(style.Width); ok {
+	if value, ok := resolveLength(style.width); ok {
 		v := value
 		styleWidth = &v
 	}
 	var styleHeight *int
-	if value, ok := resolveLength(style.Height); ok {
+	if value, ok := resolveLength(style.height); ok {
 		v := value
 		styleHeight = &v
 	}
 	var margin *Spacing
-	if value, ok := resolveSpacing(style.Margin); ok && value != nil {
+	if value, ok := resolveSpacing(style.margin); ok && value != nil {
 		v := *value
 		margin = &v
 	}
@@ -163,13 +163,13 @@ func (view *DocumentView) layoutKeyFor(style Style, container Rect) documentView
 }
 
 func (view *DocumentView) resolvedWidthIn(style Style, container Rect) int {
-	if value, ok := resolveLength(style.Width); ok {
+	if value, ok := resolveLength(style.width); ok {
 		return value
 	}
-	if display, ok := resolveDisplay(style.Display); ok && display == DisplayBlock {
+	if display, ok := resolveDisplay(style.display); ok && display == DisplayBlock {
 		if effectivePosition(style) != PositionAbsolute {
 			width := container.Width
-			if margin, ok := resolveSpacing(style.Margin); ok && margin != nil {
+			if margin, ok := resolveSpacing(style.margin); ok && margin != nil {
 				width -= margin.Left + margin.Right
 			}
 			if width < 0 {
@@ -216,10 +216,10 @@ func (view *DocumentView) basePosition(style Style) (int, int) {
 		y = view.flowY
 	}
 	if position == PositionAbsolute {
-		if value, ok := resolveLength(style.Left); ok {
+		if value, ok := resolveLength(style.left); ok {
 			x = value
 		}
-		if value, ok := resolveLength(style.Top); ok {
+		if value, ok := resolveLength(style.top); ok {
 			y = value
 		}
 	}

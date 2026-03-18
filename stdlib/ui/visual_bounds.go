@@ -5,7 +5,7 @@ func visualBoundsForStyle(rect Rect, style Style, includeTextShadow bool) Rect {
 		return rect
 	}
 	visual := rect
-	if shadow, ok := resolveShadow(style.Shadow); ok {
+	if shadow, ok := resolveShadow(style.shadow); ok {
 		blur := shadow.Blur
 		if blur < 0 {
 			blur = 0
@@ -33,7 +33,7 @@ func visualBoundsForStyle(rect Rect, style Style, includeTextShadow bool) Rect {
 		visual = Rect{X: left, Y: top, Width: right - left, Height: bottom - top}
 	}
 	if includeTextShadow {
-		if shadow, ok := resolveTextShadow(style.TextShadow); ok {
+		if shadow, ok := resolveTextShadow(style.textShadow); ok {
 			shadowRect := Rect{
 				X:      rect.X + shadow.OffsetX,
 				Y:      rect.Y + shadow.OffsetY,

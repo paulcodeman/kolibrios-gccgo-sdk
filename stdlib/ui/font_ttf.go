@@ -28,12 +28,12 @@ var fontCache = struct {
 }
 
 func fontForStyle(style Style) *ttfFont {
-	path, ok := resolveFontPath(style.FontPath)
+	path, ok := resolveFontPath(style.fontPath)
 	if !ok {
 		return nil
 	}
 	size := defaultFontHeight
-	if value, ok := resolveFontSize(style.FontSize); ok {
+	if value, ok := resolveFontSize(style.fontSize); ok {
 		size = value
 	}
 	return getTTFFont(path, size)

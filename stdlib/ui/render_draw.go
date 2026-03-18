@@ -41,7 +41,7 @@ func (window *Window) drawElementWithOffset(element *Element, offsetY int) {
 		return
 	}
 	style := element.effectiveStyle()
-	if display, ok := resolveDisplay(style.Display); ok && display == DisplayNone {
+	if display, ok := resolveDisplay(style.display); ok && display == DisplayNone {
 		return
 	}
 	element.updateRenderKey(style)

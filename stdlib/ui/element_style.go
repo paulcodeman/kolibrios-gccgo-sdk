@@ -177,7 +177,7 @@ func (element *Element) updateRenderKey(style Style) {
 		return
 	}
 	var display *DisplayMode
-	if value, ok := resolveDisplay(style.Display); ok {
+	if value, ok := resolveDisplay(style.display); ok {
 		v := value
 		display = &v
 	}
@@ -201,7 +201,7 @@ func (element *Element) updateRenderKey(style Style) {
 }
 
 func resolveBorderRadius(style Style) CornerRadii {
-	if radii, ok := resolveCornerRadii(style.BorderRadius); ok && radii != nil {
+	if radii, ok := resolveCornerRadii(style.borderRadius); ok && radii != nil {
 		value := *radii
 		if value.TopLeft < 0 {
 			value.TopLeft = 0

@@ -43,7 +43,7 @@ func (window *Window) layoutFlowElement(ctx LayoutContext, container Rect, eleme
 	element.layoutVisitGen = gen
 	style := element.effectiveStyle()
 	display := DisplayInline
-	if value, ok := resolveDisplay(style.Display); ok {
+	if value, ok := resolveDisplay(style.display); ok {
 		display = value
 	}
 	if display == DisplayNone {
@@ -106,7 +106,7 @@ func (window *Window) layoutFlowDocumentView(ctx LayoutContext, container Rect, 
 	view.layoutVisitGen = gen
 	style := view.effectiveStyle()
 	display := DisplayBlock
-	if value, ok := resolveDisplay(style.Display); ok {
+	if value, ok := resolveDisplay(style.display); ok {
 		display = value
 	}
 	if display == DisplayNone {
@@ -152,7 +152,7 @@ func (window *Window) layoutFlowDocumentView(ctx LayoutContext, container Rect, 
 }
 
 func resolvedMargin(style Style) (Spacing, bool) {
-	if value, ok := resolveSpacing(style.Margin); ok && value != nil {
+	if value, ok := resolveSpacing(style.margin); ok && value != nil {
 		margin := *value
 		return margin, spacingAny(margin)
 	}
@@ -191,11 +191,11 @@ func (window *Window) adjustAutoHeight(element *Element, style Style) bool {
 	if element == nil || len(element.Children) == 0 {
 		return false
 	}
-	if _, ok := resolveLength(style.Height); ok {
+	if _, ok := resolveLength(style.height); ok {
 		return false
 	}
 	paddingBottom := 0
-	if padding, ok := resolveSpacingNormalized(style.Padding); ok {
+	if padding, ok := resolveSpacingNormalized(style.padding); ok {
 		paddingBottom = padding.Bottom
 	}
 	borderWidth := borderWidthFor(style)
@@ -216,11 +216,11 @@ func (window *Window) adjustAutoWidth(element *Element, style Style) bool {
 	if element == nil || len(element.Children) == 0 {
 		return false
 	}
-	if _, ok := resolveLength(style.Width); ok {
+	if _, ok := resolveLength(style.width); ok {
 		return false
 	}
 	display := DisplayInline
-	if value, ok := resolveDisplay(style.Display); ok {
+	if value, ok := resolveDisplay(style.display); ok {
 		display = value
 	}
 	if display != DisplayBlock && display != DisplayInlineBlock {
@@ -228,7 +228,7 @@ func (window *Window) adjustAutoWidth(element *Element, style Style) bool {
 	}
 	maxRight := maxChildRight(element)
 	paddingRight := 0
-	if padding, ok := resolveSpacingNormalized(style.Padding); ok {
+	if padding, ok := resolveSpacingNormalized(style.padding); ok {
 		paddingRight = padding.Right
 	}
 	borderWidth := borderWidthFor(style)
@@ -282,14 +282,14 @@ func nodeHidden(node Node) bool {
 		if current == nil {
 			return false
 		}
-		if display, ok := resolveDisplay(current.effectiveStyle().Display); ok && display == DisplayNone {
+		if display, ok := resolveDisplay(current.effectiveStyle().display); ok && display == DisplayNone {
 			return true
 		}
 	case *DocumentView:
 		if current == nil {
 			return false
 		}
-		if display, ok := resolveDisplay(current.effectiveStyle().Display); ok && display == DisplayNone {
+		if display, ok := resolveDisplay(current.effectiveStyle().display); ok && display == DisplayNone {
 			return true
 		}
 	}

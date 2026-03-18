@@ -155,7 +155,6 @@ func wrapTextLinesMono(text string, maxWidth int, charWidth int) []textLine {
 	return lines
 }
 
-
 func wrapTextLinesFont(text string, maxWidth int, face xfont.Face) []textLine {
 	if text == "" {
 		return nil
@@ -559,7 +558,6 @@ func textNextRuneIndex(value string, index int) int {
 	return index + size
 }
 
-
 func wrapTextPreserve(text string, maxWidth int, wrap bool, font *ttfFont, charWidth int) []textLine {
 	if font != nil {
 		return wrapTextPreserveFont(text, maxWidth, wrap, font.face)
@@ -726,7 +724,7 @@ func textPaddingAndWidth(rect Rect, style Style) (int, int, int, int) {
 	leftPad := 0
 	topPad := 0
 	rightPad := 0
-	if padding, ok := resolveSpacingNormalized(style.Padding); ok {
+	if padding, ok := resolveSpacingNormalized(style.padding); ok {
 		leftPad = padding.Left
 		topPad = padding.Top
 		rightPad = padding.Right
@@ -749,7 +747,7 @@ func textLineX(rect Rect, style Style, leftPad, rightPad, availableW int, line s
 	lineWidth := textWidthWithFont(line, font, charWidth)
 	x := rect.X + leftPad
 	align := TextAlignLeft
-	if value, ok := resolveTextAlign(style.TextAlign); ok {
+	if value, ok := resolveTextAlign(style.textAlign); ok {
 		align = value
 	}
 	if align == TextAlignCenter && availableW > lineWidth {

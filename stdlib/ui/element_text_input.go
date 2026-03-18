@@ -76,34 +76,34 @@ func (layout *textInputLayout) release() {
 func overflowModeFor(style Style, axis string) OverflowMode {
 	switch axis {
 	case "x":
-		if value, ok := resolveOverflow(style.OverflowX); ok {
+		if value, ok := resolveOverflow(style.overflowX); ok {
 			return value
 		}
 	case "y":
-		if value, ok := resolveOverflow(style.OverflowY); ok {
+		if value, ok := resolveOverflow(style.overflowY); ok {
 			return value
 		}
 	}
-	if value, ok := resolveOverflow(style.Overflow); ok {
+	if value, ok := resolveOverflow(style.overflow); ok {
 		return value
 	}
 	return OverflowVisible
 }
 
 func resolveScrollbarStyle(style Style) scrollbarStyle {
-	width, ok := resolveScrollbarWidth(style.ScrollbarWidth)
+	width, ok := resolveScrollbarWidth(style.scrollbarWidth)
 	if !ok {
 		width = defaultScrollbarWidth
 	}
-	track, ok := resolveColor(style.ScrollbarTrack)
+	track, ok := resolveColor(style.scrollbarTrack)
 	if !ok {
 		track = Silver
 	}
-	thumb, ok := resolveColor(style.ScrollbarThumb)
+	thumb, ok := resolveColor(style.scrollbarThumb)
 	if !ok {
 		thumb = Gray
 	}
-	radius, ok := resolveScrollbarRadius(style.ScrollbarRadius)
+	radius, ok := resolveScrollbarRadius(style.scrollbarRadius)
 	if !ok {
 		radius = width / 2
 	}
@@ -111,7 +111,7 @@ func resolveScrollbarStyle(style Style) scrollbarStyle {
 		radius = 0
 	}
 	padding := Spacing{}
-	if value, ok := resolveSpacingNormalized(style.ScrollbarPadding); ok {
+	if value, ok := resolveSpacingNormalized(style.scrollbarPadding); ok {
 		padding = value
 	}
 	return scrollbarStyle{

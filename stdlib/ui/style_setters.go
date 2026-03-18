@@ -6,9 +6,9 @@ func (style *Style) Absolute(x int, y int) {
 	if style == nil {
 		return
 	}
-	style.Position = PositionPtr(PositionAbsolute)
-	style.Left = IntPtr(x)
-	style.Top = IntPtr(y)
+	style.position = PositionPtr(PositionAbsolute)
+	style.left = IntPtr(x)
+	style.top = IntPtr(y)
 }
 
 func (style *Style) Size(width int, height int) {
@@ -16,10 +16,10 @@ func (style *Style) Size(width int, height int) {
 		return
 	}
 	if width >= 0 {
-		style.Width = IntPtr(width)
+		style.width = IntPtr(width)
 	}
 	if height >= 0 {
-		style.Height = IntPtr(height)
+		style.height = IntPtr(height)
 	}
 }
 
@@ -27,7 +27,7 @@ func (style *Style) SetWidth(value int) bool {
 	if style == nil {
 		return false
 	}
-	style.Width = IntPtr(value)
+	style.width = IntPtr(value)
 	return true
 }
 
@@ -35,7 +35,7 @@ func (style *Style) SetHeight(value int) bool {
 	if style == nil {
 		return false
 	}
-	style.Height = IntPtr(value)
+	style.height = IntPtr(value)
 	return true
 }
 
@@ -43,7 +43,7 @@ func (style *Style) SetLeft(value int) bool {
 	if style == nil {
 		return false
 	}
-	style.Left = IntPtr(value)
+	style.left = IntPtr(value)
 	return true
 }
 
@@ -51,7 +51,7 @@ func (style *Style) SetTop(value int) bool {
 	if style == nil {
 		return false
 	}
-	style.Top = IntPtr(value)
+	style.top = IntPtr(value)
 	return true
 }
 
@@ -59,7 +59,7 @@ func (style *Style) SetRight(value int) bool {
 	if style == nil {
 		return false
 	}
-	style.Right = IntPtr(value)
+	style.right = IntPtr(value)
 	return true
 }
 
@@ -67,7 +67,7 @@ func (style *Style) SetBottom(value int) bool {
 	if style == nil {
 		return false
 	}
-	style.Bottom = IntPtr(value)
+	style.bottom = IntPtr(value)
 	return true
 }
 
@@ -75,28 +75,28 @@ func (style *Style) SetBackground(color kos.Color) {
 	if style == nil {
 		return
 	}
-	style.Background = ColorPtr(color)
+	style.background = ColorPtr(color)
 }
 
 func (style *Style) SetBackgroundAttachment(value BackgroundAttachment) {
 	if style == nil {
 		return
 	}
-	style.BackgroundAttachment = BackgroundAttachmentPtr(value)
+	style.backgroundAttachment = BackgroundAttachmentPtr(value)
 }
 
 func (style *Style) SetForeground(color kos.Color) {
 	if style == nil {
 		return
 	}
-	style.Foreground = ColorPtr(color)
+	style.foreground = ColorPtr(color)
 }
 
 func (style *Style) SetBorderColor(color kos.Color) {
 	if style == nil {
 		return
 	}
-	style.BorderColor = ColorPtr(color)
+	style.borderColor = ColorPtr(color)
 }
 
 func (style *Style) SetBorderWidth(width int) {
@@ -106,21 +106,21 @@ func (style *Style) SetBorderWidth(width int) {
 	if width < 0 {
 		width = 0
 	}
-	style.BorderWidth = IntPtr(width)
+	style.borderWidth = IntPtr(width)
 }
 
 func (style *Style) SetMargin(values ...int) {
 	if style == nil {
 		return
 	}
-	style.Margin = SpacingCSS(values...)
+	style.margin = SpacingCSS(values...)
 }
 
 func (style *Style) SetPadding(values ...int) {
 	if style == nil {
 		return
 	}
-	style.Padding = SpacingCSS(values...)
+	style.padding = SpacingCSS(values...)
 }
 
 func (style *Style) SetBorder(width int, color kos.Color) {
@@ -130,36 +130,36 @@ func (style *Style) SetBorder(width int, color kos.Color) {
 	if width < 0 {
 		width = 0
 	}
-	style.BorderWidth = IntPtr(width)
-	style.BorderColor = ColorPtr(color)
+	style.borderWidth = IntPtr(width)
+	style.borderColor = ColorPtr(color)
 }
 
 func (style *Style) SetBorderRadius(values ...int) {
 	if style == nil {
 		return
 	}
-	style.BorderRadius = BorderRadiusCSS(values...)
+	style.borderRadius = BorderRadiusCSS(values...)
 }
 
 func (style *Style) SetDisplay(value DisplayMode) {
 	if style == nil {
 		return
 	}
-	style.Display = DisplayPtr(value)
+	style.display = DisplayPtr(value)
 }
 
 func (style *Style) SetPosition(value PositionMode) {
 	if style == nil {
 		return
 	}
-	style.Position = PositionPtr(value)
+	style.position = PositionPtr(value)
 }
 
 func (style *Style) SetTextAlign(value TextAlign) {
 	if style == nil {
 		return
 	}
-	style.TextAlign = AlignPtr(value)
+	style.textAlign = AlignPtr(value)
 }
 
 func (style *Style) SetTextShadow(value TextShadow) {
@@ -167,14 +167,14 @@ func (style *Style) SetTextShadow(value TextShadow) {
 		return
 	}
 	v := value
-	style.TextShadow = &v
+	style.textShadow = &v
 }
 
 func (style *Style) SetTextShadowPtr(value *TextShadow) {
 	if style == nil {
 		return
 	}
-	style.TextShadow = value
+	style.textShadow = copyTextShadowPtr(value)
 }
 
 func (style *Style) SetFontPath(value string) {
@@ -182,10 +182,10 @@ func (style *Style) SetFontPath(value string) {
 		return
 	}
 	if value == "" {
-		style.FontPath = nil
+		style.fontPath = nil
 		return
 	}
-	style.FontPath = StringPtr(value)
+	style.fontPath = StringPtr(value)
 }
 
 func (style *Style) SetFontSize(value int) {
@@ -193,10 +193,10 @@ func (style *Style) SetFontSize(value int) {
 		return
 	}
 	if value <= 0 {
-		style.FontSize = nil
+		style.fontSize = nil
 		return
 	}
-	style.FontSize = IntPtr(value)
+	style.fontSize = IntPtr(value)
 }
 
 func (style *Style) SetGradient(value Gradient) {
@@ -204,14 +204,14 @@ func (style *Style) SetGradient(value Gradient) {
 		return
 	}
 	v := value
-	style.Gradient = &v
+	style.gradient = &v
 }
 
 func (style *Style) SetGradientPtr(value *Gradient) {
 	if style == nil {
 		return
 	}
-	style.Gradient = value
+	style.gradient = copyGradientPtr(value)
 }
 
 func (style *Style) SetShadow(value Shadow) {
@@ -219,42 +219,42 @@ func (style *Style) SetShadow(value Shadow) {
 		return
 	}
 	v := value
-	style.Shadow = &v
+	style.shadow = &v
 }
 
 func (style *Style) SetShadowPtr(value *Shadow) {
 	if style == nil {
 		return
 	}
-	style.Shadow = value
+	style.shadow = copyShadowPtr(value)
 }
 
 func (style *Style) SetOpacity(value uint8) {
 	if style == nil {
 		return
 	}
-	style.Opacity = BytePtr(value)
+	style.opacity = BytePtr(value)
 }
 
 func (style *Style) SetOverflow(value OverflowMode) {
 	if style == nil {
 		return
 	}
-	style.Overflow = OverflowPtr(value)
+	style.overflow = OverflowPtr(value)
 }
 
 func (style *Style) SetOverflowX(value OverflowMode) {
 	if style == nil {
 		return
 	}
-	style.OverflowX = OverflowPtr(value)
+	style.overflowX = OverflowPtr(value)
 }
 
 func (style *Style) SetOverflowY(value OverflowMode) {
 	if style == nil {
 		return
 	}
-	style.OverflowY = OverflowPtr(value)
+	style.overflowY = OverflowPtr(value)
 }
 
 func (style *Style) SetScrollbarWidth(value int) {
@@ -264,21 +264,21 @@ func (style *Style) SetScrollbarWidth(value int) {
 	if value < 0 {
 		value = 0
 	}
-	style.ScrollbarWidth = IntPtr(value)
+	style.scrollbarWidth = IntPtr(value)
 }
 
 func (style *Style) SetScrollbarTrack(color kos.Color) {
 	if style == nil {
 		return
 	}
-	style.ScrollbarTrack = ColorPtr(color)
+	style.scrollbarTrack = ColorPtr(color)
 }
 
 func (style *Style) SetScrollbarThumb(color kos.Color) {
 	if style == nil {
 		return
 	}
-	style.ScrollbarThumb = ColorPtr(color)
+	style.scrollbarThumb = ColorPtr(color)
 }
 
 func (style *Style) SetScrollbarRadius(value int) {
@@ -288,14 +288,14 @@ func (style *Style) SetScrollbarRadius(value int) {
 	if value < 0 {
 		value = 0
 	}
-	style.ScrollbarRadius = IntPtr(value)
+	style.scrollbarRadius = IntPtr(value)
 }
 
 func (style *Style) SetScrollbarPadding(values ...int) {
 	if style == nil {
 		return
 	}
-	style.ScrollbarPadding = SpacingCSS(values...)
+	style.scrollbarPadding = SpacingCSS(values...)
 }
 
 func SpacingCSS(values ...int) *Spacing {

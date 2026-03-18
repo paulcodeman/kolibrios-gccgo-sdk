@@ -87,10 +87,10 @@ func fragmentNeedsFullDirtyPaint(fragment *Fragment) bool {
 	if resolveBorderRadius(style).Active() {
 		return true
 	}
-	if shadow, ok := resolveShadow(style.Shadow); ok && shadow != nil {
+	if shadow, ok := resolveShadow(style.shadow); ok && shadow != nil {
 		return true
 	}
-	if opacity, ok := resolveOpacity(style.Opacity); ok && opacity < 255 {
+	if opacity, ok := resolveOpacity(style.opacity); ok && opacity < 255 {
 		return true
 	}
 	return false
@@ -206,7 +206,7 @@ func (fragment *Fragment) paintTextOffset(canvas *Canvas, offsetX int, offsetY i
 	if len(lines) == 0 {
 		return
 	}
-	foreground, ok := resolveColor(style.Foreground)
+	foreground, ok := resolveColor(style.foreground)
 	if !ok {
 		foreground = Black
 	}
@@ -220,7 +220,7 @@ func (fragment *Fragment) paintTextOffset(canvas *Canvas, offsetX int, offsetY i
 		lineHeight = defaultFontHeight
 	}
 	leftPad, topPad, rightPad, availableW := textPaddingAndWidth(fragment.Bounds, style)
-	shadow, shadowOK := resolveTextShadow(style.TextShadow)
+	shadow, shadowOK := resolveTextShadow(style.textShadow)
 	if FastNoTextShadow || FastNoShadows {
 		shadowOK = false
 	}

@@ -51,16 +51,16 @@ func (window *Window) applyStyleBounds() bool {
 	y := window.Y
 	width := window.Width
 	height := window.Height
-	if value, ok := resolveLength(window.Style.Left); ok {
+	if value, ok := resolveLength(window.Style.left); ok {
 		x = value
 	}
-	if value, ok := resolveLength(window.Style.Top); ok {
+	if value, ok := resolveLength(window.Style.top); ok {
 		y = value
 	}
-	if value, ok := resolveLength(window.Style.Width); ok {
+	if value, ok := resolveLength(window.Style.width); ok {
 		width = value
 	}
-	if value, ok := resolveLength(window.Style.Height); ok {
+	if value, ok := resolveLength(window.Style.height); ok {
 		height = value
 	}
 	changed := window.setPosition(x, y)
@@ -74,8 +74,8 @@ func (window *Window) styleLayoutChanged(oldStyle Style, newStyle Style) bool {
 	if borderWidthFor(oldStyle) != borderWidthFor(newStyle) {
 		return true
 	}
-	oldPadding, _ := resolveSpacingNormalized(oldStyle.Padding)
-	newPadding, _ := resolveSpacingNormalized(newStyle.Padding)
+	oldPadding, _ := resolveSpacingNormalized(oldStyle.padding)
+	newPadding, _ := resolveSpacingNormalized(newStyle.padding)
 	return oldPadding != newPadding
 }
 
@@ -83,7 +83,7 @@ func (window *Window) overflowModeY() OverflowMode {
 	if window == nil {
 		return OverflowVisible
 	}
-	if window.Style.Overflow == nil && window.Style.OverflowY == nil {
+	if window.Style.overflow == nil && window.Style.overflowY == nil {
 		return OverflowAuto
 	}
 	return overflowModeFor(window.Style, "y")

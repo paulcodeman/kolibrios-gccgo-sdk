@@ -6,10 +6,10 @@ func (window *Window) backgroundOverride() bool {
 	if window == nil {
 		return false
 	}
-	if window.Style.Background != nil {
+	if window.Style.background != nil {
 		return true
 	}
-	return window.Style.Gradient != nil && !FastNoGradients
+	return window.Style.gradient != nil && !FastNoGradients
 }
 
 func (window *Window) backgroundStyle() Style {
@@ -17,31 +17,31 @@ func (window *Window) backgroundStyle() Style {
 		return Style{}
 	}
 	style := window.Style
-	if style.BackgroundAttachment == nil {
+	if style.backgroundAttachment == nil {
 		// Match HTML body behavior: background is fixed to the viewport by default.
-		style.BackgroundAttachment = BackgroundAttachmentPtr(BackgroundAttachmentFixed)
+		style.backgroundAttachment = BackgroundAttachmentPtr(BackgroundAttachmentFixed)
 	}
 	if FastNoGradients {
-		style.Gradient = nil
+		style.gradient = nil
 	}
 	if FastNoShadows {
-		style.Shadow = nil
+		style.shadow = nil
 	}
 	if FastNoBorders {
-		style.BorderWidth = nil
-		style.BorderColor = nil
+		style.borderWidth = nil
+		style.borderColor = nil
 	}
 	if FastNoRadius {
-		style.BorderRadius = nil
+		style.borderRadius = nil
 	}
-	if style.Background == nil && style.Gradient == nil {
-		style.Background = ColorPtr(window.Background)
+	if style.background == nil && style.gradient == nil {
+		style.background = ColorPtr(window.Background)
 	}
 	return style
 }
 
 func (window *Window) backgroundAttachment(style Style) BackgroundAttachment {
-	if value, ok := resolveBackgroundAttachment(style.BackgroundAttachment); ok {
+	if value, ok := resolveBackgroundAttachment(style.backgroundAttachment); ok {
 		return value
 	}
 	return BackgroundAttachmentFixed
@@ -68,10 +68,10 @@ func (window *Window) simpleBackgroundColor() (kos.Color, bool) {
 		return 0, false
 	}
 	style := window.backgroundStyle()
-	if style.Gradient != nil {
+	if style.gradient != nil {
 		return 0, false
 	}
-	if style.Shadow != nil {
+	if style.shadow != nil {
 		return 0, false
 	}
 	if borderWidthFor(style) > 0 {
@@ -80,11 +80,11 @@ func (window *Window) simpleBackgroundColor() (kos.Color, bool) {
 	if resolveBorderRadius(style).Active() {
 		return 0, false
 	}
-	if value, ok := resolveOpacity(style.Opacity); ok && value < 255 {
+	if value, ok := resolveOpacity(style.opacity); ok && value < 255 {
 		return 0, false
 	}
 	background := window.Background
-	if value, ok := resolveColor(style.Background); ok {
+	if value, ok := resolveColor(style.background); ok {
 		background = value
 	}
 	_, alpha := colorValueAndAlpha(background)
@@ -98,16 +98,16 @@ func (window *Window) backgroundNeedsTransparentClearStyle(style Style) bool {
 	if resolveBorderRadius(style).Active() {
 		return true
 	}
-	if value, ok := resolveOpacity(style.Opacity); ok && value < 255 {
+	if value, ok := resolveOpacity(style.opacity); ok && value < 255 {
 		return true
 	}
-	if value, ok := resolveGradient(style.Gradient); ok && value != nil {
+	if value, ok := resolveGradient(style.gradient); ok && value != nil {
 		_, fromAlpha := colorValueAndAlpha(value.From)
 		_, toAlpha := colorValueAndAlpha(value.To)
 		return fromAlpha < 255 || toAlpha < 255
 	}
 	background := window.Background
-	if value, ok := resolveColor(style.Background); ok {
+	if value, ok := resolveColor(style.background); ok {
 		background = value
 	}
 	_, alpha := colorValueAndAlpha(background)

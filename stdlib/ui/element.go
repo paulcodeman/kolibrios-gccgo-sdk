@@ -1,88 +1,63 @@
 package ui
 
 func DefaultButtonStyle() Style {
-	style := Style{
-		Background:  ColorPtr(Silver),
-		Foreground:  ColorPtr(Black),
-		BorderColor: ColorPtr(Gray),
-		BorderWidth: IntPtr(1),
-		TextAlign:   AlignPtr(TextAlignCenter),
-		Padding: &Spacing{
-			Left:   6,
-			Top:    4,
-			Right:  6,
-			Bottom: 4,
-		},
-	}
+	style := Style{}
+	style.SetBackground(Silver)
+	style.SetForeground(Black)
+	style.SetBorderColor(Gray)
+	style.SetBorderWidth(1)
+	style.SetTextAlign(TextAlignCenter)
+	style.SetPadding(4, 6, 4, 6)
 	return style
 }
 
 func DefaultLabelStyle() Style {
-	style := Style{
-		Foreground: ColorPtr(Black),
-		TextAlign:  AlignPtr(TextAlignLeft),
-	}
+	style := Style{}
+	style.SetForeground(Black)
+	style.SetTextAlign(TextAlignLeft)
 	return style
 }
 
 func DefaultInputStyle() Style {
-	style := Style{
-		Background:  ColorPtr(White),
-		Foreground:  ColorPtr(Black),
-		BorderColor: ColorPtr(Gray),
-		BorderWidth: IntPtr(1),
-		TextAlign:   AlignPtr(TextAlignLeft),
-		Padding: &Spacing{
-			Left:   6,
-			Top:    4,
-			Right:  6,
-			Bottom: 4,
-		},
-	}
+	style := Style{}
+	style.SetBackground(White)
+	style.SetForeground(Black)
+	style.SetBorderColor(Gray)
+	style.SetBorderWidth(1)
+	style.SetTextAlign(TextAlignLeft)
+	style.SetPadding(4, 6, 4, 6)
 	return style
 }
 
 func DefaultTextareaStyle() Style {
-	style := Style{
-		Background:      ColorPtr(White),
-		Foreground:      ColorPtr(Black),
-		BorderColor:     ColorPtr(Gray),
-		BorderWidth:     IntPtr(1),
-		TextAlign:       AlignPtr(TextAlignLeft),
-		Overflow:        OverflowPtr(OverflowAuto),
-		ScrollbarWidth:  IntPtr(6),
-		ScrollbarTrack:  ColorPtr(Silver),
-		ScrollbarThumb:  ColorPtr(Gray),
-		ScrollbarRadius: IntPtr(3),
-		ScrollbarPadding: &Spacing{
-			Left:   1,
-			Top:    1,
-			Right:  1,
-			Bottom: 1,
-		},
-		Padding: &Spacing{
-			Left:   6,
-			Top:    6,
-			Right:  6,
-			Bottom: 6,
-		},
-	}
+	style := Style{}
+	style.SetBackground(White)
+	style.SetForeground(Black)
+	style.SetBorderColor(Gray)
+	style.SetBorderWidth(1)
+	style.SetTextAlign(TextAlignLeft)
+	style.SetOverflow(OverflowAuto)
+	style.SetScrollbarWidth(6)
+	style.SetScrollbarTrack(Silver)
+	style.SetScrollbarThumb(Gray)
+	style.SetScrollbarRadius(3)
+	style.SetScrollbarPadding(1)
+	style.SetPadding(6)
 	return style
 }
 
 func DefaultTinyGLStyle() Style {
-	style := Style{
-		Background:  ColorPtr(Black),
-		BorderColor: ColorPtr(Gray),
-		BorderWidth: IntPtr(1),
-	}
+	style := Style{}
+	style.SetBackground(Black)
+	style.SetBorderColor(Gray)
+	style.SetBorderWidth(1)
 	return style
 }
 
 func DefaultBoxStyle() Style {
-	return Style{
-		Display: DisplayPtr(DisplayBlock),
-	}
+	style := Style{}
+	style.SetDisplay(DisplayBlock)
+	return style
 }
 
 func (element *Element) isFocusable() bool {

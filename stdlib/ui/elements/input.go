@@ -11,17 +11,12 @@ func Input(value string) *ui.Element {
 
 // InputStyle returns a neutral input style if you want to override defaults.
 func InputStyle() ui.Style {
-	return ui.Style{
-		Background:  ui.ColorPtr(ui.White),
-		Foreground:  ui.ColorPtr(ui.Black),
-		BorderColor: ui.ColorPtr(ui.Gray),
-		BorderWidth: ui.IntPtr(1),
-		TextAlign:   ui.AlignPtr(ui.TextAlignLeft),
-		Padding: &ui.Spacing{
-			Left:   6,
-			Top:    4,
-			Right:  6,
-			Bottom: 4,
-		},
-	}
+	style := ui.Style{}
+	style.SetBackground(ui.White)
+	style.SetForeground(ui.Black)
+	style.SetBorderColor(ui.Gray)
+	style.SetBorderWidth(1)
+	style.SetTextAlign(ui.TextAlignLeft)
+	style.SetPadding(4, 6, 4, 6)
+	return style
 }

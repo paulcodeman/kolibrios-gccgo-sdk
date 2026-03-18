@@ -26,14 +26,14 @@ func spacingAny(value Spacing) bool {
 }
 
 func borderWidthFor(style Style) int {
-	if value, ok := resolveLength(style.BorderWidth); ok && value > 0 {
+	if value, ok := resolveLength(style.borderWidth); ok && value > 0 {
 		return value
 	}
 	return 0
 }
 
 func boxInsets(style Style) Spacing {
-	padding, _ := resolveSpacingNormalized(style.Padding)
+	padding, _ := resolveSpacingNormalized(style.padding)
 	border := borderWidthFor(style)
 	return Spacing{
 		Left:   padding.Left + border,

@@ -29,101 +29,101 @@ type styleVisualKey struct {
 
 func visualKeyFor(style Style) styleVisualKey {
 	key := styleVisualKey{}
-	if value, ok := resolveColor(style.Background); ok {
+	if value, ok := resolveColor(style.background); ok {
 		v := value
 		key.background = &v
 	}
-	if value, ok := resolveColor(style.Foreground); ok {
+	if value, ok := resolveColor(style.foreground); ok {
 		v := value
 		key.foreground = &v
 	}
-	if value, ok := resolveColor(style.BorderColor); ok {
+	if value, ok := resolveColor(style.borderColor); ok {
 		v := value
 		key.borderColor = &v
 	}
-	if value, ok := resolveLength(style.BorderWidth); ok {
+	if value, ok := resolveLength(style.borderWidth); ok {
 		v := value
 		key.borderWidth = &v
 	}
-	if value, ok := resolveCornerRadii(style.BorderRadius); ok {
+	if value, ok := resolveCornerRadii(style.borderRadius); ok {
 		if value != nil {
 			v := *value
 			key.borderRadius = &v
 		}
 	}
-	if value, ok := resolveGradient(style.Gradient); ok {
+	if value, ok := resolveGradient(style.gradient); ok {
 		if value != nil {
 			v := *value
 			key.gradient = &v
 		}
 	}
-	if value, ok := resolveBackgroundAttachment(style.BackgroundAttachment); ok {
+	if value, ok := resolveBackgroundAttachment(style.backgroundAttachment); ok {
 		v := value
 		key.backgroundAttachment = &v
 	}
-	if value, ok := resolveShadow(style.Shadow); ok {
+	if value, ok := resolveShadow(style.shadow); ok {
 		if value != nil {
 			v := *value
 			key.shadow = &v
 		}
 	}
-	if value, ok := resolveTextAlign(style.TextAlign); ok {
+	if value, ok := resolveTextAlign(style.textAlign); ok {
 		v := value
 		key.textAlign = &v
 	}
-	if value, ok := resolveTextShadow(style.TextShadow); ok {
+	if value, ok := resolveTextShadow(style.textShadow); ok {
 		if value != nil {
 			v := *value
 			key.textShadow = &v
 		}
 	}
-	if value, ok := resolveFontPath(style.FontPath); ok {
+	if value, ok := resolveFontPath(style.fontPath); ok {
 		v := value
 		key.fontPath = &v
 	}
-	if value, ok := resolveFontSize(style.FontSize); ok {
+	if value, ok := resolveFontSize(style.fontSize); ok {
 		v := value
 		key.fontSize = &v
 	}
-	if value, ok := resolveSpacing(style.Padding); ok {
+	if value, ok := resolveSpacing(style.padding); ok {
 		if value != nil {
 			v := *value
 			key.padding = &v
 		}
 	}
-	if value, ok := resolveOpacity(style.Opacity); ok {
+	if value, ok := resolveOpacity(style.opacity); ok {
 		v := value
 		key.opacity = &v
 	}
-	if value, ok := resolveOverflow(style.Overflow); ok {
+	if value, ok := resolveOverflow(style.overflow); ok {
 		v := value
 		key.overflow = &v
 	}
-	if value, ok := resolveOverflow(style.OverflowX); ok {
+	if value, ok := resolveOverflow(style.overflowX); ok {
 		v := value
 		key.overflowX = &v
 	}
-	if value, ok := resolveOverflow(style.OverflowY); ok {
+	if value, ok := resolveOverflow(style.overflowY); ok {
 		v := value
 		key.overflowY = &v
 	}
-	if value, ok := resolveScrollbarWidth(style.ScrollbarWidth); ok {
+	if value, ok := resolveScrollbarWidth(style.scrollbarWidth); ok {
 		v := value
 		key.scrollbarWidth = &v
 	}
-	if value, ok := resolveColor(style.ScrollbarTrack); ok {
+	if value, ok := resolveColor(style.scrollbarTrack); ok {
 		v := value
 		key.scrollbarTrack = &v
 	}
-	if value, ok := resolveColor(style.ScrollbarThumb); ok {
+	if value, ok := resolveColor(style.scrollbarThumb); ok {
 		v := value
 		key.scrollbarThumb = &v
 	}
-	if value, ok := resolveScrollbarRadius(style.ScrollbarRadius); ok {
+	if value, ok := resolveScrollbarRadius(style.scrollbarRadius); ok {
 		v := value
 		key.scrollbarRadius = &v
 	}
-	if value, ok := resolveSpacing(style.ScrollbarPadding); ok {
+	if value, ok := resolveSpacing(style.scrollbarPadding); ok {
 		if value != nil {
 			v := *value
 			key.scrollbarPadding = &v
@@ -260,98 +260,98 @@ func mergeStyle(base Style, override Style) Style {
 		return base
 	}
 	style := base
-	if override.Background != nil {
-		style.Background = override.Background
+	if override.background != nil {
+		style.background = override.background
 	}
-	if override.Foreground != nil {
-		style.Foreground = override.Foreground
+	if override.foreground != nil {
+		style.foreground = override.foreground
 	}
-	if override.BorderColor != nil {
-		style.BorderColor = override.BorderColor
+	if override.borderColor != nil {
+		style.borderColor = override.borderColor
 	}
-	if override.BorderWidth != nil {
-		style.BorderWidth = override.BorderWidth
+	if override.borderWidth != nil {
+		style.borderWidth = override.borderWidth
 	}
-	if override.BorderRadius != nil {
-		style.BorderRadius = override.BorderRadius
+	if override.borderRadius != nil {
+		style.borderRadius = override.borderRadius
 	}
-	if override.Gradient != nil {
-		style.Gradient = override.Gradient
+	if override.gradient != nil {
+		style.gradient = override.gradient
 	}
-	if override.BackgroundAttachment != nil {
-		style.BackgroundAttachment = override.BackgroundAttachment
+	if override.backgroundAttachment != nil {
+		style.backgroundAttachment = override.backgroundAttachment
 	}
-	if override.Shadow != nil {
-		style.Shadow = override.Shadow
+	if override.shadow != nil {
+		style.shadow = override.shadow
 	}
-	if override.Display != nil {
-		style.Display = override.Display
+	if override.display != nil {
+		style.display = override.display
 	}
-	if override.TextAlign != nil {
-		style.TextAlign = override.TextAlign
+	if override.textAlign != nil {
+		style.textAlign = override.textAlign
 	}
-	if override.TextShadow != nil {
-		style.TextShadow = override.TextShadow
+	if override.textShadow != nil {
+		style.textShadow = override.textShadow
 	}
-	if override.FontPath != nil {
-		style.FontPath = override.FontPath
+	if override.fontPath != nil {
+		style.fontPath = override.fontPath
 	}
-	if override.FontSize != nil {
-		style.FontSize = override.FontSize
+	if override.fontSize != nil {
+		style.fontSize = override.fontSize
 	}
-	if override.Padding != nil {
-		style.Padding = override.Padding
+	if override.padding != nil {
+		style.padding = override.padding
 	}
-	if override.Opacity != nil {
-		style.Opacity = override.Opacity
+	if override.opacity != nil {
+		style.opacity = override.opacity
 	}
-	if override.Position != nil {
-		style.Position = override.Position
+	if override.position != nil {
+		style.position = override.position
 	}
-	if override.Left != nil {
-		style.Left = override.Left
+	if override.left != nil {
+		style.left = override.left
 	}
-	if override.Top != nil {
-		style.Top = override.Top
+	if override.top != nil {
+		style.top = override.top
 	}
-	if override.Right != nil {
-		style.Right = override.Right
+	if override.right != nil {
+		style.right = override.right
 	}
-	if override.Bottom != nil {
-		style.Bottom = override.Bottom
+	if override.bottom != nil {
+		style.bottom = override.bottom
 	}
-	if override.Width != nil {
-		style.Width = override.Width
+	if override.width != nil {
+		style.width = override.width
 	}
-	if override.Height != nil {
-		style.Height = override.Height
+	if override.height != nil {
+		style.height = override.height
 	}
-	if override.Margin != nil {
-		style.Margin = override.Margin
+	if override.margin != nil {
+		style.margin = override.margin
 	}
-	if override.Overflow != nil {
-		style.Overflow = override.Overflow
+	if override.overflow != nil {
+		style.overflow = override.overflow
 	}
-	if override.OverflowX != nil {
-		style.OverflowX = override.OverflowX
+	if override.overflowX != nil {
+		style.overflowX = override.overflowX
 	}
-	if override.OverflowY != nil {
-		style.OverflowY = override.OverflowY
+	if override.overflowY != nil {
+		style.overflowY = override.overflowY
 	}
-	if override.ScrollbarWidth != nil {
-		style.ScrollbarWidth = override.ScrollbarWidth
+	if override.scrollbarWidth != nil {
+		style.scrollbarWidth = override.scrollbarWidth
 	}
-	if override.ScrollbarTrack != nil {
-		style.ScrollbarTrack = override.ScrollbarTrack
+	if override.scrollbarTrack != nil {
+		style.scrollbarTrack = override.scrollbarTrack
 	}
-	if override.ScrollbarThumb != nil {
-		style.ScrollbarThumb = override.ScrollbarThumb
+	if override.scrollbarThumb != nil {
+		style.scrollbarThumb = override.scrollbarThumb
 	}
-	if override.ScrollbarRadius != nil {
-		style.ScrollbarRadius = override.ScrollbarRadius
+	if override.scrollbarRadius != nil {
+		style.scrollbarRadius = override.scrollbarRadius
 	}
-	if override.ScrollbarPadding != nil {
-		style.ScrollbarPadding = override.ScrollbarPadding
+	if override.scrollbarPadding != nil {
+		style.scrollbarPadding = override.scrollbarPadding
 	}
 	return style
 }

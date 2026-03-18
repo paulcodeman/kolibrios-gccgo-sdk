@@ -72,9 +72,9 @@ type documentViewLayoutKey struct {
 }
 
 func DefaultDocumentViewStyle() Style {
-	return Style{
-		Display: DisplayPtr(DisplayBlock),
-	}
+	style := Style{}
+	style.SetDisplay(DisplayBlock)
+	return style
 }
 
 func CreateDocumentView(document *Document) *DocumentView {

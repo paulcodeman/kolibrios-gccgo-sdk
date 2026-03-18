@@ -24,7 +24,9 @@ func (window *Window) RedrawContent() {
 	if window == nil {
 		return
 	}
-	window.syncWindowInfo()
+	if window.client.Empty() || window.canvas == nil {
+		window.syncWindowInfo()
+	}
 	window.ensureCanvas()
 	if !window.collectDirty() {
 		return
@@ -46,7 +48,9 @@ func (window *Window) RedrawContentStats(stats *FrameStats) {
 		return
 	}
 	*stats = FrameStats{}
-	window.syncWindowInfo()
+	if window.client.Empty() || window.canvas == nil {
+		window.syncWindowInfo()
+	}
 	window.ensureCanvas()
 	start := kos.UptimeNanoseconds()
 	if !window.collectDirty() {

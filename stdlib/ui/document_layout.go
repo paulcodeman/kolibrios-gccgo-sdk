@@ -129,7 +129,7 @@ func (document *Document) layoutElementNode(ctx LayoutContext, node *DocumentNod
 		Height: container.Height,
 	}
 	children, flowBottom := document.layoutChildren(ctx, style, node.Children, childContainer)
-	height, heightSet := resolveLength(style.Height)
+	height, heightSet := resolveLength(style.height)
 	if !heightSet {
 		contentHeight := 0
 		if flowBottom > contentY {
@@ -186,7 +186,7 @@ func (document *Document) layoutTextNode(ctx LayoutContext, node *DocumentNode, 
 	}
 	lines := wrapTextLines(node.Text, contentWidth, font, charWidth)
 	contentHeight := len(lines) * lineHeight
-	height, heightSet := resolveLength(style.Height)
+	height, heightSet := resolveLength(style.height)
 	if !heightSet {
 		height = insets.Top + contentHeight + insets.Bottom
 	}
@@ -271,15 +271,15 @@ func shiftFragmentTree(fragment *Fragment, dx int, dy int) {
 
 func planDocumentBox(style Style, container Rect, flowY int) documentBoxPlan {
 	plan := documentBoxPlan{}
-	plan.margin, _ = resolveSpacingNormalized(style.Margin)
-	if position, ok := resolvePosition(style.Position); ok {
+	plan.margin, _ = resolveSpacingNormalized(style.margin)
+	if position, ok := resolvePosition(style.position); ok {
 		plan.position = position
 	}
-	plan.left, plan.leftSet = resolveLength(style.Left)
-	plan.top, plan.topSet = resolveLength(style.Top)
-	plan.right, plan.rightSet = resolveLength(style.Right)
-	plan.bottom, plan.bottomSet = resolveLength(style.Bottom)
-	plan.width, plan.widthSet = resolveLength(style.Width)
+	plan.left, plan.leftSet = resolveLength(style.left)
+	plan.top, plan.topSet = resolveLength(style.top)
+	plan.right, plan.rightSet = resolveLength(style.right)
+	plan.bottom, plan.bottomSet = resolveLength(style.bottom)
+	plan.width, plan.widthSet = resolveLength(style.width)
 	if !plan.widthSet {
 		plan.width = container.Width - plan.margin.Left - plan.margin.Right
 		if plan.position == PositionAbsolute && plan.leftSet && plan.rightSet {
@@ -327,7 +327,7 @@ func nextFlowY(plan documentBoxPlan, height int, flowY int) int {
 }
 
 func documentDisplay(style Style, kind DocumentNodeKind) DisplayMode {
-	if display, ok := resolveDisplay(style.Display); ok {
+	if display, ok := resolveDisplay(style.display); ok {
 		return display
 	}
 	if kind == DocumentNodeText {
@@ -338,11 +338,11 @@ func documentDisplay(style Style, kind DocumentNodeKind) DisplayMode {
 
 func documentComputedStyle(parent Style, node *DocumentNode) Style {
 	inherited := Style{
-		Foreground: parent.Foreground,
-		TextAlign:  parent.TextAlign,
-		TextShadow: parent.TextShadow,
-		FontPath:   parent.FontPath,
-		FontSize:   parent.FontSize,
+		foreground: parent.foreground,
+		textAlign:  parent.textAlign,
+		textShadow: parent.textShadow,
+		fontPath:   parent.fontPath,
+		fontSize:   parent.fontSize,
 	}
 	if node == nil {
 		return inherited

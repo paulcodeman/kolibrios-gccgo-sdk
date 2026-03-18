@@ -8,14 +8,14 @@ func (element *Element) Draw() {
 	if element == nil {
 		return
 	}
-	if display, ok := resolveDisplay(element.effectiveStyle().Display); ok && display == DisplayNone {
+	if display, ok := resolveDisplay(element.effectiveStyle().display); ok && display == DisplayNone {
 		return
 	}
 	if element.isTextInput() {
 		style := element.effectiveStyle()
 		x, y := element.rawPosition(style)
 		rect := Rect{X: x, Y: y, Width: element.resolvedWidth(style), Height: element.resolvedHeight(style)}
-		foreground, ok := resolveColor(style.Foreground)
+		foreground, ok := resolveColor(style.foreground)
 		if !ok {
 			foreground = Black
 		}
@@ -42,11 +42,11 @@ func (element *Element) Draw() {
 	case ElementKindButton:
 		style := element.effectiveStyle()
 		x, y := element.rawPosition(style)
-		background, ok := resolveColor(style.Background)
+		background, ok := resolveColor(style.background)
 		if !ok {
 			background = Silver
 		}
-		foreground, ok := resolveColor(style.Foreground)
+		foreground, ok := resolveColor(style.foreground)
 		if !ok {
 			foreground = Black
 		}
@@ -64,7 +64,7 @@ func (element *Element) Draw() {
 	case ElementKindLabel:
 		style := element.effectiveStyle()
 		x, y := element.rawPosition(style)
-		foreground, ok := resolveColor(style.Foreground)
+		foreground, ok := resolveColor(style.foreground)
 		if !ok {
 			foreground = Black
 		}
@@ -79,7 +79,7 @@ func (element *Element) Draw() {
 	default:
 		style := element.effectiveStyle()
 		x, y := element.rawPosition(style)
-		foreground, ok := resolveColor(style.Foreground)
+		foreground, ok := resolveColor(style.foreground)
 		if !ok {
 			foreground = Black
 		}
@@ -99,7 +99,7 @@ func (element *Element) DrawTo(canvas *Canvas) {
 		return
 	}
 	style := element.effectiveStyle()
-	if display, ok := resolveDisplay(style.Display); ok && display == DisplayNone {
+	if display, ok := resolveDisplay(style.display); ok && display == DisplayNone {
 		return
 	}
 	element.updateRenderKey(style)
@@ -121,7 +121,7 @@ func (element *Element) backgroundRect(rect Rect, style Style) Rect {
 		return rect
 	}
 	attachment := BackgroundAttachmentScroll
-	if value, ok := resolveBackgroundAttachment(style.BackgroundAttachment); ok {
+	if value, ok := resolveBackgroundAttachment(style.backgroundAttachment); ok {
 		attachment = value
 	}
 	if attachment == BackgroundAttachmentFixed {
@@ -137,7 +137,7 @@ func (element *Element) drawToRect(canvas *Canvas, rect Rect, style Style) {
 		return
 	}
 	bgRect := rect
-	if style.Gradient != nil && !FastNoGradients {
+	if style.gradient != nil && !FastNoGradients {
 		bgRect = element.backgroundRect(rect, style)
 	}
 	drawStyledBox(canvas, rect, style, bgRect, nil)
@@ -149,7 +149,7 @@ func (element *Element) drawToRect(canvas *Canvas, rect Rect, style Style) {
 			}
 			return
 		}
-		foreground, ok := resolveColor(style.Foreground)
+		foreground, ok := resolveColor(style.foreground)
 		if !ok {
 			foreground = Black
 		}
@@ -206,12 +206,12 @@ func (element *Element) drawToRect(canvas *Canvas, rect Rect, style Style) {
 		}
 		return
 	}
-	foreground, ok := resolveColor(style.Foreground)
+	foreground, ok := resolveColor(style.foreground)
 	if !ok {
 		foreground = Black
 	}
 	font := fontForStyle(style)
-	shadow, shadowOk := resolveTextShadow(style.TextShadow)
+	shadow, shadowOk := resolveTextShadow(style.textShadow)
 	if FastNoTextShadow || FastNoShadows {
 		shadowOk = false
 	}
@@ -289,7 +289,7 @@ func (element *Element) cacheInfo(style Style, rect Rect) (bool, bool, Rect) {
 	if element.isTextInput() {
 		return false, false, Rect{}
 	}
-	if attachment, ok := resolveBackgroundAttachment(style.BackgroundAttachment); ok && attachment == BackgroundAttachmentFixed {
+	if attachment, ok := resolveBackgroundAttachment(style.backgroundAttachment); ok && attachment == BackgroundAttachmentFixed {
 		return false, false, Rect{}
 	}
 	visual := element.visualBoundsFor(rect, style)
@@ -299,19 +299,19 @@ func (element *Element) cacheInfo(style Style, rect Rect) (bool, bool, Rect) {
 
 	text := element.text()
 	hasText := text != ""
-	_, backgroundSet := resolveColor(style.Background)
-	_, gradientSet := resolveGradient(style.Gradient)
+	_, backgroundSet := resolveColor(style.background)
+	_, gradientSet := resolveGradient(style.gradient)
 	borderWidth := 0
-	if value, ok := resolveLength(style.BorderWidth); ok {
+	if value, ok := resolveLength(style.borderWidth); ok {
 		borderWidth = value
 	}
 	shadowSet := false
-	if shadow, ok := resolveShadow(style.Shadow); ok && shadow != nil {
+	if shadow, ok := resolveShadow(style.shadow); ok && shadow != nil {
 		shadowSet = true
 	}
 	textShadowSet := false
 	if element.kind == ElementKindLabel {
-		if shadow, ok := resolveTextShadow(style.TextShadow); ok && shadow != nil {
+		if shadow, ok := resolveTextShadow(style.textShadow); ok && shadow != nil {
 			textShadowSet = true
 		}
 	}
@@ -323,7 +323,7 @@ func (element *Element) cacheInfo(style Style, rect Rect) (bool, bool, Rect) {
 	if shadowSet || textShadowSet {
 		needsAlpha = true
 	}
-	if opacity, ok := resolveOpacity(style.Opacity); ok && opacity < 255 {
+	if opacity, ok := resolveOpacity(style.opacity); ok && opacity < 255 {
 		needsAlpha = true
 	}
 	if radii := resolveBorderRadius(style); radii.Active() {

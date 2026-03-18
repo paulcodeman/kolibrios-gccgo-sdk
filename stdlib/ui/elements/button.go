@@ -31,69 +31,64 @@ func ButtonAt(id kos.ButtonID, label string, x int, y int) *ui.Element {
 
 // ButtonStyle returns a neutral base style if you want to override defaults.
 func ButtonStyle() ui.Style {
-	return ui.Style{
-		Background:  ui.ColorPtr(ui.Silver),
-		Foreground:  ui.ColorPtr(ui.Black),
-		BorderColor: ui.ColorPtr(ui.Gray),
-		BorderWidth: ui.IntPtr(1),
-		Gradient: &ui.Gradient{
-			From:      ui.White,
-			To:        ui.Silver,
-			Direction: ui.GradientVertical,
-		},
-		Shadow: &ui.Shadow{
-			OffsetX: 1,
-			OffsetY: 1,
-			Blur:    2,
-			Color:   ui.Black,
-			Alpha:   60,
-		},
-		TextAlign: ui.AlignPtr(ui.TextAlignCenter),
-		Padding: &ui.Spacing{
-			Left:   6,
-			Top:    4,
-			Right:  6,
-			Bottom: 4,
-		},
-	}
+	style := ui.Style{}
+	style.SetBackground(ui.Silver)
+	style.SetForeground(ui.Black)
+	style.SetBorderColor(ui.Gray)
+	style.SetBorderWidth(1)
+	style.SetGradient(ui.Gradient{
+		From:      ui.White,
+		To:        ui.Silver,
+		Direction: ui.GradientVertical,
+	})
+	style.SetShadow(ui.Shadow{
+		OffsetX: 1,
+		OffsetY: 1,
+		Blur:    2,
+		Color:   ui.Black,
+		Alpha:   60,
+	})
+	style.SetTextAlign(ui.TextAlignCenter)
+	style.SetPadding(4, 6, 4, 6)
+	return style
 }
 
 func ButtonHoverStyle() ui.Style {
-	return ui.Style{
-		Background:  ui.ColorPtr(ui.White),
-		BorderColor: ui.ColorPtr(ui.Gray),
-		BorderWidth: ui.IntPtr(1),
-		Gradient: &ui.Gradient{
-			From:      ui.White,
-			To:        ui.Silver,
-			Direction: ui.GradientVertical,
-		},
-		Shadow: &ui.Shadow{
-			OffsetX: 1,
-			OffsetY: 1,
-			Blur:    2,
-			Color:   ui.Black,
-			Alpha:   70,
-		},
-	}
+	style := ui.Style{}
+	style.SetBackground(ui.White)
+	style.SetBorderColor(ui.Gray)
+	style.SetBorderWidth(1)
+	style.SetGradient(ui.Gradient{
+		From:      ui.White,
+		To:        ui.Silver,
+		Direction: ui.GradientVertical,
+	})
+	style.SetShadow(ui.Shadow{
+		OffsetX: 1,
+		OffsetY: 1,
+		Blur:    2,
+		Color:   ui.Black,
+		Alpha:   70,
+	})
+	return style
 }
 
 func ButtonActiveStyle() ui.Style {
-	return ui.Style{
-		Background:  ui.ColorPtr(ui.Gray),
-		Foreground:  ui.ColorPtr(ui.Black),
-		BorderWidth: ui.IntPtr(0),
-		Gradient: &ui.Gradient{
-			From:      ui.Gray,
-			To:        ui.Silver,
-			Direction: ui.GradientVertical,
-		},
-		Shadow: &ui.Shadow{
-			OffsetX: 0,
-			OffsetY: 0,
-			Blur:    1,
-			Color:   ui.Black,
-			Alpha:   40,
-		},
-	}
+	style := ui.Style{}
+	style.SetBackground(ui.Gray)
+	style.SetForeground(ui.Black)
+	style.SetBorderWidth(0)
+	style.SetGradient(ui.Gradient{
+		From:      ui.Gray,
+		To:        ui.Silver,
+		Direction: ui.GradientVertical,
+	})
+	style.SetShadow(ui.Shadow{
+		OffsetX: 0,
+		OffsetY: 0,
+		Blur:    1,
+		Color:   ui.Black,
+		Alpha:   40,
+	})
+	return style
 }

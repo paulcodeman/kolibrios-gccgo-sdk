@@ -3,8 +3,8 @@ package ui
 import "sync"
 
 const (
-	maxPooledTextLines   = 256
-	maxPooledTextPixels  = 16384
+	maxPooledTextLines  = 256
+	maxPooledTextPixels = 16384
 )
 
 var textLineSlicePool = sync.Pool{
