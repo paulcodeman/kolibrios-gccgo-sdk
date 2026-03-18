@@ -407,6 +407,53 @@ func Run() {
 		style.SetLineHeight(20)
 	})
 
+	textFlowRow := ui.CreateBox()
+	apply(textFlowRow, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 8, 0)
+	})
+
+	textFlowCard := func(title string, configure func(*ui.Style), text string) *ui.Element {
+		card := elements.Label(title + "\n" + text)
+		apply(card, func(style *ui.Style) {
+			style.SetDisplay(ui.DisplayInlineBlock)
+			style.SetWidth(120)
+			style.SetMargin(0, 8, 0, 0)
+			style.SetPadding(6, 8)
+			style.SetBackground(ui.White)
+			style.SetBorder(1, ui.Silver)
+			style.SetBorderRadius(8)
+			style.SetFontSize(11)
+			style.SetLineHeight(15)
+			if configure != nil {
+				configure(style)
+			}
+		})
+		return card
+	}
+	textFlowRow.Append(textFlowCard("normal", nil, "Words wrap by spaces and keep narrow cards readable."))
+	textFlowRow.Append(textFlowCard("nowrap", func(style *ui.Style) {
+		style.SetWhiteSpace(ui.WhiteSpaceNoWrap)
+	}, "This text should stay on one line even in a narrow card."))
+	textFlowRow.Append(textFlowCard("break-word", func(style *ui.Style) {
+		style.SetOverflowWrap(ui.OverflowWrapBreakWord)
+	}, "superlongtoken_without_spaces_should_break_here"))
+
+	preWrapDemo := elements.Label("pre-wrap:\nline 1\n    keeps indent\nline 3")
+	apply(preWrapDemo, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetWidth(180)
+		style.SetMargin(0, 0, 8, 0)
+		style.SetPadding(6, 8)
+		style.SetBackground(ui.White)
+		style.SetBorder(1, ui.Silver)
+		style.SetBorderRadius(8)
+		style.SetFontPath(monoFontPath)
+		style.SetFontSize(11)
+		style.SetLineHeight(15)
+		style.SetWhiteSpace(ui.WhiteSpacePreWrap)
+	})
+
 	visibilityRow := ui.CreateBox()
 	apply(visibilityRow, func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
@@ -497,6 +544,8 @@ func Run() {
 	card.Append(borderDemo)
 	card.Append(boxRow)
 	card.Append(textDemo)
+	card.Append(textFlowRow)
+	card.Append(preWrapDemo)
 	card.Append(visibilityRow)
 	card.Append(outlineDemo)
 

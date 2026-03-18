@@ -98,6 +98,45 @@ func ParseTextDecoration(value string) (TextDecoration, bool) {
 	}
 }
 
+func ParseWhiteSpace(value string) (WhiteSpaceMode, bool) {
+	switch normalizeCSSKeyword(value) {
+	case "normal":
+		return WhiteSpaceNormal, true
+	case "nowrap":
+		return WhiteSpaceNoWrap, true
+	case "pre":
+		return WhiteSpacePre, true
+	case "pre-wrap":
+		return WhiteSpacePreWrap, true
+	case "pre-line":
+		return WhiteSpacePreLine, true
+	default:
+		return 0, false
+	}
+}
+
+func ParseOverflowWrap(value string) (OverflowWrapMode, bool) {
+	switch normalizeCSSKeyword(value) {
+	case "normal":
+		return OverflowWrapNormal, true
+	case "break-word", "anywhere":
+		return OverflowWrapBreakWord, true
+	default:
+		return 0, false
+	}
+}
+
+func ParseWordBreak(value string) (WordBreakMode, bool) {
+	switch normalizeCSSKeyword(value) {
+	case "normal":
+		return WordBreakNormal, true
+	case "break-all":
+		return WordBreakBreakAll, true
+	default:
+		return 0, false
+	}
+}
+
 func ParseBackgroundAttachment(value string) (BackgroundAttachment, bool) {
 	switch normalizeCSSKeyword(value) {
 	case "scroll":
@@ -366,6 +405,57 @@ func (style *Style) SetTextDecorationString(value string) bool {
 
 func (style Style) GetTextDecorationString() (string, bool) {
 	value, ok := style.GetTextDecoration()
+	if !ok {
+		return "", false
+	}
+	return value.String(), true
+}
+
+func (style *Style) SetWhiteSpaceString(value string) bool {
+	parsed, ok := ParseWhiteSpace(value)
+	if !ok || style == nil {
+		return false
+	}
+	style.SetWhiteSpace(parsed)
+	return true
+}
+
+func (style Style) GetWhiteSpaceString() (string, bool) {
+	value, ok := style.GetWhiteSpace()
+	if !ok {
+		return "", false
+	}
+	return value.String(), true
+}
+
+func (style *Style) SetOverflowWrapString(value string) bool {
+	parsed, ok := ParseOverflowWrap(value)
+	if !ok || style == nil {
+		return false
+	}
+	style.SetOverflowWrap(parsed)
+	return true
+}
+
+func (style Style) GetOverflowWrapString() (string, bool) {
+	value, ok := style.GetOverflowWrap()
+	if !ok {
+		return "", false
+	}
+	return value.String(), true
+}
+
+func (style *Style) SetWordBreakString(value string) bool {
+	parsed, ok := ParseWordBreak(value)
+	if !ok || style == nil {
+		return false
+	}
+	style.SetWordBreak(parsed)
+	return true
+}
+
+func (style Style) GetWordBreakString() (string, bool) {
+	value, ok := style.GetWordBreak()
 	if !ok {
 		return "", false
 	}

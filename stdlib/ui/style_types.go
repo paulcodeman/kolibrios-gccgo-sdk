@@ -167,6 +167,69 @@ func (value TextDecoration) String() string {
 	}
 }
 
+type WhiteSpaceMode int
+
+const (
+	WhiteSpaceNormal WhiteSpaceMode = iota
+	WhiteSpaceNoWrap
+	WhiteSpacePre
+	WhiteSpacePreWrap
+	WhiteSpacePreLine
+)
+
+func (value WhiteSpaceMode) String() string {
+	switch value {
+	case WhiteSpaceNormal:
+		return "normal"
+	case WhiteSpaceNoWrap:
+		return "nowrap"
+	case WhiteSpacePre:
+		return "pre"
+	case WhiteSpacePreWrap:
+		return "pre-wrap"
+	case WhiteSpacePreLine:
+		return "pre-line"
+	default:
+		return ""
+	}
+}
+
+type OverflowWrapMode int
+
+const (
+	OverflowWrapNormal OverflowWrapMode = iota
+	OverflowWrapBreakWord
+)
+
+func (value OverflowWrapMode) String() string {
+	switch value {
+	case OverflowWrapNormal:
+		return "normal"
+	case OverflowWrapBreakWord:
+		return "break-word"
+	default:
+		return ""
+	}
+}
+
+type WordBreakMode int
+
+const (
+	WordBreakNormal WordBreakMode = iota
+	WordBreakBreakAll
+)
+
+func (value WordBreakMode) String() string {
+	switch value {
+	case WordBreakNormal:
+		return "normal"
+	case WordBreakBreakAll:
+		return "break-all"
+	default:
+		return ""
+	}
+}
+
 type GradientDirection int
 
 const (
@@ -247,6 +310,9 @@ type Style struct {
 	visibility           *VisibilityMode
 	textAlign            *TextAlign
 	textDecoration       *TextDecoration
+	whiteSpace           *WhiteSpaceMode
+	overflowWrap         *OverflowWrapMode
+	wordBreak            *WordBreakMode
 	textShadow           *TextShadow
 	fontPath             *string
 	fontSize             *int
@@ -301,6 +367,9 @@ func (style Style) IsZero() bool {
 		style.visibility == nil &&
 		style.textAlign == nil &&
 		style.textDecoration == nil &&
+		style.whiteSpace == nil &&
+		style.overflowWrap == nil &&
+		style.wordBreak == nil &&
 		style.textShadow == nil &&
 		style.fontPath == nil &&
 		style.fontSize == nil &&
@@ -350,6 +419,9 @@ func (style Style) HasLayout() bool {
 		style.maxHeight != nil ||
 		style.boxSizing != nil ||
 		style.lineHeight != nil ||
+		style.whiteSpace != nil ||
+		style.overflowWrap != nil ||
+		style.wordBreak != nil ||
 		style.borderWidth != nil ||
 		style.borderTopWidth != nil ||
 		style.borderRightWidth != nil ||
@@ -379,6 +451,9 @@ func (style Style) HasVisual() bool {
 		style.visibility != nil ||
 		style.textAlign != nil ||
 		style.textDecoration != nil ||
+		style.whiteSpace != nil ||
+		style.overflowWrap != nil ||
+		style.wordBreak != nil ||
 		style.textShadow != nil ||
 		style.fontPath != nil ||
 		style.fontSize != nil ||
@@ -455,6 +530,21 @@ func BoxSizingPtr(value BoxSizing) *BoxSizing {
 }
 
 func TextDecorationPtr(value TextDecoration) *TextDecoration {
+	v := value
+	return &v
+}
+
+func WhiteSpacePtr(value WhiteSpaceMode) *WhiteSpaceMode {
+	v := value
+	return &v
+}
+
+func OverflowWrapPtr(value OverflowWrapMode) *OverflowWrapMode {
+	v := value
+	return &v
+}
+
+func WordBreakPtr(value WordBreakMode) *WordBreakMode {
 	v := value
 	return &v
 }

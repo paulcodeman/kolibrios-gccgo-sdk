@@ -244,6 +244,27 @@ func (style *Style) SetTextDecoration(value TextDecoration) {
 	style.textDecoration = TextDecorationPtr(value)
 }
 
+func (style *Style) SetWhiteSpace(value WhiteSpaceMode) {
+	if style == nil {
+		return
+	}
+	style.whiteSpace = WhiteSpacePtr(value)
+}
+
+func (style *Style) SetOverflowWrap(value OverflowWrapMode) {
+	if style == nil {
+		return
+	}
+	style.overflowWrap = OverflowWrapPtr(value)
+}
+
+func (style *Style) SetWordBreak(value WordBreakMode) {
+	if style == nil {
+		return
+	}
+	style.wordBreak = WordBreakPtr(value)
+}
+
 func (style *Style) SetTextShadow(value TextShadow) {
 	if style == nil {
 		return

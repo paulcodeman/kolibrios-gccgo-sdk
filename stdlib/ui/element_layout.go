@@ -341,7 +341,7 @@ func (element *Element) resolvedHeightInWithContext(ctx LayoutContext, style Sty
 				textHeight = len(lines) * lineHeight
 			}
 		} else {
-			lines := element.wrapTextLinesCached(text, availableW, font, charWidth)
+			lines := element.wrapTextLinesCachedStyle(text, availableW, font, charWidth, style)
 			if len(lines) > 0 {
 				textHeight = len(lines) * lineHeight
 			}

@@ -131,6 +131,18 @@ func (style Style) GetTextDecoration() (TextDecoration, bool) {
 	return resolveTextDecoration(style.textDecoration)
 }
 
+func (style Style) GetWhiteSpace() (WhiteSpaceMode, bool) {
+	return resolveWhiteSpace(style.whiteSpace)
+}
+
+func (style Style) GetOverflowWrap() (OverflowWrapMode, bool) {
+	return resolveOverflowWrap(style.overflowWrap)
+}
+
+func (style Style) GetWordBreak() (WordBreakMode, bool) {
+	return resolveWordBreak(style.wordBreak)
+}
+
 func (style Style) GetTextShadow() (TextShadow, bool) {
 	if value, ok := resolveTextShadow(style.textShadow); ok && value != nil {
 		return *value, true

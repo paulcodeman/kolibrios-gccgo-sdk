@@ -179,7 +179,7 @@ func (document *Document) layoutTextNode(ctx LayoutContext, node *DocumentNode, 
 	if charWidth <= 0 {
 		charWidth = defaultCharWidth
 	}
-	lines := wrapTextLines(node.Text, contentWidth, font, charWidth)
+	lines := wrapTextForStyle(node.Text, contentWidth, font, charWidth, style)
 	contentHeight := len(lines) * lineHeight
 	height, heightSet := explicitOuterHeight(style)
 	if !heightSet {
@@ -333,6 +333,9 @@ func documentComputedStyle(parent Style, node *DocumentNode) Style {
 		textAlign:      parent.textAlign,
 		visibility:     parent.visibility,
 		textDecoration: parent.textDecoration,
+		whiteSpace:     parent.whiteSpace,
+		overflowWrap:   parent.overflowWrap,
+		wordBreak:      parent.wordBreak,
 		textShadow:     parent.textShadow,
 		fontPath:       parent.fontPath,
 		fontSize:       parent.fontSize,

@@ -24,6 +24,9 @@ func styleLayoutOnly(style Style) Style {
 		fontPath:          style.fontPath,
 		fontSize:          style.fontSize,
 		lineHeight:        style.lineHeight,
+		whiteSpace:        style.whiteSpace,
+		overflowWrap:      style.overflowWrap,
+		wordBreak:         style.wordBreak,
 		boxSizing:         style.boxSizing,
 	}
 }
@@ -49,6 +52,9 @@ func styleVisualOnly(style Style) Style {
 		visibility:           style.visibility,
 		textAlign:            style.textAlign,
 		textDecoration:       style.textDecoration,
+		whiteSpace:           style.whiteSpace,
+		overflowWrap:         style.overflowWrap,
+		wordBreak:            style.wordBreak,
 		textShadow:           style.textShadow,
 		fontPath:             style.fontPath,
 		fontSize:             style.fontSize,

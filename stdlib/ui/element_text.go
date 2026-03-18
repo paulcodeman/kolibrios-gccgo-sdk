@@ -19,12 +19,15 @@ func (element *Element) text() string {
 }
 
 type textWrapCache struct {
-	text      string
-	maxWidth  int
-	charWidth int
-	fontKey   fontKey
-	hasFont   bool
-	lines     []textLine
+	text         string
+	maxWidth     int
+	charWidth    int
+	fontKey      fontKey
+	hasFont      bool
+	whiteSpace   WhiteSpaceMode
+	overflowWrap OverflowWrapMode
+	wordBreak    WordBreakMode
+	lines        []textLine
 }
 
 type textPreserveCache struct {
@@ -54,8 +57,12 @@ func (element *Element) clearTextCache() {
 }
 
 func (element *Element) wrapTextLinesCached(text string, maxWidth int, font *ttfFont, charWidth int) []textLine {
+	return element.wrapTextLinesCachedStyle(text, maxWidth, font, charWidth, Style{})
+}
+
+func (element *Element) wrapTextLinesCachedStyle(text string, maxWidth int, font *ttfFont, charWidth int, style Style) []textLine {
 	if element == nil || FastNoTextCache {
-		return wrapTextLines(text, maxWidth, font, charWidth)
+		return wrapTextForStyle(text, maxWidth, font, charWidth, style)
 	}
 	cache := &element.wrapCache
 	hasFont := font != nil
@@ -63,19 +70,27 @@ func (element *Element) wrapTextLinesCached(text string, maxWidth int, font *ttf
 	if hasFont {
 		key = fontKey{path: font.path, size: font.size}
 	}
+	whiteSpace := whiteSpaceForStyle(style)
+	overflowWrap := overflowWrapForStyle(style)
+	wordBreak := wordBreakForStyle(style)
 	if cache.lines != nil && cache.text == text && cache.maxWidth == maxWidth && cache.charWidth == charWidth &&
-		cache.hasFont == hasFont && (!hasFont || cache.fontKey == key) {
+		cache.hasFont == hasFont && cache.whiteSpace == whiteSpace &&
+		cache.overflowWrap == overflowWrap && cache.wordBreak == wordBreak &&
+		(!hasFont || cache.fontKey == key) {
 		return cache.lines
 	}
 	if cache.lines != nil {
 		releaseTextLines(cache.lines)
 	}
-	lines := wrapTextLines(text, maxWidth, font, charWidth)
+	lines := wrapTextForStyle(text, maxWidth, font, charWidth, style)
 	cache.text = text
 	cache.maxWidth = maxWidth
 	cache.charWidth = charWidth
 	cache.fontKey = key
 	cache.hasFont = hasFont
+	cache.whiteSpace = whiteSpace
+	cache.overflowWrap = overflowWrap
+	cache.wordBreak = wordBreak
 	cache.lines = lines
 	return lines
 }
@@ -108,14 +123,58 @@ func (element *Element) wrapTextPreserveCached(text string, maxWidth int, wrap b
 	return lines
 }
 
-func wrapTextLines(text string, maxWidth int, font *ttfFont, charWidth int) []textLine {
-	if font != nil {
-		return wrapTextLinesFont(text, maxWidth, font.face)
-	}
-	return wrapTextLinesMono(text, maxWidth, charWidth)
+type textWrapOptions struct {
+	preserve       bool
+	wrap           bool
+	breakLongWords bool
+	breakAll       bool
 }
 
-func wrapTextLinesMono(text string, maxWidth int, charWidth int) []textLine {
+func textWrapOptionsForStyle(style Style) textWrapOptions {
+	options := textWrapOptions{
+		wrap:           true,
+		breakLongWords: overflowWrapForStyle(style) == OverflowWrapBreakWord,
+	}
+	switch whiteSpaceForStyle(style) {
+	case WhiteSpaceNoWrap:
+		options.wrap = false
+	case WhiteSpacePre:
+		options.preserve = true
+		options.wrap = false
+	case WhiteSpacePreWrap:
+		options.preserve = true
+	case WhiteSpacePreLine:
+		options.wrap = true
+	default:
+		options.wrap = true
+	}
+	if wordBreakForStyle(style) == WordBreakBreakAll {
+		options.breakAll = true
+		options.breakLongWords = true
+	}
+	if !options.wrap {
+		options.breakAll = false
+		options.breakLongWords = false
+	}
+	return options
+}
+
+func wrapTextForStyle(text string, maxWidth int, font *ttfFont, charWidth int, style Style) []textLine {
+	options := textWrapOptionsForStyle(style)
+	if options.breakAll || options.preserve || !options.wrap {
+		return wrapTextPreserve(text, maxWidth, options.wrap, font, charWidth)
+	}
+	return wrapTextLines(text, maxWidth, font, charWidth, options.breakLongWords)
+}
+
+func wrapTextLines(text string, maxWidth int, font *ttfFont, charWidth int, breakLongWords bool) []textLine {
+	if font != nil {
+		return wrapTextLinesFont(text, maxWidth, font.face, breakLongWords)
+	}
+	return wrapTextLinesMono(text, maxWidth, charWidth, breakLongWords)
+}
+
+func wrapTextLinesMono(text string, maxWidth int, charWidth int, breakLongWords bool) []textLine {
 	if text == "" {
 		return nil
 	}
@@ -142,9 +201,9 @@ func wrapTextLinesMono(text string, maxWidth int, charWidth int) []textLine {
 		} else {
 			rawLine := text[start:end]
 			if isASCIIString(rawLine) {
-				lines = appendWrapWordsASCII(lines, text, start, end, maxChars)
+				lines = appendWrapWordsASCII(lines, text, start, end, maxChars, breakLongWords)
 			} else {
-				lines = appendWrapWordsUnicode(lines, text, start, end, maxChars)
+				lines = appendWrapWordsUnicode(lines, text, start, end, maxChars, breakLongWords)
 			}
 		}
 		if end >= len(text) {
@@ -155,12 +214,12 @@ func wrapTextLinesMono(text string, maxWidth int, charWidth int) []textLine {
 	return lines
 }
 
-func wrapTextLinesFont(text string, maxWidth int, face xfont.Face) []textLine {
+func wrapTextLinesFont(text string, maxWidth int, face xfont.Face, breakLongWords bool) []textLine {
 	if text == "" {
 		return nil
 	}
 	if face == nil {
-		return wrapTextLinesMono(text, maxWidth, defaultCharWidth)
+		return wrapTextLinesMono(text, maxWidth, defaultCharWidth, breakLongWords)
 	}
 	if maxWidth <= 0 {
 		lines := getTextLineSlice(1)
@@ -179,7 +238,7 @@ func wrapTextLinesFont(text string, maxWidth int, face xfont.Face) []textLine {
 		if start >= end {
 			lines = append(lines, textLine{text: "", start: start, end: start})
 		} else {
-			lines = appendWrapWordsFont(lines, text, start, end, maxWidth, face)
+			lines = appendWrapWordsFont(lines, text, start, end, maxWidth, face, breakLongWords)
 		}
 		if end >= len(text) {
 			break
@@ -189,7 +248,7 @@ func wrapTextLinesFont(text string, maxWidth int, face xfont.Face) []textLine {
 	return lines
 }
 
-func appendWrapWordsFont(lines []textLine, text string, rawStart, rawEnd int, maxWidth int, face xfont.Face) []textLine {
+func appendWrapWordsFont(lines []textLine, text string, rawStart, rawEnd int, maxWidth int, face xfont.Face, breakLongWords bool) []textLine {
 	if rawStart >= rawEnd {
 		return append(lines, textLine{text: "", start: rawStart, end: rawStart})
 	}
@@ -228,6 +287,14 @@ func appendWrapWordsFont(lines []textLine, text string, rawStart, rawEnd int, ma
 			if lastBreak >= 0 && lastNonSpaceEnd > lineStart {
 				lines = append(lines, textLine{text: text[lineStart:lastNonSpaceEnd], start: lineStart, end: lastNonSpaceEnd})
 				start = lastBreak
+			} else if !breakLongWords {
+				width = nextWidth
+				if !unicode.IsSpace(r) {
+					lastNonSpaceEnd = start + size
+				}
+				prev = r
+				start += size
+				continue
 			} else {
 				lines = append(lines, textLine{text: text[lineStart:start], start: lineStart, end: start})
 			}
@@ -266,7 +333,7 @@ func appendWrapWordsFont(lines []textLine, text string, rawStart, rawEnd int, ma
 	return lines
 }
 
-func appendWrapWordsASCII(lines []textLine, text string, rawStart, rawEnd, maxChars int) []textLine {
+func appendWrapWordsASCII(lines []textLine, text string, rawStart, rawEnd, maxChars int, breakLongWords bool) []textLine {
 	if rawStart >= rawEnd {
 		return append(lines, textLine{text: "", start: rawStart, end: rawStart})
 	}
@@ -309,6 +376,12 @@ func appendWrapWordsASCII(lines []textLine, text string, rawStart, rawEnd, maxCh
 			lineLen = wordLen
 			continue
 		}
+		if !breakLongWords {
+			lineStart = wordStart
+			lineEnd = wordEnd
+			lineLen = wordLen
+			continue
+		}
 		for wordLen > maxChars {
 			chunkEnd := wordStart + maxChars
 			if chunkEnd > wordEnd {
@@ -325,7 +398,7 @@ func appendWrapWordsASCII(lines []textLine, text string, rawStart, rawEnd, maxCh
 	return append(lines, textLine{text: text[lineStart:lineEnd], start: lineStart, end: lineEnd})
 }
 
-func appendWrapWordsUnicode(lines []textLine, text string, rawStart, rawEnd, maxChars int) []textLine {
+func appendWrapWordsUnicode(lines []textLine, text string, rawStart, rawEnd, maxChars int, breakLongWords bool) []textLine {
 	if rawStart >= rawEnd {
 		return append(lines, textLine{text: "", start: rawStart, end: rawStart})
 	}
@@ -379,6 +452,12 @@ func appendWrapWordsUnicode(lines []textLine, text string, rawStart, rawEnd, max
 		}
 		lines = append(lines, textLine{text: text[lineStart:lineEnd], start: lineStart, end: lineEnd})
 		if wordLen <= maxChars {
+			lineStart = wordStart
+			lineEnd = wordEnd
+			lineLen = wordLen
+			continue
+		}
+		if !breakLongWords {
 			lineStart = wordStart
 			lineEnd = wordEnd
 			lineLen = wordLen
@@ -703,7 +782,7 @@ func (element *Element) forEachTextLine(rect Rect, style Style, fn func(x, y int
 		charWidth = defaultCharWidth
 	}
 	leftPad, topPad, rightPad, availableW := textPaddingAndWidth(rect, style)
-	lines := element.wrapTextLinesCached(text, availableW, font, charWidth)
+	lines := element.wrapTextLinesCachedStyle(text, availableW, font, charWidth, style)
 	if len(lines) == 0 {
 		return
 	}
@@ -757,7 +836,7 @@ func (element *Element) textPosition(rect Rect, style Style) (int, int) {
 	text := element.text()
 	line := text
 	if text != "" {
-		lines := element.wrapTextLinesCached(text, availableW, font, charWidth)
+		lines := element.wrapTextLinesCachedStyle(text, availableW, font, charWidth, style)
 		if len(lines) > 0 {
 			line = lines[0].text
 		}

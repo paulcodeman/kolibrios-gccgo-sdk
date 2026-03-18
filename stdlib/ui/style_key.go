@@ -22,6 +22,9 @@ type styleVisualKey struct {
 	visibility           *VisibilityMode
 	textAlign            *TextAlign
 	textDecoration       *TextDecoration
+	whiteSpace           *WhiteSpaceMode
+	overflowWrap         *OverflowWrapMode
+	wordBreak            *WordBreakMode
 	textShadow           *TextShadow
 	fontPath             *string
 	fontSize             *int
@@ -126,6 +129,18 @@ func visualKeyFor(style Style) styleVisualKey {
 	if value, ok := resolveTextDecoration(style.textDecoration); ok {
 		v := value
 		key.textDecoration = &v
+	}
+	if value, ok := resolveWhiteSpace(style.whiteSpace); ok {
+		v := value
+		key.whiteSpace = &v
+	}
+	if value, ok := resolveOverflowWrap(style.overflowWrap); ok {
+		v := value
+		key.overflowWrap = &v
+	}
+	if value, ok := resolveWordBreak(style.wordBreak); ok {
+		v := value
+		key.wordBreak = &v
 	}
 	if value, ok := resolveTextShadow(style.textShadow); ok {
 		if value != nil {
@@ -232,6 +247,9 @@ func styleVisualKeyEqual(a styleVisualKey, b styleVisualKey) bool {
 		equalVisibilityPtr(a.visibility, b.visibility) &&
 		equalTextAlignPtr(a.textAlign, b.textAlign) &&
 		equalTextDecorationPtr(a.textDecoration, b.textDecoration) &&
+		equalWhiteSpacePtr(a.whiteSpace, b.whiteSpace) &&
+		equalOverflowWrapPtr(a.overflowWrap, b.overflowWrap) &&
+		equalWordBreakPtr(a.wordBreak, b.wordBreak) &&
 		equalTextShadowPtr(a.textShadow, b.textShadow) &&
 		equalStringPtr(a.fontPath, b.fontPath) &&
 		equalIntPtr(a.fontSize, b.fontSize) &&
@@ -289,6 +307,27 @@ func equalVisibilityPtr(a *VisibilityMode, b *VisibilityMode) bool {
 }
 
 func equalTextDecorationPtr(a *TextDecoration, b *TextDecoration) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func equalWhiteSpacePtr(a *WhiteSpaceMode, b *WhiteSpaceMode) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func equalOverflowWrapPtr(a *OverflowWrapMode, b *OverflowWrapMode) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func equalWordBreakPtr(a *WordBreakMode, b *WordBreakMode) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
@@ -436,6 +475,15 @@ func mergeStyle(base Style, override Style) Style {
 	}
 	if override.textDecoration != nil {
 		style.textDecoration = override.textDecoration
+	}
+	if override.whiteSpace != nil {
+		style.whiteSpace = override.whiteSpace
+	}
+	if override.overflowWrap != nil {
+		style.overflowWrap = override.overflowWrap
+	}
+	if override.wordBreak != nil {
+		style.wordBreak = override.wordBreak
 	}
 	if override.textShadow != nil {
 		style.textShadow = override.textShadow

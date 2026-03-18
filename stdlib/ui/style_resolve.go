@@ -101,6 +101,27 @@ func resolveTextDecoration(value *TextDecoration) (TextDecoration, bool) {
 	return *value, true
 }
 
+func resolveWhiteSpace(value *WhiteSpaceMode) (WhiteSpaceMode, bool) {
+	if value == nil {
+		return 0, false
+	}
+	return *value, true
+}
+
+func resolveOverflowWrap(value *OverflowWrapMode) (OverflowWrapMode, bool) {
+	if value == nil {
+		return 0, false
+	}
+	return *value, true
+}
+
+func resolveWordBreak(value *WordBreakMode) (WordBreakMode, bool) {
+	if value == nil {
+		return 0, false
+	}
+	return *value, true
+}
+
 func resolveDisplay(value *DisplayMode) (DisplayMode, bool) {
 	if value == nil {
 		return 0, false

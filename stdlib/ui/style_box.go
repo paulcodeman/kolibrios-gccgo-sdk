@@ -44,6 +44,27 @@ func textDecorationForStyle(style Style) TextDecoration {
 	return TextDecorationNone
 }
 
+func whiteSpaceForStyle(style Style) WhiteSpaceMode {
+	if value, ok := resolveWhiteSpace(style.whiteSpace); ok {
+		return value
+	}
+	return WhiteSpaceNormal
+}
+
+func overflowWrapForStyle(style Style) OverflowWrapMode {
+	if value, ok := resolveOverflowWrap(style.overflowWrap); ok {
+		return value
+	}
+	return OverflowWrapNormal
+}
+
+func wordBreakForStyle(style Style) WordBreakMode {
+	if value, ok := resolveWordBreak(style.wordBreak); ok {
+		return value
+	}
+	return WordBreakNormal
+}
+
 func outlineWidthFor(style Style) int {
 	if value, ok := resolveLength(style.outlineWidth); ok && value > 0 {
 		return value
