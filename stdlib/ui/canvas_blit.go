@@ -62,6 +62,47 @@ func (canvas *Canvas) BlitFrom(src *Canvas, srcRect Rect, dstX int, dstY int) {
 	}
 }
 
+func (canvas *Canvas) BlitSelf(srcRect Rect, dstX int, dstY int) {
+	if canvas == nil || canvas.width <= 0 || canvas.height <= 0 {
+		return
+	}
+	if srcRect.Empty() {
+		return
+	}
+	bounds := Rect{X: 0, Y: 0, Width: canvas.width, Height: canvas.height}
+	srcRect = IntersectRect(srcRect, bounds)
+	if srcRect.Empty() {
+		return
+	}
+	dstRect := Rect{X: dstX, Y: dstY, Width: srcRect.Width, Height: srcRect.Height}
+	dstRect = IntersectRect(dstRect, bounds)
+	if dstRect.Empty() {
+		return
+	}
+	dx := dstRect.X - dstX
+	dy := dstRect.Y - dstY
+	srcRect.X += dx
+	srcRect.Y += dy
+	srcRect.Width = dstRect.Width
+	srcRect.Height = dstRect.Height
+	if srcRect == dstRect {
+		return
+	}
+	if dstRect.Y > srcRect.Y {
+		for row := dstRect.Height - 1; row >= 0; row-- {
+			srcIndex := 2 + (srcRect.Y+row)*canvas.width + srcRect.X
+			dstIndex := 2 + (dstRect.Y+row)*canvas.width + dstRect.X
+			copy(canvas.data[dstIndex:dstIndex+dstRect.Width], canvas.data[srcIndex:srcIndex+dstRect.Width])
+		}
+		return
+	}
+	for row := 0; row < dstRect.Height; row++ {
+		srcIndex := 2 + (srcRect.Y+row)*canvas.width + srcRect.X
+		dstIndex := 2 + (dstRect.Y+row)*canvas.width + dstRect.X
+		copy(canvas.data[dstIndex:dstIndex+dstRect.Width], canvas.data[srcIndex:srcIndex+dstRect.Width])
+	}
+}
+
 func (canvas *Canvas) BlitRectToWindow(rect Rect, x int, y int) {
 	if canvas == nil || canvas.width <= 0 || canvas.height <= 0 {
 		return

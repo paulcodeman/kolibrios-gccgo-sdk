@@ -176,18 +176,7 @@ func (element *Element) updateRenderKey(style Style) {
 	if element == nil {
 		return
 	}
-	var display *DisplayMode
-	if value, ok := resolveDisplay(style.display); ok {
-		v := value
-		display = &v
-	}
-	key := elementRenderKey{
-		kind:    element.kind,
-		text:    element.text(),
-		display: display,
-		focus:   elementShowsDefaultFocusRing(element),
-		visual:  visualKeyFor(style),
-	}
+	key := element.renderKeyFor(style)
 	if !elementRenderKeyEqual(key, element.renderKey) {
 		if element.window != nil && (!clipVisualKeyEqual(key.visual, element.renderKey.visual) ||
 			!equalDisplayPtr(key.display, element.renderKey.display)) {
@@ -197,6 +186,21 @@ func (element *Element) updateRenderKey(style Style) {
 		}
 		element.dirty = true
 		element.renderKey = key
+	}
+}
+
+func (element *Element) renderKeyFor(style Style) elementRenderKey {
+	var display *DisplayMode
+	if value, ok := resolveDisplay(style.display); ok {
+		v := value
+		display = &v
+	}
+	return elementRenderKey{
+		kind:    element.kind,
+		text:    element.text(),
+		display: display,
+		focus:   elementShowsDefaultFocusRing(element),
+		visual:  visualKeyFor(style),
 	}
 }
 

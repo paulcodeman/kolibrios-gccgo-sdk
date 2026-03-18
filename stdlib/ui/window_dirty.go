@@ -94,6 +94,7 @@ func (window *Window) collectDirty() bool {
 	if window == nil || window.canvas == nil {
 		return false
 	}
+	window.resetTranslateBlits()
 	dirty := window.dirty
 	dirtySet := window.dirtySet
 	full := Rect{X: 0, Y: 0, Width: window.client.Width, Height: window.client.Height}
@@ -115,6 +116,7 @@ func (window *Window) collectDirty() bool {
 	}
 	if window.layoutDirty {
 		oldBounds := window.copyNodeBounds()
+		oldKeys := copyElementRenderKeys(oldBounds)
 		window.layoutFlow()
 		window.buildRenderList()
 		if window.scrollEnabled() && window.scrollY != 0 {
@@ -122,7 +124,7 @@ func (window *Window) collectDirty() bool {
 		} else {
 			scrollOffset = 0
 		}
-		dirty, dirtySet = mergeDirtyBounds(dirty, dirtySet, oldBounds, window.nodeBounds, scrollOffset)
+		dirty, dirtySet = window.mergeDirtyBounds(dirty, dirtySet, oldBounds, oldKeys, window.nodeBounds, scrollOffset)
 		window.hoverDirty = true
 		window.lastMouseValid = false
 		window.layoutDirty = false
@@ -135,13 +137,14 @@ func (window *Window) collectDirty() bool {
 	}
 	if !window.renderListValid || window.nodeBounds == nil {
 		oldBounds := window.copyNodeBounds()
+		oldKeys := copyElementRenderKeys(oldBounds)
 		window.buildRenderList()
 		if window.scrollEnabled() && window.scrollY != 0 {
 			scrollOffset = -window.scrollY
 		} else {
 			scrollOffset = 0
 		}
-		dirty, dirtySet = mergeDirtyBounds(dirty, dirtySet, oldBounds, window.nodeBounds, scrollOffset)
+		dirty, dirtySet = window.mergeDirtyBounds(dirty, dirtySet, oldBounds, oldKeys, window.nodeBounds, scrollOffset)
 		window.resetDirtyQueue()
 		if dirtySet {
 			window.dirty = dirty
@@ -203,6 +206,7 @@ func (window *Window) collectDirty() bool {
 
 	if needsLayout {
 		oldBounds := window.copyNodeBounds()
+		oldKeys := copyElementRenderKeys(oldBounds)
 		window.layoutFlow()
 		window.buildRenderList()
 		if window.scrollEnabled() && window.scrollY != 0 {
@@ -210,7 +214,7 @@ func (window *Window) collectDirty() bool {
 		} else {
 			scrollOffset = 0
 		}
-		dirty, dirtySet = mergeDirtyBounds(dirty, dirtySet, oldBounds, window.nodeBounds, scrollOffset)
+		dirty, dirtySet = window.mergeDirtyBounds(dirty, dirtySet, oldBounds, oldKeys, window.nodeBounds, scrollOffset)
 		window.hoverDirty = true
 		window.lastMouseValid = false
 		if dirtySet {
@@ -224,15 +228,17 @@ func (window *Window) collectDirty() bool {
 		oldBounds := window.nodeBounds[node]
 		newBounds := window.nodeVisualBoundsFor(node, true)
 		window.nodeBounds[node] = newBounds
-		union := UnionRect(oldBounds, newBounds)
-		if scrollOffset != 0 && !union.Empty() {
-			union.Y += scrollOffset
+		updated := UnionRect(oldBounds, newBounds)
+		if exposed, ok := window.tryTranslateBlit(node, oldBounds, newBounds, nil, scrollOffset); ok {
+			updated = exposed
+		} else if scrollOffset != 0 && !updated.Empty() {
+			updated.Y += scrollOffset
 		}
-		if !union.Empty() {
+		if !updated.Empty() {
 			if dirtySet {
-				dirty = UnionRect(dirty, union)
+				dirty = UnionRect(dirty, updated)
 			} else {
-				dirty = union
+				dirty = updated
 				dirtySet = true
 			}
 		}
@@ -265,7 +271,7 @@ func (window *Window) copyNodeBounds() map[Node]Rect {
 	return copied
 }
 
-func mergeDirtyBounds(dirty Rect, dirtySet bool, oldBounds map[Node]Rect, newBounds map[Node]Rect, scrollOffset int) (Rect, bool) {
+func (window *Window) mergeDirtyBounds(dirty Rect, dirtySet bool, oldBounds map[Node]Rect, oldKeys map[Node]elementRenderKey, newBounds map[Node]Rect, scrollOffset int) (Rect, bool) {
 	if len(newBounds) == 0 && len(oldBounds) == 0 {
 		return dirty, dirtySet
 	}
@@ -275,15 +281,17 @@ func mergeDirtyBounds(dirty Rect, dirtySet bool, oldBounds map[Node]Rect, newBou
 	for node, bounds := range newBounds {
 		if old, ok := oldBounds[node]; ok {
 			if old != bounds {
-				union := UnionRect(old, bounds)
-				if scrollOffset != 0 && !union.Empty() {
-					union.Y += scrollOffset
+				updated := UnionRect(old, bounds)
+				if exposed, ok := window.tryTranslateBlit(node, old, bounds, oldKeys, scrollOffset); ok {
+					updated = exposed
+				} else if scrollOffset != 0 && !updated.Empty() {
+					updated.Y += scrollOffset
 				}
-				if !union.Empty() {
+				if !updated.Empty() {
 					if dirtySet {
-						dirty = UnionRect(dirty, union)
+						dirty = UnionRect(dirty, updated)
 					} else {
-						dirty = union
+						dirty = updated
 						dirtySet = true
 					}
 				}

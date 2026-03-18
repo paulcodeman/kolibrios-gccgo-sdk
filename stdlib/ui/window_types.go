@@ -68,6 +68,7 @@ type Window struct {
 	scrollDragActive        bool
 	scrollDragOffset        int
 	scrollRedraw            bool
+	translateBlits          []translateBlitOp
 	caretBlinkResetAt       uint32
 	caretBlinkVisibleSet    bool
 	caretBlinkVisibleCached bool

@@ -145,6 +145,7 @@ func (window *Window) drawFrame() {
 	if window == nil || window.canvas == nil {
 		return
 	}
+	window.resetTranslateBlits()
 	if window.layoutDirty {
 		window.layoutFlow()
 	}
@@ -162,6 +163,7 @@ func (window *Window) drawFrameStats(stats *FrameStats) {
 	if window == nil || window.canvas == nil || stats == nil {
 		return
 	}
+	window.resetTranslateBlits()
 	if window.layoutDirty {
 		startLayout := kos.UptimeNanoseconds()
 		window.layoutFlow()
@@ -189,12 +191,14 @@ func (window *Window) drawDirty() {
 	}
 	full := Rect{X: 0, Y: 0, Width: window.client.Width, Height: window.client.Height}
 	if window.dirty == full {
+		window.resetTranslateBlits()
 		window.drawFrame()
 		window.dirty = full
 		window.dirtySet = true
 		return
 	}
 	window.applyPendingScrollBlit()
+	window.applyPendingTranslateBlits()
 	if color, ok := window.simpleBackgroundColor(); ok {
 		window.canvas.FillRect(window.dirty.X, window.dirty.Y, window.dirty.Width, window.dirty.Height, color)
 	} else if cache := window.ensureBackgroundCache(); cache != nil {
@@ -218,12 +222,14 @@ func (window *Window) drawDirtyStats(stats *FrameStats) {
 	start := kos.UptimeNanoseconds()
 	full := Rect{X: 0, Y: 0, Width: window.client.Width, Height: window.client.Height}
 	if window.dirty == full {
+		window.resetTranslateBlits()
 		window.drawFrameStats(stats)
 		window.dirty = full
 		window.dirtySet = true
 		return
 	}
 	window.applyPendingScrollBlit()
+	window.applyPendingTranslateBlits()
 	if color, ok := window.simpleBackgroundColor(); ok {
 		window.canvas.FillRect(window.dirty.X, window.dirty.Y, window.dirty.Width, window.dirty.Height, color)
 	} else if cache := window.ensureBackgroundCache(); cache != nil {
