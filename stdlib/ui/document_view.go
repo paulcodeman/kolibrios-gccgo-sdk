@@ -53,6 +53,8 @@ type DocumentView struct {
 	layerValid     bool
 	layerWidth     int
 	layerHeight    int
+	layerDirty     Rect
+	layerDirtySet  bool
 	layerOffsetX   int
 	layerOffsetY   int
 	layerTileCols  int
@@ -102,6 +104,7 @@ func (view *DocumentView) setWindow(window *Window) {
 	}
 	view.window = window
 	view.layerValid = false
+	view.clearRetainedLayerDirty()
 	view.renderVisitGen = 0
 	view.layoutVisitGen = 0
 	view.dirtyQueueGen = 0
@@ -131,6 +134,7 @@ func (view *DocumentView) setDocument(document *Document) {
 	view.drawnScrollY = 0
 	view.scrollMaxY = 0
 	view.layerValid = false
+	view.clearRetainedLayerDirty()
 }
 
 func (view *DocumentView) SetDocument(document *Document) bool {
@@ -212,9 +216,30 @@ func (view *DocumentView) MarkDirty() {
 		return
 	}
 	view.dirty = true
-	view.layerValid = false
+	if !view.visualRect.Empty() {
+		view.noteRetainedLayerDirty(view.visualRect)
+	}
 	if view.window != nil {
 		view.window.noteDirty(view)
+	}
+}
+
+func (view *DocumentView) MarkDirtyRect(rect Rect) {
+	if view == nil {
+		return
+	}
+	if rect.Empty() || view.visualRect.Empty() {
+		view.MarkDirty()
+		return
+	}
+	rect = IntersectRect(rect, view.visualRect)
+	if rect.Empty() {
+		return
+	}
+	view.dirty = true
+	view.noteRetainedLayerDirty(rect)
+	if view.window != nil {
+		view.window.Invalidate(rect)
 	}
 }
 
@@ -224,6 +249,7 @@ func (view *DocumentView) MarkLayoutDirty() {
 	}
 	view.layoutDirty = true
 	view.layerValid = false
+	view.clearRetainedLayerDirty()
 	view.MarkDirty()
 	if view.window != nil {
 		view.window.layoutDirty = true

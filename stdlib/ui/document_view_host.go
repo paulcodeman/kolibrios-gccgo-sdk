@@ -264,7 +264,7 @@ func (view *DocumentView) setHoverNode(node *DocumentNode, event DocumentEvent) 
 	changed := false
 	if previous := view.hoverNode; previous != nil {
 		if updated, needsLayout := previous.setHover(false); updated {
-			view.markDocumentNodeStateChange(needsLayout)
+			view.markDocumentNodeStateChange(previous, needsLayout)
 			changed = true
 		}
 		leave := event
@@ -277,7 +277,7 @@ func (view *DocumentView) setHoverNode(node *DocumentNode, event DocumentEvent) 
 	view.hoverNode = node
 	if node != nil {
 		if updated, needsLayout := node.setHover(true); updated {
-			view.markDocumentNodeStateChange(needsLayout)
+			view.markDocumentNodeStateChange(node, needsLayout)
 			changed = true
 		}
 		enter := event
@@ -304,14 +304,14 @@ func (view *DocumentView) setActiveNode(node *DocumentNode, event DocumentEvent)
 	changed := false
 	if previous := view.activeNode; previous != nil {
 		if updated, needsLayout := previous.setActive(false); updated {
-			view.markDocumentNodeStateChange(needsLayout)
+			view.markDocumentNodeStateChange(previous, needsLayout)
 			changed = true
 		}
 	}
 	view.activeNode = node
 	if node != nil {
 		if updated, needsLayout := node.setActive(true); updated {
-			view.markDocumentNodeStateChange(needsLayout)
+			view.markDocumentNodeStateChange(node, needsLayout)
 			changed = true
 		}
 	}
@@ -325,7 +325,7 @@ func (view *DocumentView) setFocusNode(node *DocumentNode, event DocumentEvent) 
 	changed := false
 	if previous := view.focusNode; previous != nil {
 		if updated, needsLayout := previous.setFocus(false); updated {
-			view.markDocumentNodeStateChange(needsLayout)
+			view.markDocumentNodeStateChange(previous, needsLayout)
 			changed = true
 		}
 		blur := event
@@ -338,7 +338,7 @@ func (view *DocumentView) setFocusNode(node *DocumentNode, event DocumentEvent) 
 	view.focusNode = node
 	if node != nil {
 		if updated, needsLayout := node.setFocus(true); updated {
-			view.markDocumentNodeStateChange(needsLayout)
+			view.markDocumentNodeStateChange(node, needsLayout)
 			changed = true
 		}
 		focus := event
@@ -357,12 +357,35 @@ func (view *DocumentView) setFocusNode(node *DocumentNode, event DocumentEvent) 
 	return changed
 }
 
-func (view *DocumentView) markDocumentNodeStateChange(needsLayout bool) {
+func (view *DocumentView) documentNodeDirtyRect(node *DocumentNode) Rect {
+	if view == nil || node == nil || view.Document == nil {
+		return Rect{}
+	}
+	fragment := view.Document.FragmentForNode(node)
+	if fragment == nil {
+		return Rect{}
+	}
+	bounds := fragmentPaintBounds(fragment)
+	if bounds.Empty() {
+		bounds = fragment.Bounds
+	}
+	if bounds.Empty() {
+		return Rect{}
+	}
+	bounds.Y -= view.scrollY
+	return bounds
+}
+
+func (view *DocumentView) markDocumentNodeStateChange(node *DocumentNode, needsLayout bool) {
 	if view == nil {
 		return
 	}
 	if needsLayout {
 		view.MarkLayoutDirty()
+		return
+	}
+	if dirty := view.documentNodeDirtyRect(node); !dirty.Empty() {
+		view.MarkDirtyRect(dirty)
 		return
 	}
 	view.MarkDirty()

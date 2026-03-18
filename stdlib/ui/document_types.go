@@ -181,6 +181,17 @@ func (document *Document) MarkDirty() {
 	document.host.MarkDirty()
 }
 
+func (document *Document) MarkNodeDirty(node *DocumentNode) {
+	if document == nil || document.host == nil || node == nil {
+		return
+	}
+	if dirty := document.host.documentNodeDirtyRect(node); !dirty.Empty() {
+		document.host.MarkDirtyRect(dirty)
+		return
+	}
+	document.host.MarkDirty()
+}
+
 func (document *Document) MarkLayoutDirty() {
 	if document == nil || document.host == nil {
 		return

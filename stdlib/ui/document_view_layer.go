@@ -39,6 +39,30 @@ func (view *DocumentView) retainedLayerUsesTiles() bool {
 	return view != nil && len(view.layerTiles) != 0
 }
 
+func (view *DocumentView) hasRetainedLayerDirty() bool {
+	return view != nil && view.layerDirtySet && !view.layerDirty.Empty()
+}
+
+func (view *DocumentView) clearRetainedLayerDirty() {
+	if view == nil {
+		return
+	}
+	view.layerDirty = Rect{}
+	view.layerDirtySet = false
+}
+
+func (view *DocumentView) noteRetainedLayerDirty(rect Rect) {
+	if view == nil || rect.Empty() {
+		return
+	}
+	if view.layerDirtySet {
+		view.layerDirty = UnionRect(view.layerDirty, rect)
+		return
+	}
+	view.layerDirty = rect
+	view.layerDirtySet = true
+}
+
 func (view *DocumentView) retainedLayerTileRect(col int, row int) Rect {
 	if view == nil || col < 0 || row < 0 || col >= view.layerTileCols || row >= view.layerTileRows {
 		return Rect{}
@@ -123,6 +147,7 @@ func (view *DocumentView) ensureRetainedLayer(style Style) (Rect, Rect, bool) {
 			view.layerCanvas = NewCanvasAlpha(width, height)
 		}
 		view.layerValid = false
+		view.clearRetainedLayerDirty()
 	}
 	if view.layerWidth != width || view.layerHeight != height ||
 		view.layerOffsetX != offsetX || view.layerOffsetY != offsetY ||
@@ -133,6 +158,7 @@ func (view *DocumentView) ensureRetainedLayer(style Style) (Rect, Rect, bool) {
 		view.layerOffsetY = offsetY
 		view.layerVisualKey = key
 		view.layerValid = false
+		view.clearRetainedLayerDirty()
 	}
 	if view.layerCanvas == nil && !view.retainedLayerUsesTiles() {
 		return visual, localRect, false
@@ -207,6 +233,7 @@ func (view *DocumentView) redrawRetainedLayer(style Style, visual Rect, localRec
 		}
 		view.drawnScrollY = view.scrollY
 		view.layerValid = true
+		view.clearRetainedLayerDirty()
 		return
 	}
 	if view.layerCanvas == nil {
@@ -225,6 +252,71 @@ func (view *DocumentView) redrawRetainedLayer(style Style, visual Rect, localRec
 	}
 	view.drawnScrollY = view.scrollY
 	view.layerValid = true
+	view.clearRetainedLayerDirty()
+}
+
+func (view *DocumentView) updateRetainedLayer(style Style, visual Rect, localRect Rect) bool {
+	if view == nil || !view.layerValid || !view.hasRetainedLayerDirty() || visual.Empty() || localRect.Empty() {
+		return false
+	}
+	dirty := IntersectRect(view.layerDirty, visual)
+	if dirty.Empty() {
+		view.clearRetainedLayerDirty()
+		return false
+	}
+	localDirty := Rect{
+		X:      dirty.X - visual.X,
+		Y:      dirty.Y - visual.Y,
+		Width:  dirty.Width,
+		Height: dirty.Height,
+	}
+	if view.retainedLayerUsesTiles() {
+		updated := false
+		for row := 0; row < view.layerTileRows; row++ {
+			for col := 0; col < view.layerTileCols; col++ {
+				tileRect := view.retainedLayerTileRect(col, row)
+				if tileRect.Empty() {
+					continue
+				}
+				part := IntersectRect(localDirty, tileRect)
+				if part.Empty() {
+					continue
+				}
+				part.X -= tileRect.X
+				part.Y -= tileRect.Y
+				if view.redrawRetainedLayerTile(style, visual, localRect, col, row, part, true) {
+					updated = true
+				}
+			}
+		}
+		if updated {
+			view.clearRetainedLayerDirty()
+		}
+		return updated
+	}
+	if view.layerCanvas == nil {
+		return false
+	}
+	localDirty = IntersectRect(localDirty, Rect{X: 0, Y: 0, Width: view.layerWidth, Height: view.layerHeight})
+	if localDirty.Empty() {
+		view.clearRetainedLayerDirty()
+		return false
+	}
+	view.layerCanvas.ClearRectTransparent(localDirty.X, localDirty.Y, localDirty.Width, localDirty.Height)
+	view.layerCanvas.PushClip(localDirty)
+	drawStyledBox(view.layerCanvas, localRect, style, localRect, nil)
+	if view.Document != nil {
+		viewport := view.documentViewportRectIn(localRect, style)
+		if !viewport.Empty() {
+			view.layerCanvas.PushClip(viewport)
+			view.Document.PaintOffset(view.layerCanvas, -visual.X, -visual.Y-view.scrollY)
+			view.layerCanvas.PopClip()
+		}
+		view.drawDocumentScrollbar(view.layerCanvas, localRect, style)
+	}
+	view.layerCanvas.PopClip()
+	view.clearRetainedLayerDirty()
+	return true
 }
 
 func (view *DocumentView) updateRetainedLayerForScroll(style Style, visual Rect, localRect Rect) bool {
@@ -329,6 +421,11 @@ func (view *DocumentView) drawRetainedLayer(canvas *Canvas, style Style, offsetY
 	}
 	if view.pendingScrollDelta() != 0 && view.layerValid {
 		if !view.updateRetainedLayerForScroll(style, visual, localRect) {
+			view.redrawRetainedLayer(style, visual, localRect)
+		}
+	}
+	if view.hasRetainedLayerDirty() && view.layerValid {
+		if !view.updateRetainedLayer(style, visual, localRect) {
 			view.redrawRetainedLayer(style, visual, localRect)
 		}
 	}
