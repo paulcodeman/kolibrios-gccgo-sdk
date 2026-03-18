@@ -15,6 +15,9 @@ func (element *Element) invalidateRetainedLayerChain() {
 	for current := element; current != nil; current = current.Parent {
 		current.subtreeLayerValid = false
 		current.clearRetainedSubtreeDirty()
+		current.subtreeLayerTreeKnown = false
+		current.subtreeLayerTreeOK = false
+		current.subtreeLayerTreeCount = 0
 	}
 }
 
@@ -120,28 +123,46 @@ func (element *Element) retainedSubtreeDescendants() (int, bool) {
 	if element == nil {
 		return 0, false
 	}
+	if element.subtreeLayerTreeKnown {
+		return element.subtreeLayerTreeCount, element.subtreeLayerTreeOK
+	}
 	count := 0
+	okTree := true
 	for _, node := range element.Children {
 		child, ok := node.(*Element)
 		if !ok || child == nil {
-			return 0, false
+			okTree = false
+			break
 		}
 		switch child.kind {
 		case ElementKindButton, ElementKindInput, ElementKindTextarea, ElementKindTinyGL:
-			return 0, false
+			okTree = false
+			break
+		}
+		if !okTree {
+			break
 		}
 		style := child.effectiveStyle()
 		if attachment, ok := resolveBackgroundAttachment(style.backgroundAttachment); ok && attachment == BackgroundAttachmentFixed {
-			return 0, false
+			okTree = false
+			break
 		}
 		count++
 		subtreeCount, ok := child.retainedSubtreeDescendants()
 		if !ok {
-			return 0, false
+			okTree = false
+			break
 		}
 		count += subtreeCount
 	}
-	return count, true
+	element.subtreeLayerTreeKnown = true
+	element.subtreeLayerTreeOK = okTree
+	if okTree {
+		element.subtreeLayerTreeCount = count
+	} else {
+		element.subtreeLayerTreeCount = 0
+	}
+	return element.subtreeLayerTreeCount, element.subtreeLayerTreeOK
 }
 
 func mergeElementLayerClip(bounds Rect, parent clipState, rect Rect, clipX bool, clipY bool) clipState {

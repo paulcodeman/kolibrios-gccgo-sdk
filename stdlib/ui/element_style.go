@@ -1,5 +1,19 @@
 package ui
 
+func retainedLayerStyleChanged(oldStyle Style, newStyle Style) bool {
+	return !equalBackgroundAttachmentPtr(oldStyle.backgroundAttachment, newStyle.backgroundAttachment)
+}
+
+func (element *Element) invalidateRetainedLayerState() {
+	if element == nil {
+		return
+	}
+	element.invalidateRetainedLayerChain()
+	if element.window != nil && !element.window.LockRenderList {
+		element.window.renderListValid = false
+	}
+}
+
 // UpdateStyle mutates the base style and redraws only if the effective style changes.
 func (element *Element) UpdateStyle(update func(style *Style)) bool {
 	if element == nil || update == nil {
@@ -8,6 +22,9 @@ func (element *Element) UpdateStyle(update func(style *Style)) bool {
 	oldStyle := element.effectiveStyle()
 	update(&element.Style)
 	newStyle := element.effectiveStyle()
+	if retainedLayerStyleChanged(oldStyle, newStyle) {
+		element.invalidateRetainedLayerState()
+	}
 	if !styleChangeAffectsLayout(element, oldStyle, newStyle) &&
 		styleVisualKeyEqual(visualKeyFor(oldStyle), visualKeyFor(newStyle)) {
 		return false
@@ -28,6 +45,9 @@ func (element *Element) UpdateHoverStyle(update func(style *Style)) bool {
 		return false
 	}
 	newStyle := element.effectiveStyle()
+	if retainedLayerStyleChanged(oldStyle, newStyle) {
+		element.invalidateRetainedLayerState()
+	}
 	if !styleChangeAffectsLayout(element, oldStyle, newStyle) &&
 		styleVisualKeyEqual(visualKeyFor(oldStyle), visualKeyFor(newStyle)) {
 		return false
@@ -48,6 +68,9 @@ func (element *Element) UpdateActiveStyle(update func(style *Style)) bool {
 		return false
 	}
 	newStyle := element.effectiveStyle()
+	if retainedLayerStyleChanged(oldStyle, newStyle) {
+		element.invalidateRetainedLayerState()
+	}
 	if !styleChangeAffectsLayout(element, oldStyle, newStyle) &&
 		styleVisualKeyEqual(visualKeyFor(oldStyle), visualKeyFor(newStyle)) {
 		return false
@@ -68,6 +91,9 @@ func (element *Element) UpdateFocusStyle(update func(style *Style)) bool {
 		return false
 	}
 	newStyle := element.effectiveStyle()
+	if retainedLayerStyleChanged(oldStyle, newStyle) {
+		element.invalidateRetainedLayerState()
+	}
 	if !styleChangeAffectsLayout(element, oldStyle, newStyle) &&
 		styleVisualKeyEqual(visualKeyFor(oldStyle), visualKeyFor(newStyle)) {
 		return false
@@ -99,6 +125,9 @@ func (element *Element) SetHover(hover bool) bool {
 		return false
 	}
 	newStyle := element.effectiveStyle()
+	if retainedLayerStyleChanged(oldStyle, newStyle) {
+		element.invalidateRetainedLayerState()
+	}
 	if !styleChangeAffectsLayout(element, oldStyle, newStyle) &&
 		styleVisualKeyEqual(visualKeyFor(oldStyle), visualKeyFor(newStyle)) {
 		return false
@@ -117,6 +146,9 @@ func (element *Element) SetActive(active bool) bool {
 		return false
 	}
 	newStyle := element.effectiveStyle()
+	if retainedLayerStyleChanged(oldStyle, newStyle) {
+		element.invalidateRetainedLayerState()
+	}
 	if !styleChangeAffectsLayout(element, oldStyle, newStyle) &&
 		styleVisualKeyEqual(visualKeyFor(oldStyle), visualKeyFor(newStyle)) {
 		return false
@@ -129,6 +161,7 @@ func (element *Element) SetFocus(focus bool) bool {
 	if element == nil || element.focused == focus {
 		return false
 	}
+	oldStyle := element.effectiveStyle()
 	element.focused = focus
 	if element.isTextInput() {
 		if focus {
@@ -147,6 +180,10 @@ func (element *Element) SetFocus(focus bool) bool {
 		} else if !element.hasSelection() {
 			element.selectAnchor = element.caret
 		}
+	}
+	newStyle := element.effectiveStyle()
+	if retainedLayerStyleChanged(oldStyle, newStyle) {
+		element.invalidateRetainedLayerState()
 	}
 	element.markDirty()
 	return true

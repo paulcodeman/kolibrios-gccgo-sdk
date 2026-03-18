@@ -82,6 +82,9 @@ func (element *Element) SetStyle(window *Window, style Style) {
 	}
 	oldVisual := element.visualBoundsFor(oldRect, oldStyle)
 	element.Style = style
+	if retainedLayerStyleChanged(oldStyle, element.effectiveStyle()) {
+		element.invalidateRetainedLayerState()
+	}
 	element.markDirtyIn(targetWindow)
 	if targetWindow == nil {
 		return

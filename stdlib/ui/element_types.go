@@ -50,6 +50,9 @@ type Element struct {
 	subtreeLayerDirty      [elementRetainedLayerMaxDirtyRects]Rect
 	subtreeLayerDirtyCount int
 	subtreeLayerDirtyFull  bool
+	subtreeLayerTreeKnown  bool
+	subtreeLayerTreeOK     bool
+	subtreeLayerTreeCount  int
 	renderVisitGen         uint32
 	layoutVisitGen         uint32
 	dirtyQueueGen          uint32
