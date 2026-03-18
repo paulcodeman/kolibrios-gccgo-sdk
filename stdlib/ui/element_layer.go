@@ -192,6 +192,19 @@ func (element *Element) drawRetainedSubtreeNode(canvas *Canvas, originX int, ori
 	if element == nil || canvas == nil || nodeHidden(element) {
 		return
 	}
+	if clip.set {
+		subtree := element.subtreeBounds()
+		if subtree.Empty() {
+			subtree = element.Bounds()
+		}
+		if !subtree.Empty() {
+			subtree.X -= originX
+			subtree.Y -= originY
+			if IntersectRect(subtree, clip.rect).Empty() {
+				return
+			}
+		}
+	}
 	style := element.effectiveStyle()
 	rect := element.layoutRect
 	if rect.Empty() {
