@@ -80,6 +80,13 @@ func resolveFontSize(value *int) (int, bool) {
 	return *value, true
 }
 
+func resolveLineHeight(value *int) (int, bool) {
+	if value == nil || *value <= 0 {
+		return 0, false
+	}
+	return *value, true
+}
+
 func resolveTextAlign(value *TextAlign) (TextAlign, bool) {
 	if value == nil {
 		return 0, false
@@ -87,7 +94,21 @@ func resolveTextAlign(value *TextAlign) (TextAlign, bool) {
 	return *value, true
 }
 
+func resolveTextDecoration(value *TextDecoration) (TextDecoration, bool) {
+	if value == nil {
+		return 0, false
+	}
+	return *value, true
+}
+
 func resolveDisplay(value *DisplayMode) (DisplayMode, bool) {
+	if value == nil {
+		return 0, false
+	}
+	return *value, true
+}
+
+func resolveVisibility(value *VisibilityMode) (VisibilityMode, bool) {
 	if value == nil {
 		return 0, false
 	}
@@ -109,6 +130,13 @@ func resolveBackgroundAttachment(value *BackgroundAttachment) (BackgroundAttachm
 }
 
 func resolvePosition(value *PositionMode) (PositionMode, bool) {
+	if value == nil {
+		return 0, false
+	}
+	return *value, true
+}
+
+func resolveBoxSizing(value *BoxSizing) (BoxSizing, bool) {
 	if value == nil {
 		return 0, false
 	}

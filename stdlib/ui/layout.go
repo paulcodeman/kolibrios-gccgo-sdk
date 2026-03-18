@@ -15,15 +15,15 @@ func effectivePosition(style Style) PositionMode {
 
 func resolveRect(base Rect, container Rect, style Style) Rect {
 	rect := base
-	width := rect.Width
-	height := rect.Height
+	width := clampWidthForStyle(style, rect.Width)
+	height := clampHeightForStyle(style, rect.Height)
 	widthSet := false
-	if resolved, ok := resolveLength(style.width); ok {
+	if resolved, ok := explicitOuterWidth(style); ok {
 		width = resolved
 		widthSet = true
 	}
 	heightSet := false
-	if resolved, ok := resolveLength(style.height); ok {
+	if resolved, ok := explicitOuterHeight(style); ok {
 		height = resolved
 		heightSet = true
 	}
@@ -38,15 +38,11 @@ func resolveRect(base Rect, container Rect, style Style) Rect {
 
 		if leftSet && rightSet && !widthSet {
 			width = container.Width - leftValue - rightValue
-			if width < 0 {
-				width = 0
-			}
+			width = clampWidthForStyle(style, width)
 		}
 		if topSet && bottomSet && !heightSet {
 			height = container.Height - topValue - bottomValue
-			if height < 0 {
-				height = 0
-			}
+			height = clampHeightForStyle(style, height)
 		}
 
 		x := rect.X
@@ -62,10 +58,10 @@ func resolveRect(base Rect, container Rect, style Style) Rect {
 			y = container.Y + container.Height - bottomValue - height
 		}
 
-		rect = Rect{X: x, Y: y, Width: width, Height: height}
+		rect = Rect{X: x, Y: y, Width: clampWidthForStyle(style, width), Height: clampHeightForStyle(style, height)}
 	case PositionRelative:
-		rect.Width = width
-		rect.Height = height
+		rect.Width = clampWidthForStyle(style, width)
+		rect.Height = clampHeightForStyle(style, height)
 		if value, ok := resolveLength(style.left); ok {
 			rect.X += value
 		}
@@ -79,8 +75,8 @@ func resolveRect(base Rect, container Rect, style Style) Rect {
 			rect.Y -= value
 		}
 	default:
-		rect.Width = width
-		rect.Height = height
+		rect.Width = clampWidthForStyle(style, width)
+		rect.Height = clampHeightForStyle(style, height)
 	}
 
 	return rect

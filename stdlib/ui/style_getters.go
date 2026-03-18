@@ -54,8 +54,40 @@ func (style Style) GetBorderColor() (kos.Color, bool) {
 	return resolveColor(style.borderColor)
 }
 
+func (style Style) GetBorderTopColor() (kos.Color, bool) {
+	return resolveColor(style.borderTopColor)
+}
+
+func (style Style) GetBorderRightColor() (kos.Color, bool) {
+	return resolveColor(style.borderRightColor)
+}
+
+func (style Style) GetBorderBottomColor() (kos.Color, bool) {
+	return resolveColor(style.borderBottomColor)
+}
+
+func (style Style) GetBorderLeftColor() (kos.Color, bool) {
+	return resolveColor(style.borderLeftColor)
+}
+
 func (style Style) GetBorderWidth() (int, bool) {
 	return resolveLength(style.borderWidth)
+}
+
+func (style Style) GetBorderTopWidth() (int, bool) {
+	return resolveLength(style.borderTopWidth)
+}
+
+func (style Style) GetBorderRightWidth() (int, bool) {
+	return resolveLength(style.borderRightWidth)
+}
+
+func (style Style) GetBorderBottomWidth() (int, bool) {
+	return resolveLength(style.borderBottomWidth)
+}
+
+func (style Style) GetBorderLeftWidth() (int, bool) {
+	return resolveLength(style.borderLeftWidth)
 }
 
 func (style Style) GetBorderRadius() (CornerRadii, bool) {
@@ -87,8 +119,16 @@ func (style Style) GetDisplay() (DisplayMode, bool) {
 	return resolveDisplay(style.display)
 }
 
+func (style Style) GetVisibility() (VisibilityMode, bool) {
+	return resolveVisibility(style.visibility)
+}
+
 func (style Style) GetTextAlign() (TextAlign, bool) {
 	return resolveTextAlign(style.textAlign)
+}
+
+func (style Style) GetTextDecoration() (TextDecoration, bool) {
+	return resolveTextDecoration(style.textDecoration)
 }
 
 func (style Style) GetTextShadow() (TextShadow, bool) {
@@ -106,6 +146,10 @@ func (style Style) GetFontSize() (int, bool) {
 	return resolveFontSize(style.fontSize)
 }
 
+func (style Style) GetLineHeight() (int, bool) {
+	return resolveLineHeight(style.lineHeight)
+}
+
 func (style Style) GetPadding() (Spacing, bool) {
 	if value, ok := resolveSpacing(style.padding); ok && value != nil {
 		return *value, true
@@ -115,6 +159,26 @@ func (style Style) GetPadding() (Spacing, bool) {
 
 func (style Style) GetOpacity() (uint8, bool) {
 	return resolveOpacity(style.opacity)
+}
+
+func (style Style) GetBoxSizing() (BoxSizing, bool) {
+	return resolveBoxSizing(style.boxSizing)
+}
+
+func (style Style) GetOutlineColor() (kos.Color, bool) {
+	return resolveColor(style.outlineColor)
+}
+
+func (style Style) GetOutlineWidth() (int, bool) {
+	return resolveLength(style.outlineWidth)
+}
+
+func (style Style) GetOutlineOffset() (int, bool) {
+	return resolveLength(style.outlineOffset)
+}
+
+func (style Style) GetOutlineRadius() (int, bool) {
+	return resolveLength(style.outlineRadius)
 }
 
 func (style Style) GetPosition() (PositionMode, bool) {
@@ -143,6 +207,22 @@ func (style Style) GetWidth() (int, bool) {
 
 func (style Style) GetHeight() (int, bool) {
 	return resolveLength(style.height)
+}
+
+func (style Style) GetMinWidth() (int, bool) {
+	return resolveLength(style.minWidth)
+}
+
+func (style Style) GetMaxWidth() (int, bool) {
+	return resolveLength(style.maxWidth)
+}
+
+func (style Style) GetMinHeight() (int, bool) {
+	return resolveLength(style.minHeight)
+}
+
+func (style Style) GetMaxHeight() (int, bool) {
+	return resolveLength(style.maxHeight)
 }
 
 func (style Style) GetMargin() (Spacing, bool) {

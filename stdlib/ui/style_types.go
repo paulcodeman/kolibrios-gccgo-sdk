@@ -113,6 +113,60 @@ func (value BackgroundAttachment) String() string {
 	}
 }
 
+type VisibilityMode int
+
+const (
+	VisibilityVisible VisibilityMode = iota
+	VisibilityHidden
+)
+
+func (value VisibilityMode) String() string {
+	switch value {
+	case VisibilityVisible:
+		return "visible"
+	case VisibilityHidden:
+		return "hidden"
+	default:
+		return ""
+	}
+}
+
+type BoxSizing int
+
+const (
+	BoxSizingBorderBox BoxSizing = iota
+	BoxSizingContentBox
+)
+
+func (value BoxSizing) String() string {
+	switch value {
+	case BoxSizingBorderBox:
+		return "border-box"
+	case BoxSizingContentBox:
+		return "content-box"
+	default:
+		return ""
+	}
+}
+
+type TextDecoration int
+
+const (
+	TextDecorationNone TextDecoration = iota
+	TextDecorationUnderline
+)
+
+func (value TextDecoration) String() string {
+	switch value {
+	case TextDecorationNone:
+		return "none"
+	case TextDecorationUnderline:
+		return "underline"
+	default:
+		return ""
+	}
+}
+
 type GradientDirection int
 
 const (
@@ -177,17 +231,33 @@ type Style struct {
 	foreground           *kos.Color
 	borderColor          *kos.Color
 	borderWidth          *int
+	borderTopColor       *kos.Color
+	borderRightColor     *kos.Color
+	borderBottomColor    *kos.Color
+	borderLeftColor      *kos.Color
+	borderTopWidth       *int
+	borderRightWidth     *int
+	borderBottomWidth    *int
+	borderLeftWidth      *int
 	borderRadius         *CornerRadii
 	gradient             *Gradient
 	backgroundAttachment *BackgroundAttachment
 	shadow               *Shadow
 	display              *DisplayMode
+	visibility           *VisibilityMode
 	textAlign            *TextAlign
+	textDecoration       *TextDecoration
 	textShadow           *TextShadow
 	fontPath             *string
 	fontSize             *int
+	lineHeight           *int
 	padding              *Spacing
 	opacity              *uint8
+	boxSizing            *BoxSizing
+	outlineColor         *kos.Color
+	outlineWidth         *int
+	outlineOffset        *int
+	outlineRadius        *int
 	position             *PositionMode
 	left                 *int
 	top                  *int
@@ -195,6 +265,10 @@ type Style struct {
 	bottom               *int
 	width                *int
 	height               *int
+	minWidth             *int
+	maxWidth             *int
+	minHeight            *int
+	maxHeight            *int
 	margin               *Spacing
 	overflow             *OverflowMode
 	overflowX            *OverflowMode
@@ -211,17 +285,33 @@ func (style Style) IsZero() bool {
 		style.foreground == nil &&
 		style.borderColor == nil &&
 		style.borderWidth == nil &&
+		style.borderTopColor == nil &&
+		style.borderRightColor == nil &&
+		style.borderBottomColor == nil &&
+		style.borderLeftColor == nil &&
+		style.borderTopWidth == nil &&
+		style.borderRightWidth == nil &&
+		style.borderBottomWidth == nil &&
+		style.borderLeftWidth == nil &&
 		style.borderRadius == nil &&
 		style.gradient == nil &&
 		style.backgroundAttachment == nil &&
 		style.shadow == nil &&
 		style.display == nil &&
+		style.visibility == nil &&
 		style.textAlign == nil &&
+		style.textDecoration == nil &&
 		style.textShadow == nil &&
 		style.fontPath == nil &&
 		style.fontSize == nil &&
+		style.lineHeight == nil &&
 		style.padding == nil &&
 		style.opacity == nil &&
+		style.boxSizing == nil &&
+		style.outlineColor == nil &&
+		style.outlineWidth == nil &&
+		style.outlineOffset == nil &&
+		style.outlineRadius == nil &&
 		style.position == nil &&
 		style.left == nil &&
 		style.top == nil &&
@@ -229,6 +319,10 @@ func (style Style) IsZero() bool {
 		style.bottom == nil &&
 		style.width == nil &&
 		style.height == nil &&
+		style.minWidth == nil &&
+		style.maxWidth == nil &&
+		style.minHeight == nil &&
+		style.maxHeight == nil &&
 		style.margin == nil &&
 		style.overflow == nil &&
 		style.overflowX == nil &&
@@ -242,6 +336,7 @@ func (style Style) IsZero() bool {
 
 func (style Style) HasLayout() bool {
 	return style.display != nil ||
+		style.visibility != nil ||
 		style.position != nil ||
 		style.left != nil ||
 		style.top != nil ||
@@ -249,6 +344,18 @@ func (style Style) HasLayout() bool {
 		style.bottom != nil ||
 		style.width != nil ||
 		style.height != nil ||
+		style.minWidth != nil ||
+		style.maxWidth != nil ||
+		style.minHeight != nil ||
+		style.maxHeight != nil ||
+		style.boxSizing != nil ||
+		style.lineHeight != nil ||
+		style.borderWidth != nil ||
+		style.borderTopWidth != nil ||
+		style.borderRightWidth != nil ||
+		style.borderBottomWidth != nil ||
+		style.borderLeftWidth != nil ||
+		style.padding != nil ||
 		style.margin != nil
 }
 
@@ -257,16 +364,31 @@ func (style Style) HasVisual() bool {
 		style.foreground != nil ||
 		style.borderColor != nil ||
 		style.borderWidth != nil ||
+		style.borderTopColor != nil ||
+		style.borderRightColor != nil ||
+		style.borderBottomColor != nil ||
+		style.borderLeftColor != nil ||
+		style.borderTopWidth != nil ||
+		style.borderRightWidth != nil ||
+		style.borderBottomWidth != nil ||
+		style.borderLeftWidth != nil ||
 		style.borderRadius != nil ||
 		style.gradient != nil ||
 		style.backgroundAttachment != nil ||
 		style.shadow != nil ||
+		style.visibility != nil ||
 		style.textAlign != nil ||
+		style.textDecoration != nil ||
 		style.textShadow != nil ||
 		style.fontPath != nil ||
 		style.fontSize != nil ||
+		style.lineHeight != nil ||
 		style.padding != nil ||
 		style.opacity != nil ||
+		style.outlineColor != nil ||
+		style.outlineWidth != nil ||
+		style.outlineOffset != nil ||
+		style.outlineRadius != nil ||
 		style.overflow != nil ||
 		style.overflowX != nil ||
 		style.overflowY != nil ||
@@ -318,6 +440,21 @@ func OverflowPtr(value OverflowMode) *OverflowMode {
 }
 
 func BackgroundAttachmentPtr(value BackgroundAttachment) *BackgroundAttachment {
+	v := value
+	return &v
+}
+
+func VisibilityPtr(value VisibilityMode) *VisibilityMode {
+	v := value
+	return &v
+}
+
+func BoxSizingPtr(value BoxSizing) *BoxSizing {
+	v := value
+	return &v
+}
+
+func TextDecorationPtr(value TextDecoration) *TextDecoration {
 	v := value
 	return &v
 }

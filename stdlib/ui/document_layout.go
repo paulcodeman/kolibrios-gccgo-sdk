@@ -129,7 +129,7 @@ func (document *Document) layoutElementNode(ctx LayoutContext, node *DocumentNod
 		Height: container.Height,
 	}
 	children, flowBottom := document.layoutChildren(ctx, style, node.Children, childContainer)
-	height, heightSet := resolveLength(style.height)
+	height, heightSet := explicitOuterHeight(style)
 	if !heightSet {
 		contentHeight := 0
 		if flowBottom > contentY {
@@ -137,9 +137,7 @@ func (document *Document) layoutElementNode(ctx LayoutContext, node *DocumentNod
 		}
 		height = insets.Top + contentHeight + insets.Bottom
 	}
-	if height < 0 {
-		height = 0
-	}
+	height = clampHeightForStyle(style, height)
 	if plan.position == PositionAbsolute && !plan.topSet && plan.bottomSet {
 		finalY := container.Y + container.Height - plan.bottom - plan.margin.Bottom - height
 		if finalY != plan.y {
@@ -177,22 +175,17 @@ func (document *Document) layoutTextNode(ctx LayoutContext, node *DocumentNode, 
 	}
 	font, metrics := ctx.FontForStyle(style)
 	charWidth := metrics.width
-	lineHeight := metrics.height
+	lineHeight := lineHeightForStyle(style, metrics.height)
 	if charWidth <= 0 {
 		charWidth = defaultCharWidth
 	}
-	if lineHeight <= 0 {
-		lineHeight = defaultFontHeight
-	}
 	lines := wrapTextLines(node.Text, contentWidth, font, charWidth)
 	contentHeight := len(lines) * lineHeight
-	height, heightSet := resolveLength(style.height)
+	height, heightSet := explicitOuterHeight(style)
 	if !heightSet {
 		height = insets.Top + contentHeight + insets.Bottom
 	}
-	if height < 0 {
-		height = 0
-	}
+	height = clampHeightForStyle(style, height)
 	if plan.position == PositionAbsolute && !plan.topSet && plan.bottomSet {
 		plan.y = container.Y + container.Height - plan.bottom - plan.margin.Bottom - height
 	}
@@ -279,16 +272,14 @@ func planDocumentBox(style Style, container Rect, flowY int) documentBoxPlan {
 	plan.top, plan.topSet = resolveLength(style.top)
 	plan.right, plan.rightSet = resolveLength(style.right)
 	plan.bottom, plan.bottomSet = resolveLength(style.bottom)
-	plan.width, plan.widthSet = resolveLength(style.width)
+	plan.width, plan.widthSet = explicitOuterWidth(style)
 	if !plan.widthSet {
 		plan.width = container.Width - plan.margin.Left - plan.margin.Right
 		if plan.position == PositionAbsolute && plan.leftSet && plan.rightSet {
 			plan.width = container.Width - plan.left - plan.right - plan.margin.Left - plan.margin.Right
 		}
 	}
-	if plan.width < 0 {
-		plan.width = 0
-	}
+	plan.width = clampWidthForStyle(style, plan.width)
 	plan.x = container.X + plan.margin.Left
 	plan.y = flowY + plan.margin.Top
 	if plan.position == PositionAbsolute {
@@ -338,11 +329,14 @@ func documentDisplay(style Style, kind DocumentNodeKind) DisplayMode {
 
 func documentComputedStyle(parent Style, node *DocumentNode) Style {
 	inherited := Style{
-		foreground: parent.foreground,
-		textAlign:  parent.textAlign,
-		textShadow: parent.textShadow,
-		fontPath:   parent.fontPath,
-		fontSize:   parent.fontSize,
+		foreground:     parent.foreground,
+		textAlign:      parent.textAlign,
+		visibility:     parent.visibility,
+		textDecoration: parent.textDecoration,
+		textShadow:     parent.textShadow,
+		fontPath:       parent.fontPath,
+		fontSize:       parent.fontSize,
+		lineHeight:     parent.lineHeight,
 	}
 	if node == nil {
 		return inherited

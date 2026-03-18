@@ -68,7 +68,7 @@ func (view *DocumentView) applyLayoutWithContext(ctx LayoutContext, container Re
 	}
 	view.layoutKey = key
 	width := view.resolvedWidthIn(style, container)
-	height, heightSet := resolveLength(style.height)
+	height, heightSet := explicitOuterHeight(style)
 	rect := view.resolveRectIn(container, style, width, height)
 	viewport := view.documentViewportRectIn(rect, style)
 	if view.Document != nil && !viewport.Empty() {
@@ -77,6 +77,7 @@ func (view *DocumentView) applyLayoutWithContext(ctx LayoutContext, container Re
 			view.Document.Layout(docCtx)
 			if !heightSet {
 				height = view.documentContentExtentHeight(viewport, style)
+				height = clampHeightForStyle(style, height)
 				rect = view.resolveRectIn(container, style, width, height)
 			}
 			view.updateDocumentScrollMetrics(viewport, style)
@@ -91,10 +92,7 @@ func (view *DocumentView) applyLayoutWithContext(ctx LayoutContext, container Re
 		view.scrollMaxY = 0
 		view.scrollY = 0
 	}
-	if !heightSet && height < 0 {
-		height = 0
-	}
-	rect.Height = height
+	rect.Height = clampHeightForStyle(style, height)
 	view.layoutRect = rect
 	view.visualRect = visualBoundsForStyle(rect, style, false)
 	view.layoutDirty = false
@@ -167,8 +165,8 @@ func (view *DocumentView) layoutKeyFor(style Style, container Rect) documentView
 }
 
 func (view *DocumentView) resolvedWidthIn(style Style, container Rect) int {
-	if value, ok := resolveLength(style.width); ok {
-		return value
+	if value, ok := explicitOuterWidth(style); ok {
+		return clampWidthForStyle(style, value)
 	}
 	if display, ok := resolveDisplay(style.display); ok && display == DisplayBlock {
 		if effectivePosition(style) != PositionAbsolute {
@@ -179,11 +177,11 @@ func (view *DocumentView) resolvedWidthIn(style Style, container Rect) int {
 			if width < 0 {
 				width = 0
 			}
-			return width
+			return clampWidthForStyle(style, width)
 		}
 	}
 	if container.Width > 0 {
-		return container.Width
+		return clampWidthForStyle(style, container.Width)
 	}
 	if view.Document != nil {
 		insets := boxInsets(style)
@@ -192,7 +190,7 @@ func (view *DocumentView) resolvedWidthIn(style Style, container Rect) int {
 		if width < 0 {
 			width = 0
 		}
-		return width + insets.Left + insets.Right
+		return clampWidthForStyle(style, width+insets.Left+insets.Right)
 	}
 	return 0
 }

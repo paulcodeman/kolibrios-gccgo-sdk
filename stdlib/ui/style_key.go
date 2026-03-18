@@ -7,16 +7,32 @@ type styleVisualKey struct {
 	foreground           *kos.Color
 	borderColor          *kos.Color
 	borderWidth          *int
+	borderTopColor       *kos.Color
+	borderRightColor     *kos.Color
+	borderBottomColor    *kos.Color
+	borderLeftColor      *kos.Color
+	borderTopWidth       *int
+	borderRightWidth     *int
+	borderBottomWidth    *int
+	borderLeftWidth      *int
 	borderRadius         *CornerRadii
 	gradient             *Gradient
 	backgroundAttachment *BackgroundAttachment
 	shadow               *Shadow
+	visibility           *VisibilityMode
 	textAlign            *TextAlign
+	textDecoration       *TextDecoration
 	textShadow           *TextShadow
 	fontPath             *string
 	fontSize             *int
+	lineHeight           *int
 	padding              *Spacing
 	opacity              *uint8
+	boxSizing            *BoxSizing
+	outlineColor         *kos.Color
+	outlineWidth         *int
+	outlineOffset        *int
+	outlineRadius        *int
 	overflow             *OverflowMode
 	overflowX            *OverflowMode
 	overflowY            *OverflowMode
@@ -45,6 +61,38 @@ func visualKeyFor(style Style) styleVisualKey {
 		v := value
 		key.borderWidth = &v
 	}
+	if value, ok := resolveColor(style.borderTopColor); ok {
+		v := value
+		key.borderTopColor = &v
+	}
+	if value, ok := resolveColor(style.borderRightColor); ok {
+		v := value
+		key.borderRightColor = &v
+	}
+	if value, ok := resolveColor(style.borderBottomColor); ok {
+		v := value
+		key.borderBottomColor = &v
+	}
+	if value, ok := resolveColor(style.borderLeftColor); ok {
+		v := value
+		key.borderLeftColor = &v
+	}
+	if value, ok := resolveLength(style.borderTopWidth); ok {
+		v := value
+		key.borderTopWidth = &v
+	}
+	if value, ok := resolveLength(style.borderRightWidth); ok {
+		v := value
+		key.borderRightWidth = &v
+	}
+	if value, ok := resolveLength(style.borderBottomWidth); ok {
+		v := value
+		key.borderBottomWidth = &v
+	}
+	if value, ok := resolveLength(style.borderLeftWidth); ok {
+		v := value
+		key.borderLeftWidth = &v
+	}
 	if value, ok := resolveCornerRadii(style.borderRadius); ok {
 		if value != nil {
 			v := *value
@@ -67,9 +115,17 @@ func visualKeyFor(style Style) styleVisualKey {
 			key.shadow = &v
 		}
 	}
+	if value, ok := resolveVisibility(style.visibility); ok {
+		v := value
+		key.visibility = &v
+	}
 	if value, ok := resolveTextAlign(style.textAlign); ok {
 		v := value
 		key.textAlign = &v
+	}
+	if value, ok := resolveTextDecoration(style.textDecoration); ok {
+		v := value
+		key.textDecoration = &v
 	}
 	if value, ok := resolveTextShadow(style.textShadow); ok {
 		if value != nil {
@@ -85,6 +141,10 @@ func visualKeyFor(style Style) styleVisualKey {
 		v := value
 		key.fontSize = &v
 	}
+	if value, ok := resolveLineHeight(style.lineHeight); ok {
+		v := value
+		key.lineHeight = &v
+	}
 	if value, ok := resolveSpacing(style.padding); ok {
 		if value != nil {
 			v := *value
@@ -94,6 +154,26 @@ func visualKeyFor(style Style) styleVisualKey {
 	if value, ok := resolveOpacity(style.opacity); ok {
 		v := value
 		key.opacity = &v
+	}
+	if value, ok := resolveBoxSizing(style.boxSizing); ok {
+		v := value
+		key.boxSizing = &v
+	}
+	if value, ok := resolveColor(style.outlineColor); ok {
+		v := value
+		key.outlineColor = &v
+	}
+	if value, ok := resolveLength(style.outlineWidth); ok {
+		v := value
+		key.outlineWidth = &v
+	}
+	if value, ok := resolveLength(style.outlineOffset); ok {
+		v := value
+		key.outlineOffset = &v
+	}
+	if value, ok := resolveLength(style.outlineRadius); ok {
+		v := value
+		key.outlineRadius = &v
 	}
 	if value, ok := resolveOverflow(style.overflow); ok {
 		v := value
@@ -137,16 +217,32 @@ func styleVisualKeyEqual(a styleVisualKey, b styleVisualKey) bool {
 		equalColorPtr(a.foreground, b.foreground) &&
 		equalColorPtr(a.borderColor, b.borderColor) &&
 		equalIntPtr(a.borderWidth, b.borderWidth) &&
+		equalColorPtr(a.borderTopColor, b.borderTopColor) &&
+		equalColorPtr(a.borderRightColor, b.borderRightColor) &&
+		equalColorPtr(a.borderBottomColor, b.borderBottomColor) &&
+		equalColorPtr(a.borderLeftColor, b.borderLeftColor) &&
+		equalIntPtr(a.borderTopWidth, b.borderTopWidth) &&
+		equalIntPtr(a.borderRightWidth, b.borderRightWidth) &&
+		equalIntPtr(a.borderBottomWidth, b.borderBottomWidth) &&
+		equalIntPtr(a.borderLeftWidth, b.borderLeftWidth) &&
 		equalCornerRadiiPtr(a.borderRadius, b.borderRadius) &&
 		equalGradientPtr(a.gradient, b.gradient) &&
 		equalBackgroundAttachmentPtr(a.backgroundAttachment, b.backgroundAttachment) &&
 		equalShadowPtr(a.shadow, b.shadow) &&
+		equalVisibilityPtr(a.visibility, b.visibility) &&
 		equalTextAlignPtr(a.textAlign, b.textAlign) &&
+		equalTextDecorationPtr(a.textDecoration, b.textDecoration) &&
 		equalTextShadowPtr(a.textShadow, b.textShadow) &&
 		equalStringPtr(a.fontPath, b.fontPath) &&
 		equalIntPtr(a.fontSize, b.fontSize) &&
+		equalIntPtr(a.lineHeight, b.lineHeight) &&
 		equalSpacingPtr(a.padding, b.padding) &&
 		equalBytePtr(a.opacity, b.opacity) &&
+		equalBoxSizingPtr(a.boxSizing, b.boxSizing) &&
+		equalColorPtr(a.outlineColor, b.outlineColor) &&
+		equalIntPtr(a.outlineWidth, b.outlineWidth) &&
+		equalIntPtr(a.outlineOffset, b.outlineOffset) &&
+		equalIntPtr(a.outlineRadius, b.outlineRadius) &&
 		equalOverflowPtr(a.overflow, b.overflow) &&
 		equalOverflowPtr(a.overflowX, b.overflowX) &&
 		equalOverflowPtr(a.overflowY, b.overflowY) &&
@@ -179,6 +275,20 @@ func equalBytePtr(a *uint8, b *uint8) bool {
 }
 
 func equalTextAlignPtr(a *TextAlign, b *TextAlign) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func equalVisibilityPtr(a *VisibilityMode, b *VisibilityMode) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func equalTextDecorationPtr(a *TextDecoration, b *TextDecoration) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
@@ -241,6 +351,13 @@ func equalPositionPtr(a *PositionMode, b *PositionMode) bool {
 	return *a == *b
 }
 
+func equalBoxSizingPtr(a *BoxSizing, b *BoxSizing) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
 func equalDisplayPtr(a *DisplayMode, b *DisplayMode) bool {
 	if a == nil || b == nil {
 		return a == b
@@ -272,6 +389,30 @@ func mergeStyle(base Style, override Style) Style {
 	if override.borderWidth != nil {
 		style.borderWidth = override.borderWidth
 	}
+	if override.borderTopColor != nil {
+		style.borderTopColor = override.borderTopColor
+	}
+	if override.borderRightColor != nil {
+		style.borderRightColor = override.borderRightColor
+	}
+	if override.borderBottomColor != nil {
+		style.borderBottomColor = override.borderBottomColor
+	}
+	if override.borderLeftColor != nil {
+		style.borderLeftColor = override.borderLeftColor
+	}
+	if override.borderTopWidth != nil {
+		style.borderTopWidth = override.borderTopWidth
+	}
+	if override.borderRightWidth != nil {
+		style.borderRightWidth = override.borderRightWidth
+	}
+	if override.borderBottomWidth != nil {
+		style.borderBottomWidth = override.borderBottomWidth
+	}
+	if override.borderLeftWidth != nil {
+		style.borderLeftWidth = override.borderLeftWidth
+	}
 	if override.borderRadius != nil {
 		style.borderRadius = override.borderRadius
 	}
@@ -287,8 +428,14 @@ func mergeStyle(base Style, override Style) Style {
 	if override.display != nil {
 		style.display = override.display
 	}
+	if override.visibility != nil {
+		style.visibility = override.visibility
+	}
 	if override.textAlign != nil {
 		style.textAlign = override.textAlign
+	}
+	if override.textDecoration != nil {
+		style.textDecoration = override.textDecoration
 	}
 	if override.textShadow != nil {
 		style.textShadow = override.textShadow
@@ -299,11 +446,29 @@ func mergeStyle(base Style, override Style) Style {
 	if override.fontSize != nil {
 		style.fontSize = override.fontSize
 	}
+	if override.lineHeight != nil {
+		style.lineHeight = override.lineHeight
+	}
 	if override.padding != nil {
 		style.padding = override.padding
 	}
 	if override.opacity != nil {
 		style.opacity = override.opacity
+	}
+	if override.boxSizing != nil {
+		style.boxSizing = override.boxSizing
+	}
+	if override.outlineColor != nil {
+		style.outlineColor = override.outlineColor
+	}
+	if override.outlineWidth != nil {
+		style.outlineWidth = override.outlineWidth
+	}
+	if override.outlineOffset != nil {
+		style.outlineOffset = override.outlineOffset
+	}
+	if override.outlineRadius != nil {
+		style.outlineRadius = override.outlineRadius
 	}
 	if override.position != nil {
 		style.position = override.position
@@ -325,6 +490,18 @@ func mergeStyle(base Style, override Style) Style {
 	}
 	if override.height != nil {
 		style.height = override.height
+	}
+	if override.minWidth != nil {
+		style.minWidth = override.minWidth
+	}
+	if override.maxWidth != nil {
+		style.maxWidth = override.maxWidth
+	}
+	if override.minHeight != nil {
+		style.minHeight = override.minHeight
+	}
+	if override.maxHeight != nil {
+		style.maxHeight = override.maxHeight
 	}
 	if override.margin != nil {
 		style.margin = override.margin

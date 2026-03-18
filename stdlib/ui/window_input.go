@@ -14,10 +14,10 @@ func (window *Window) hitTest(x int, y int) Node {
 	if window.scrollEnabled() && window.scrollY != 0 {
 		y += window.scrollY
 	}
-	return window.hitTestNodes(window.nodes, x, y)
+	return window.hitTestNodes(window.nodes, x, y, false)
 }
 
-func (window *Window) hitTestNodes(nodes []Node, x int, y int) Node {
+func (window *Window) hitTestNodes(nodes []Node, x int, y int, inheritedHidden bool) Node {
 	for i := len(nodes) - 1; i >= 0; i-- {
 		node := nodes[i]
 		if node == nil {
@@ -25,6 +25,17 @@ func (window *Window) hitTestNodes(nodes []Node, x int, y int) Node {
 		}
 		if nodeHidden(node) {
 			continue
+		}
+		currentHidden := inheritedHidden
+		switch current := node.(type) {
+		case *Element:
+			if current != nil {
+				currentHidden = styleHiddenByVisibility(current.effectiveStyle(), inheritedHidden)
+			}
+		case *DocumentView:
+			if current != nil {
+				currentHidden = styleHiddenByVisibility(current.effectiveStyle(), inheritedHidden)
+			}
 		}
 		if element, ok := node.(*Element); ok && len(element.Children) > 0 {
 			if !element.subtreeBounds().Contains(x, y) {
@@ -47,10 +58,13 @@ func (window *Window) hitTestNodes(nodes []Node, x int, y int) Node {
 				}
 			}
 			if !skipChildren {
-				if hit := window.hitTestNodes(element.Children, x, y); hit != nil {
+				if hit := window.hitTestNodes(element.Children, x, y, currentHidden); hit != nil {
 					return hit
 				}
 			}
+		}
+		if currentHidden {
+			continue
 		}
 		if element, ok := node.(*Element); ok && element != nil {
 			rect := element.layoutRect

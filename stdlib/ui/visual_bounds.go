@@ -43,5 +43,16 @@ func visualBoundsForStyle(rect Rect, style Style, includeTextShadow bool) Rect {
 			visual = UnionRect(visual, shadowRect)
 		}
 	}
+	if width := outlineWidthFor(style); width > 0 {
+		offset := outlineOffsetFor(style)
+		expand := width + offset
+		outline := Rect{
+			X:      rect.X - expand,
+			Y:      rect.Y - expand,
+			Width:  rect.Width + expand*2,
+			Height: rect.Height + expand*2,
+		}
+		visual = UnionRect(visual, outline)
+	}
 	return visual
 }

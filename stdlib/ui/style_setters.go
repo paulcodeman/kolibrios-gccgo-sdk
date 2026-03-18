@@ -99,6 +99,34 @@ func (style *Style) SetBorderColor(color kos.Color) {
 	style.borderColor = ColorPtr(color)
 }
 
+func (style *Style) SetBorderTopColor(color kos.Color) {
+	if style == nil {
+		return
+	}
+	style.borderTopColor = ColorPtr(color)
+}
+
+func (style *Style) SetBorderRightColor(color kos.Color) {
+	if style == nil {
+		return
+	}
+	style.borderRightColor = ColorPtr(color)
+}
+
+func (style *Style) SetBorderBottomColor(color kos.Color) {
+	if style == nil {
+		return
+	}
+	style.borderBottomColor = ColorPtr(color)
+}
+
+func (style *Style) SetBorderLeftColor(color kos.Color) {
+	if style == nil {
+		return
+	}
+	style.borderLeftColor = ColorPtr(color)
+}
+
 func (style *Style) SetBorderWidth(width int) {
 	if style == nil {
 		return
@@ -107,6 +135,46 @@ func (style *Style) SetBorderWidth(width int) {
 		width = 0
 	}
 	style.borderWidth = IntPtr(width)
+}
+
+func (style *Style) SetBorderTopWidth(width int) {
+	if style == nil {
+		return
+	}
+	if width < 0 {
+		width = 0
+	}
+	style.borderTopWidth = IntPtr(width)
+}
+
+func (style *Style) SetBorderRightWidth(width int) {
+	if style == nil {
+		return
+	}
+	if width < 0 {
+		width = 0
+	}
+	style.borderRightWidth = IntPtr(width)
+}
+
+func (style *Style) SetBorderBottomWidth(width int) {
+	if style == nil {
+		return
+	}
+	if width < 0 {
+		width = 0
+	}
+	style.borderBottomWidth = IntPtr(width)
+}
+
+func (style *Style) SetBorderLeftWidth(width int) {
+	if style == nil {
+		return
+	}
+	if width < 0 {
+		width = 0
+	}
+	style.borderLeftWidth = IntPtr(width)
 }
 
 func (style *Style) SetMargin(values ...int) {
@@ -148,6 +216,13 @@ func (style *Style) SetDisplay(value DisplayMode) {
 	style.display = DisplayPtr(value)
 }
 
+func (style *Style) SetVisibility(value VisibilityMode) {
+	if style == nil {
+		return
+	}
+	style.visibility = VisibilityPtr(value)
+}
+
 func (style *Style) SetPosition(value PositionMode) {
 	if style == nil {
 		return
@@ -160,6 +235,13 @@ func (style *Style) SetTextAlign(value TextAlign) {
 		return
 	}
 	style.textAlign = AlignPtr(value)
+}
+
+func (style *Style) SetTextDecoration(value TextDecoration) {
+	if style == nil {
+		return
+	}
+	style.textDecoration = TextDecorationPtr(value)
 }
 
 func (style *Style) SetTextShadow(value TextShadow) {
@@ -199,6 +281,17 @@ func (style *Style) SetFontSize(value int) {
 	style.fontSize = IntPtr(value)
 }
 
+func (style *Style) SetLineHeight(value int) {
+	if style == nil {
+		return
+	}
+	if value <= 0 {
+		style.lineHeight = nil
+		return
+	}
+	style.lineHeight = IntPtr(value)
+}
+
 func (style *Style) SetGradient(value Gradient) {
 	if style == nil {
 		return
@@ -234,6 +327,55 @@ func (style *Style) SetOpacity(value uint8) {
 		return
 	}
 	style.opacity = BytePtr(value)
+}
+
+func (style *Style) SetBoxSizing(value BoxSizing) {
+	if style == nil {
+		return
+	}
+	style.boxSizing = BoxSizingPtr(value)
+}
+
+func (style *Style) SetOutlineColor(color kos.Color) {
+	if style == nil {
+		return
+	}
+	style.outlineColor = ColorPtr(color)
+}
+
+func (style *Style) SetOutlineWidth(value int) {
+	if style == nil {
+		return
+	}
+	if value < 0 {
+		value = 0
+	}
+	style.outlineWidth = IntPtr(value)
+}
+
+func (style *Style) SetOutlineOffset(value int) {
+	if style == nil {
+		return
+	}
+	style.outlineOffset = IntPtr(value)
+}
+
+func (style *Style) SetOutlineRadius(value int) {
+	if style == nil {
+		return
+	}
+	if value < 0 {
+		value = 0
+	}
+	style.outlineRadius = IntPtr(value)
+}
+
+func (style *Style) SetOutline(width int, color kos.Color) {
+	if style == nil {
+		return
+	}
+	style.SetOutlineWidth(width)
+	style.SetOutlineColor(color)
 }
 
 func (style *Style) SetOverflow(value OverflowMode) {
@@ -296,6 +438,48 @@ func (style *Style) SetScrollbarPadding(values ...int) {
 		return
 	}
 	style.scrollbarPadding = SpacingCSS(values...)
+}
+
+func (style *Style) SetMinWidth(value int) {
+	if style == nil {
+		return
+	}
+	if value < 0 {
+		value = 0
+	}
+	style.minWidth = IntPtr(value)
+}
+
+func (style *Style) SetMaxWidth(value int) {
+	if style == nil {
+		return
+	}
+	if value < 0 {
+		style.maxWidth = nil
+		return
+	}
+	style.maxWidth = IntPtr(value)
+}
+
+func (style *Style) SetMinHeight(value int) {
+	if style == nil {
+		return
+	}
+	if value < 0 {
+		value = 0
+	}
+	style.minHeight = IntPtr(value)
+}
+
+func (style *Style) SetMaxHeight(value int) {
+	if style == nil {
+		return
+	}
+	if value < 0 {
+		style.maxHeight = nil
+		return
+	}
+	style.maxHeight = IntPtr(value)
 }
 
 func SpacingCSS(values ...int) *Spacing {

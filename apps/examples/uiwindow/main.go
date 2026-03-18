@@ -3,6 +3,7 @@ package main
 import (
 	"strconv"
 
+	"kos"
 	"ui"
 	"ui/elements"
 )
@@ -46,6 +47,9 @@ func Run() {
 	}
 	applyActive := func(element *ui.Element, update func(*ui.Style)) {
 		element.UpdateActiveStyle(update)
+	}
+	applyFocus := func(element *ui.Element, update func(*ui.Style)) {
+		element.UpdateFocusStyle(update)
 	}
 
 	root := ui.CreateBox()
@@ -337,6 +341,114 @@ func Run() {
 		style.SetShadowPtr(nil)
 	})
 
+	styleTitle := elements.Label("Style Lab")
+	apply(styleTitle, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(10, 0, 6, 0)
+		style.SetForeground(ui.Navy)
+		style.SetFontSize(14)
+	})
+
+	styleHint := elements.Label("Compare border-box vs content-box, check underline + line-height, Tab to the outline button, and note that the hidden chip still keeps layout space.")
+	apply(styleHint, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 8, 0)
+		style.SetForeground(ui.Gray)
+		style.SetFontSize(11)
+		style.SetLineHeight(15)
+	})
+
+	borderDemo := elements.Label("Per-side border")
+	apply(borderDemo, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetWidth(180)
+		style.SetMargin(0, 0, 8, 0)
+		style.SetPadding(8, 10)
+		style.SetBackground(ui.White)
+		style.SetBorderTop(4, ui.Blue)
+		style.SetBorderRight(3, ui.Teal)
+		style.SetBorderBottom(5, ui.Maroon)
+		style.SetBorderLeft(7, ui.Navy)
+		style.SetBorderRadius(8)
+	})
+
+	boxRow := ui.CreateBox()
+	apply(boxRow, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 8, 0)
+	})
+
+	boxSizingCard := func(title string, mode ui.BoxSizing, fill kos.Color) *ui.Element {
+		card := elements.Label(title + "\nwidth: 132")
+		apply(card, func(style *ui.Style) {
+			style.SetDisplay(ui.DisplayInlineBlock)
+			style.SetWidth(132)
+			style.SetMargin(0, 8, 0, 0)
+			style.SetPadding(8)
+			style.SetBorder(6, ui.Navy)
+			style.SetBackground(fill)
+			style.SetBoxSizing(mode)
+			style.SetLineHeight(16)
+		})
+		return card
+	}
+	boxRow.Append(boxSizingCard("border-box", ui.BoxSizingBorderBox, ui.White))
+	boxRow.Append(boxSizingCard("content-box", ui.BoxSizingContentBox, ui.Aqua))
+
+	textDemo := elements.Label("Underline + line-height sample\nSecond line should sit lower, like CSS line-height.")
+	apply(textDemo, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 8, 0)
+		style.SetPadding(6, 8)
+		style.SetBackground(ui.White)
+		style.SetBorder(1, ui.Silver)
+		style.SetBorderRadius(8)
+		style.SetTextDecoration(ui.TextDecorationUnderline)
+		style.SetLineHeight(20)
+	})
+
+	visibilityRow := ui.CreateBox()
+	apply(visibilityRow, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 8, 0)
+	})
+
+	chip := func(text string, fill kos.Color) *ui.Element {
+		label := elements.Label(text)
+		apply(label, func(style *ui.Style) {
+			style.SetDisplay(ui.DisplayInlineBlock)
+			style.SetPadding(3, 8)
+			style.SetMargin(0, 6, 0, 0)
+			style.SetBorderRadius(999)
+			style.SetBackground(fill)
+			style.SetForeground(ui.White)
+		})
+		return label
+	}
+	visibilityBefore := chip("Before", ui.Navy)
+	visibilityHidden := chip("Hidden gap", ui.Teal)
+	visibilityHidden.UpdateStyle(func(style *ui.Style) {
+		style.SetVisibility(ui.VisibilityHidden)
+	})
+	visibilityAfter := chip("After", ui.Maroon)
+	visibilityRow.Append(visibilityBefore)
+	visibilityRow.Append(visibilityHidden)
+	visibilityRow.Append(visibilityAfter)
+
+	outlineDemo := elements.Button("Outline Focus")
+	styleButton(outlineDemo)
+	apply(outlineDemo, func(style *ui.Style) {
+		style.SetBackground(ui.White)
+		style.SetForeground(ui.Navy)
+		style.SetBorder(1, ui.Silver)
+		style.SetPadding(3, 12)
+	})
+	applyFocus(outlineDemo, func(style *ui.Style) {
+		style.SetOutline(2, ui.Blue)
+		style.SetOutlineOffset(1)
+		style.SetBorderColor(ui.Blue)
+	})
+
 	inc.OnClick = func() {
 		count++
 		updateLabel()
@@ -380,6 +492,13 @@ func Run() {
 	card.Append(dividerAfterForm)
 	card.Append(styled)
 	card.Append(pill)
+	card.Append(styleTitle)
+	card.Append(styleHint)
+	card.Append(borderDemo)
+	card.Append(boxRow)
+	card.Append(textDemo)
+	card.Append(visibilityRow)
+	card.Append(outlineDemo)
 
 	footer := elements.Label("Tip: resize the window to see inline flow wrap. Click inputs to type.")
 	apply(footer, func(style *ui.Style) {

@@ -139,7 +139,7 @@ func (window *Window) focusNext() bool {
 		return false
 	}
 	var focusables []Node
-	window.collectFocusables(window.nodes, &focusables)
+	window.collectFocusables(window.nodes, &focusables, false)
 	if len(focusables) == 0 {
 		return false
 	}
@@ -165,7 +165,7 @@ func (window *Window) focusPrev() bool {
 		return false
 	}
 	var focusables []Node
-	window.collectFocusables(window.nodes, &focusables)
+	window.collectFocusables(window.nodes, &focusables, false)
 	if len(focusables) == 0 {
 		return false
 	}
@@ -189,7 +189,7 @@ func (window *Window) focusPrev() bool {
 	return window.setFocus(focusables[prevIndex])
 }
 
-func (window *Window) collectFocusables(nodes []Node, out *[]Node) {
+func (window *Window) collectFocusables(nodes []Node, out *[]Node, inheritedHidden bool) {
 	if window == nil {
 		return
 	}
@@ -200,17 +200,30 @@ func (window *Window) collectFocusables(nodes []Node, out *[]Node) {
 		if nodeHidden(node) {
 			continue
 		}
+		currentHidden := inheritedHidden
+		switch current := node.(type) {
+		case *Element:
+			if current != nil {
+				currentHidden = styleHiddenByVisibility(current.effectiveStyle(), inheritedHidden)
+			}
+		case *DocumentView:
+			if current != nil {
+				currentHidden = styleHiddenByVisibility(current.effectiveStyle(), inheritedHidden)
+			}
+		}
 		if element, ok := node.(*Element); ok {
-			if element.isFocusable() {
+			if !currentHidden && element.isFocusable() {
 				*out = append(*out, node)
 			}
 			if len(element.Children) > 0 {
-				window.collectFocusables(element.Children, out)
+				window.collectFocusables(element.Children, out, currentHidden)
 			}
 			continue
 		}
-		if _, ok := node.(FocusAware); ok {
-			*out = append(*out, node)
+		if !currentHidden {
+			if _, ok := node.(FocusAware); ok {
+				*out = append(*out, node)
+			}
 		}
 	}
 }

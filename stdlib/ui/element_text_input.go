@@ -133,12 +133,9 @@ func (element *Element) textInputLayout(rect Rect, style Style) textInputLayout 
 	layout.content = base
 	layout.scrollbar = resolveScrollbarStyle(style)
 	font, metrics := fontAndMetricsForStyle(style)
-	layout.lineHeight = metrics.height
+	layout.lineHeight = lineHeightForStyle(style, metrics.height)
 	layout.charWidth = metrics.width
 	layout.font = font
-	if layout.lineHeight <= 0 {
-		layout.lineHeight = defaultFontHeight
-	}
 	if layout.charWidth <= 0 {
 		layout.charWidth = defaultCharWidth
 	}

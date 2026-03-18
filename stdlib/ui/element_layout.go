@@ -254,8 +254,8 @@ func (element *Element) resolvedWidth(style Style) int {
 }
 
 func (element *Element) resolvedWidthWithContext(ctx LayoutContext, style Style) int {
-	if value, ok := resolveLength(style.width); ok {
-		return value
+	if value, ok := explicitOuterWidth(style); ok {
+		return clampWidthForStyle(style, value)
 	}
 	text := element.text()
 	font, metrics := ctx.FontForStyle(style)
@@ -264,26 +264,16 @@ func (element *Element) resolvedWidthWithContext(ctx LayoutContext, style Style)
 		charWidth = defaultCharWidth
 	}
 	textWidth := ctx.MeasureText(text, font, charWidth)
-	leftPad := 0
-	rightPad := 0
-	if padding, ok := resolveSpacingNormalized(style.padding); ok {
-		leftPad = padding.Left
-		rightPad = padding.Right
-	}
-	border := borderWidthFor(style)
-	baseWidth := textWidth + leftPad + rightPad + border*2
+	insets := boxInsets(style)
+	baseWidth := textWidth + insets.Left + insets.Right
 	switch element.kind {
 	case ElementKindButton:
-		minWidth := textWidth + defaultButtonWidthPadding + border*2
+		minWidth := textWidth + defaultButtonWidthPadding + insets.Left + insets.Right
 		if baseWidth < minWidth {
-			return minWidth
+			baseWidth = minWidth
 		}
-		return baseWidth
-	case ElementKindLabel:
-		return baseWidth
-	default:
-		return baseWidth
 	}
+	return clampWidthForStyle(style, baseWidth)
 }
 
 func (element *Element) resolvedWidthIn(style Style, container Rect) int {
@@ -291,8 +281,8 @@ func (element *Element) resolvedWidthIn(style Style, container Rect) int {
 }
 
 func (element *Element) resolvedWidthInWithContext(ctx LayoutContext, style Style, container Rect) int {
-	if value, ok := resolveLength(style.width); ok {
-		return value
+	if value, ok := explicitOuterWidth(style); ok {
+		return clampWidthForStyle(style, value)
 	}
 	if display, ok := resolveDisplay(style.display); ok && display == DisplayBlock {
 		if effectivePosition(style) != PositionAbsolute {
@@ -303,10 +293,10 @@ func (element *Element) resolvedWidthInWithContext(ctx LayoutContext, style Styl
 			if width < 0 {
 				width = 0
 			}
-			return width
+			return clampWidthForStyle(style, width)
 		}
 	}
-	return element.resolvedWidthWithContext(ctx, style)
+	return clampWidthForStyle(style, element.resolvedWidthWithContext(ctx, style))
 }
 
 func (element *Element) resolvedHeight(style Style) int {
@@ -322,17 +312,14 @@ func (element *Element) resolvedHeightIn(style Style, container Rect) int {
 }
 
 func (element *Element) resolvedHeightInWithContext(ctx LayoutContext, style Style, container Rect) int {
-	if value, ok := resolveLength(style.height); ok {
-		return value
+	if value, ok := explicitOuterHeight(style); ok {
+		return clampHeightForStyle(style, value)
 	}
 	text := element.text()
 	textHeight := 0
 	font, metrics := ctx.FontForStyle(style)
-	lineHeight := metrics.height
+	lineHeight := lineHeightForStyle(style, metrics.height)
 	charWidth := metrics.width
-	if lineHeight <= 0 {
-		lineHeight = defaultFontHeight
-	}
 	if charWidth <= 0 {
 		charWidth = defaultCharWidth
 	}
@@ -341,18 +328,8 @@ func (element *Element) resolvedHeightInWithContext(ctx LayoutContext, style Sty
 		if container.Width > 0 || container.Height > 0 {
 			width = element.resolvedWidthInWithContext(ctx, style, container)
 		}
-		leftPad := 0
-		rightPad := 0
-		topPad := 0
-		bottomPad := 0
-		if padding, ok := resolveSpacingNormalized(style.padding); ok {
-			leftPad = padding.Left
-			rightPad = padding.Right
-			topPad = padding.Top
-			bottomPad = padding.Bottom
-		}
-		border := borderWidthFor(style)
-		availableW := width - leftPad - rightPad - border*2
+		insets := boxInsets(style)
+		availableW := width - insets.Left - insets.Right
 		if availableW < 0 {
 			availableW = 0
 		}
@@ -369,39 +346,25 @@ func (element *Element) resolvedHeightInWithContext(ctx LayoutContext, style Sty
 				textHeight = len(lines) * lineHeight
 			}
 		}
-		baseHeight := textHeight + topPad + bottomPad + border*2
+		baseHeight := textHeight + insets.Top + insets.Bottom
 		switch element.kind {
 		case ElementKindButton:
 			if baseHeight < defaultButtonHeight {
-				return defaultButtonHeight
+				baseHeight = defaultButtonHeight
 			}
-			return baseHeight
-		case ElementKindLabel:
-			return baseHeight
-		default:
-			return baseHeight
 		}
+		return clampHeightForStyle(style, baseHeight)
 	}
 	if text == "" && element.isTextInput() {
 		textHeight = lineHeight
 	}
-	topPad := 0
-	bottomPad := 0
-	if padding, ok := resolveSpacingNormalized(style.padding); ok {
-		topPad = padding.Top
-		bottomPad = padding.Bottom
-	}
-	border := borderWidthFor(style)
-	baseHeight := textHeight + topPad + bottomPad + border*2
+	insets := boxInsets(style)
+	baseHeight := textHeight + insets.Top + insets.Bottom
 	switch element.kind {
 	case ElementKindButton:
 		if baseHeight < defaultButtonHeight {
-			return defaultButtonHeight
+			baseHeight = defaultButtonHeight
 		}
-		return baseHeight
-	case ElementKindLabel:
-		return baseHeight
-	default:
-		return baseHeight
 	}
+	return clampHeightForStyle(style, baseHeight)
 }

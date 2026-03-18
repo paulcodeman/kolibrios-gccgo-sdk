@@ -32,17 +32,6 @@ func borderWidthFor(style Style) int {
 	return 0
 }
 
-func boxInsets(style Style) Spacing {
-	padding, _ := resolveSpacingNormalized(style.padding)
-	border := borderWidthFor(style)
-	return Spacing{
-		Left:   padding.Left + border,
-		Top:    padding.Top + border,
-		Right:  padding.Right + border,
-		Bottom: padding.Bottom + border,
-	}
-}
-
 func contentRectFor(rect Rect, style Style) Rect {
 	if rect.Empty() {
 		return rect

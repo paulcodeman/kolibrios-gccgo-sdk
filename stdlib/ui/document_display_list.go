@@ -113,21 +113,23 @@ func appendFragmentDisplayItems(items *[]FragmentDisplayItem, fragment *Fragment
 	if fragment == nil {
 		return
 	}
-	paint := fragmentPaintBounds(fragment)
-	if paint.Empty() {
-		paint = fragment.Bounds
-	}
-	if clip.set {
-		paint = IntersectRect(paint, clip.rect)
-	}
-	if !paint.Empty() {
-		*items = append(*items, FragmentDisplayItem{
-			Fragment: fragment,
-			Bounds:   fragment.Bounds,
-			Paint:    paint,
-			Clip:     clip.rect,
-			ClipSet:  clip.set,
-		})
+	if styleVisible(fragment.effectiveStyle()) {
+		paint := fragmentPaintBounds(fragment)
+		if paint.Empty() {
+			paint = fragment.Bounds
+		}
+		if clip.set {
+			paint = IntersectRect(paint, clip.rect)
+		}
+		if !paint.Empty() {
+			*items = append(*items, FragmentDisplayItem{
+				Fragment: fragment,
+				Bounds:   fragment.Bounds,
+				Paint:    paint,
+				Clip:     clip.rect,
+				ClipSet:  clip.set,
+			})
+		}
 	}
 	childClip := clip
 	if fragment.Kind == FragmentKindBlock {
@@ -174,6 +176,9 @@ func (fragment *Fragment) paintOffset(canvas *Canvas, offsetX int, offsetY int) 
 		return
 	}
 	style := fragment.effectiveStyle()
+	if !styleVisible(style) {
+		return
+	}
 	switch fragment.Kind {
 	case FragmentKindText:
 		fragment.paintTextOffset(canvas, offsetX, offsetY, style)
@@ -212,12 +217,9 @@ func (fragment *Fragment) paintTextOffset(canvas *Canvas, offsetX int, offsetY i
 	}
 	font := fragment.font
 	charWidth := fragment.metrics.width
-	lineHeight := fragment.metrics.height
+	lineHeight := lineHeightForStyle(style, fragment.metrics.height)
 	if charWidth <= 0 {
 		charWidth = defaultCharWidth
-	}
-	if lineHeight <= 0 {
-		lineHeight = defaultFontHeight
 	}
 	leftPad, topPad, rightPad, availableW := textPaddingAndWidth(fragment.Bounds, style)
 	shadow, shadowOK := resolveTextShadow(style.textShadow)
@@ -247,5 +249,6 @@ func (fragment *Fragment) paintTextOffset(canvas *Canvas, offsetX int, offsetY i
 		} else {
 			canvas.DrawText(x, y, foreground, line.text)
 		}
+		drawTextDecorations(canvas, x, y, line.text, style, font, charWidth, lineHeight, foreground)
 	}
 }

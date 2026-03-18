@@ -698,12 +698,9 @@ func (element *Element) forEachTextLine(rect Rect, style Style, fn func(x, y int
 	}
 	font, metrics := fontAndMetricsForStyle(style)
 	charWidth := metrics.width
-	lineHeight := metrics.height
+	lineHeight := lineHeightForStyle(style, metrics.height)
 	if charWidth <= 0 {
 		charWidth = defaultCharWidth
-	}
-	if lineHeight <= 0 {
-		lineHeight = defaultFontHeight
 	}
 	leftPad, topPad, rightPad, availableW := textPaddingAndWidth(rect, style)
 	lines := element.wrapTextLinesCached(text, availableW, font, charWidth)
@@ -721,18 +718,10 @@ func (element *Element) forEachTextLine(rect Rect, style Style, fn func(x, y int
 }
 
 func textPaddingAndWidth(rect Rect, style Style) (int, int, int, int) {
-	leftPad := 0
-	topPad := 0
-	rightPad := 0
-	if padding, ok := resolveSpacingNormalized(style.padding); ok {
-		leftPad = padding.Left
-		topPad = padding.Top
-		rightPad = padding.Right
-	}
-	border := borderWidthFor(style)
-	leftPad += border
-	topPad += border
-	rightPad += border
+	insets := boxInsets(style)
+	leftPad := insets.Left
+	topPad := insets.Top
+	rightPad := insets.Right
 	availableW := rect.Width - leftPad - rightPad
 	if availableW < 0 {
 		availableW = 0

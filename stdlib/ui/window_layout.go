@@ -194,16 +194,9 @@ func (window *Window) adjustAutoHeight(element *Element, style Style) bool {
 	if _, ok := resolveLength(style.height); ok {
 		return false
 	}
-	paddingBottom := 0
-	if padding, ok := resolveSpacingNormalized(style.padding); ok {
-		paddingBottom = padding.Bottom
-	}
-	borderWidth := borderWidthFor(style)
+	insets := boxInsets(style)
 	maxBottom := maxChildBottom(element)
-	desired := (maxBottom - element.layoutRect.Y) + paddingBottom + borderWidth
-	if desired < 0 {
-		desired = 0
-	}
+	desired := clampHeightForStyle(style, (maxBottom-element.layoutRect.Y)+insets.Bottom)
 	if desired <= element.layoutRect.Height {
 		return false
 	}
@@ -227,15 +220,8 @@ func (window *Window) adjustAutoWidth(element *Element, style Style) bool {
 		return false
 	}
 	maxRight := maxChildRight(element)
-	paddingRight := 0
-	if padding, ok := resolveSpacingNormalized(style.padding); ok {
-		paddingRight = padding.Right
-	}
-	borderWidth := borderWidthFor(style)
-	desired := (maxRight - element.layoutRect.X) + paddingRight + borderWidth
-	if desired < 0 {
-		desired = 0
-	}
+	insets := boxInsets(style)
+	desired := clampWidthForStyle(style, (maxRight-element.layoutRect.X)+insets.Right)
 	if desired <= element.layoutRect.Width {
 		return false
 	}

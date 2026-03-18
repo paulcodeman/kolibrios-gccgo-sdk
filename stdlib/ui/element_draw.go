@@ -8,11 +8,14 @@ func (element *Element) Draw() {
 	if element == nil {
 		return
 	}
-	if display, ok := resolveDisplay(element.effectiveStyle().display); ok && display == DisplayNone {
+	style := element.effectiveStyle()
+	if display, ok := resolveDisplay(style.display); ok && display == DisplayNone {
+		return
+	}
+	if !styleVisible(style) {
 		return
 	}
 	if element.isTextInput() {
-		style := element.effectiveStyle()
 		x, y := element.rawPosition(style)
 		rect := Rect{X: x, Y: y, Width: element.resolvedWidth(style), Height: element.resolvedHeight(style)}
 		foreground, ok := resolveColor(style.foreground)
@@ -25,9 +28,14 @@ func (element *Element) Draw() {
 		element.drawEditableTextLines(layout, style,
 			func(tx int, ty int, line string) {
 				kos.DrawText(tx, ty, foreground, line)
+				drawTextDecorationsRaw(tx, ty, line, style, layout.font, layout.charWidth, layout.lineHeight, foreground)
 			},
 			func(cx int, cy int) {
-				kos.DrawBar(cx, cy, 1, defaultFontHeight, uint32(foreground))
+				height := layout.lineHeight
+				if height <= 0 {
+					height = defaultFontHeight
+				}
+				kos.DrawBar(cx, cy, 1, height, uint32(foreground))
 			},
 			func(x int, y int, width int, height int) {
 				if width <= 0 || height <= 0 {
@@ -40,7 +48,6 @@ func (element *Element) Draw() {
 	}
 	switch element.kind {
 	case ElementKindButton:
-		style := element.effectiveStyle()
 		x, y := element.rawPosition(style)
 		background, ok := resolveColor(style.background)
 		if !ok {
@@ -60,9 +67,9 @@ func (element *Element) Draw() {
 				foreground,
 				line,
 			)
+			drawTextDecorationsRaw(textX, textY, line, style, nil, defaultCharWidth, lineHeightForStyle(style, defaultFontHeight), foreground)
 		})
 	case ElementKindLabel:
-		style := element.effectiveStyle()
 		x, y := element.rawPosition(style)
 		foreground, ok := resolveColor(style.foreground)
 		if !ok {
@@ -75,9 +82,9 @@ func (element *Element) Draw() {
 				foreground,
 				line,
 			)
+			drawTextDecorationsRaw(textX, textY, line, style, nil, defaultCharWidth, lineHeightForStyle(style, defaultFontHeight), foreground)
 		})
 	default:
-		style := element.effectiveStyle()
 		x, y := element.rawPosition(style)
 		foreground, ok := resolveColor(style.foreground)
 		if !ok {
@@ -90,6 +97,7 @@ func (element *Element) Draw() {
 				foreground,
 				line,
 			)
+			drawTextDecorationsRaw(textX, textY, line, style, nil, defaultCharWidth, lineHeightForStyle(style, defaultFontHeight), foreground)
 		})
 	}
 }
@@ -100,6 +108,9 @@ func (element *Element) DrawTo(canvas *Canvas) {
 	}
 	style := element.effectiveStyle()
 	if display, ok := resolveDisplay(style.display); ok && display == DisplayNone {
+		return
+	}
+	if !styleVisible(style) {
 		return
 	}
 	element.updateRenderKey(style)
@@ -165,6 +176,7 @@ func (element *Element) drawToRect(canvas *Canvas, rect Rect, style Style) {
 				} else {
 					canvas.DrawText(x, y, foreground, text)
 				}
+				drawTextDecorations(canvas, x, y, text, style, font, layout.charWidth, layout.lineHeight, foreground)
 			},
 			func(x int, y int) {
 				height := layout.lineHeight
@@ -210,7 +222,12 @@ func (element *Element) drawToRect(canvas *Canvas, rect Rect, style Style) {
 	if !ok {
 		foreground = Black
 	}
-	font := fontForStyle(style)
+	font, metrics := fontAndMetricsForStyle(style)
+	charWidth := metrics.width
+	if charWidth <= 0 {
+		charWidth = defaultCharWidth
+	}
+	lineHeight := lineHeightForStyle(style, metrics.height)
 	shadow, shadowOk := resolveTextShadow(style.textShadow)
 	if FastNoTextShadow || FastNoShadows {
 		shadowOk = false
@@ -228,6 +245,7 @@ func (element *Element) drawToRect(canvas *Canvas, rect Rect, style Style) {
 		} else {
 			canvas.DrawText(textX, textY, foreground, line)
 		}
+		drawTextDecorations(canvas, textX, textY, line, style, font, charWidth, lineHeight, foreground)
 	})
 	if elementShowsDefaultFocusRing(element) {
 		drawDefaultFocusRing(canvas, rect, style)

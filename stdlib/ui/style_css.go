@@ -50,6 +50,28 @@ func ParseDisplay(value string) (DisplayMode, bool) {
 	}
 }
 
+func ParseVisibility(value string) (VisibilityMode, bool) {
+	switch normalizeCSSKeyword(value) {
+	case "visible":
+		return VisibilityVisible, true
+	case "hidden":
+		return VisibilityHidden, true
+	default:
+		return 0, false
+	}
+}
+
+func ParseBoxSizing(value string) (BoxSizing, bool) {
+	switch normalizeCSSKeyword(value) {
+	case "border-box":
+		return BoxSizingBorderBox, true
+	case "content-box":
+		return BoxSizingContentBox, true
+	default:
+		return 0, false
+	}
+}
+
 func ParseOverflow(value string) (OverflowMode, bool) {
 	switch normalizeCSSKeyword(value) {
 	case "visible":
@@ -60,6 +82,17 @@ func ParseOverflow(value string) (OverflowMode, bool) {
 		return OverflowScroll, true
 	case "auto":
 		return OverflowAuto, true
+	default:
+		return 0, false
+	}
+}
+
+func ParseTextDecoration(value string) (TextDecoration, bool) {
+	switch normalizeCSSKeyword(value) {
+	case "none":
+		return TextDecorationNone, true
+	case "underline":
+		return TextDecorationUnderline, true
 	default:
 		return 0, false
 	}
@@ -254,6 +287,23 @@ func (style Style) GetDisplayString() (string, bool) {
 	return value.String(), true
 }
 
+func (style *Style) SetVisibilityString(value string) bool {
+	parsed, ok := ParseVisibility(value)
+	if !ok || style == nil {
+		return false
+	}
+	style.SetVisibility(parsed)
+	return true
+}
+
+func (style Style) GetVisibilityString() (string, bool) {
+	value, ok := style.GetVisibility()
+	if !ok {
+		return "", false
+	}
+	return value.String(), true
+}
+
 func (style *Style) SetPositionString(value string) bool {
 	parsed, ok := ParsePosition(value)
 	if !ok || style == nil {
@@ -271,6 +321,23 @@ func (style Style) GetPositionString() (string, bool) {
 	return value.String(), true
 }
 
+func (style *Style) SetBoxSizingString(value string) bool {
+	parsed, ok := ParseBoxSizing(value)
+	if !ok || style == nil {
+		return false
+	}
+	style.SetBoxSizing(parsed)
+	return true
+}
+
+func (style Style) GetBoxSizingString() (string, bool) {
+	value, ok := style.GetBoxSizing()
+	if !ok {
+		return "", false
+	}
+	return value.String(), true
+}
+
 func (style *Style) SetTextAlignString(value string) bool {
 	parsed, ok := ParseTextAlign(value)
 	if !ok || style == nil {
@@ -282,6 +349,23 @@ func (style *Style) SetTextAlignString(value string) bool {
 
 func (style Style) GetTextAlignString() (string, bool) {
 	value, ok := style.GetTextAlign()
+	if !ok {
+		return "", false
+	}
+	return value.String(), true
+}
+
+func (style *Style) SetTextDecorationString(value string) bool {
+	parsed, ok := ParseTextDecoration(value)
+	if !ok || style == nil {
+		return false
+	}
+	style.SetTextDecoration(parsed)
+	return true
+}
+
+func (style Style) GetTextDecorationString() (string, bool) {
+	value, ok := style.GetTextDecoration()
 	if !ok {
 		return "", false
 	}
@@ -585,4 +669,36 @@ func (style Style) GetBorderBottomRightRadius() (int, bool) {
 
 func (style Style) GetBorderBottomLeftRadius() (int, bool) {
 	return cornerRadiusValue(style.borderRadius, "bottom-left")
+}
+
+func (style *Style) SetBorderTop(width int, color kos.Color) {
+	if style == nil {
+		return
+	}
+	style.SetBorderTopWidth(width)
+	style.SetBorderTopColor(color)
+}
+
+func (style *Style) SetBorderRight(width int, color kos.Color) {
+	if style == nil {
+		return
+	}
+	style.SetBorderRightWidth(width)
+	style.SetBorderRightColor(color)
+}
+
+func (style *Style) SetBorderBottom(width int, color kos.Color) {
+	if style == nil {
+		return
+	}
+	style.SetBorderBottomWidth(width)
+	style.SetBorderBottomColor(color)
+}
+
+func (style *Style) SetBorderLeft(width int, color kos.Color) {
+	if style == nil {
+		return
+	}
+	style.SetBorderLeftWidth(width)
+	style.SetBorderLeftColor(color)
 }

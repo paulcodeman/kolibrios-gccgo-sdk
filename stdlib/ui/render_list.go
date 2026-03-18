@@ -68,13 +68,13 @@ func (window *Window) buildRenderList() {
 	if window.renderVisited != nil {
 		clearVisited(window.renderVisited)
 	}
-	window.appendRenderItems(window.nodes, clipState{}, gen)
+	window.appendRenderItems(window.nodes, clipState{}, gen, false)
 	window.updateScrollMetrics()
 	window.hitGrid.build(window.client, window.currentDisplayList())
 	window.renderListValid = true
 }
 
-func (window *Window) appendRenderItems(nodes []Node, clip clipState, gen uint32) {
+func (window *Window) appendRenderItems(nodes []Node, clip clipState, gen uint32, inheritedHidden bool) {
 	for _, node := range nodes {
 		if node == nil {
 			continue
@@ -97,10 +97,23 @@ func (window *Window) appendRenderItems(nodes []Node, clip clipState, gen uint32
 		}
 		window.allNodes = append(window.allNodes, node)
 		element, isElement := node.(*Element)
-		hidden := nodeHidden(node)
+		if nodeHidden(node) {
+			continue
+		}
+		currentHidden := inheritedHidden
+		switch current := node.(type) {
+		case *Element:
+			if current != nil {
+				currentHidden = styleHiddenByVisibility(current.effectiveStyle(), inheritedHidden)
+			}
+		case *DocumentView:
+			if current != nil {
+				currentHidden = styleHiddenByVisibility(current.effectiveStyle(), inheritedHidden)
+			}
+		}
 		bounds := window.nodeVisualBoundsFor(node, true)
 		window.nodeBounds[node] = bounds
-		if !hidden {
+		if !currentHidden {
 			paint := bounds
 			if clip.set {
 				paint = IntersectRect(paint, clip.rect)
@@ -116,8 +129,6 @@ func (window *Window) appendRenderItems(nodes []Node, clip clipState, gen uint32
 			if WindowEnableTinyGL && isElement && element != nil && element.kind == ElementKindTinyGL {
 				window.tinyglNodes = append(window.tinyglNodes, element)
 			}
-		} else {
-			continue
 		}
 		if !isElement || element == nil || len(element.Children) == 0 {
 			continue
@@ -132,7 +143,7 @@ func (window *Window) appendRenderItems(nodes []Node, clip clipState, gen uint32
 		if clipX || clipY {
 			childClip = window.mergeClip(clip, rect, style, clipX, clipY)
 		}
-		window.appendRenderItems(element.Children, childClip, gen)
+		window.appendRenderItems(element.Children, childClip, gen, currentHidden)
 	}
 }
 
