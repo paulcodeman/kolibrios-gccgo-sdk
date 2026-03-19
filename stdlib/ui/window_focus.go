@@ -175,7 +175,7 @@ func (window *Window) invalidateFocusNode(node Node) bool {
 		if rect.Empty() {
 			return false
 		}
-		window.InvalidateContent(rect)
+		window.InvalidateVisualContent(rect)
 		return true
 	default:
 		return false

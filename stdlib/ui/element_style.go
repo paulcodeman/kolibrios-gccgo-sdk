@@ -53,7 +53,7 @@ func (element *Element) invalidateStyleTransition(oldStyle Style, newStyle Style
 	}
 	element.renderKey = element.renderKeyFor(newStyle)
 	element.window.noteRetainedLayerDirty(element, dirty)
-	element.window.InvalidateContent(dirty)
+	element.window.InvalidateVisualContent(dirty)
 	return true
 }
 

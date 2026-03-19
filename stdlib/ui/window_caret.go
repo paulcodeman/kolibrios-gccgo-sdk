@@ -86,7 +86,7 @@ func (window *Window) noteCaretBlinkDirty() {
 			rect = element.Bounds()
 		}
 		if dirty := element.caretDirtyRect(rect, style); !dirty.Empty() {
-			window.InvalidateContent(dirty)
+			window.InvalidateVisualContent(dirty)
 			return
 		}
 		element.MarkDirty()

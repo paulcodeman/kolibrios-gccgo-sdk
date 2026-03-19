@@ -88,12 +88,14 @@ func (window *Window) noteHandlerMayMutate(target Node) {
 	window.lastMouseValid = false
 }
 
-func (window *Window) Invalidate(rect Rect) {
+func (window *Window) invalidateRect(rect Rect, invalidateHover bool) {
 	if window == nil || rect.Empty() {
 		return
 	}
-	window.hoverDirty = true
-	window.lastMouseValid = false
+	if invalidateHover {
+		window.hoverDirty = true
+		window.lastMouseValid = false
+	}
 	client := Rect{X: 0, Y: 0, Width: window.client.Width, Height: window.client.Height}
 	clamped := IntersectRect(rect, client)
 	if clamped.Empty() {
@@ -107,6 +109,14 @@ func (window *Window) Invalidate(rect Rect) {
 	window.dirtySet = true
 }
 
+func (window *Window) Invalidate(rect Rect) {
+	window.invalidateRect(rect, true)
+}
+
+func (window *Window) InvalidateVisual(rect Rect) {
+	window.invalidateRect(rect, false)
+}
+
 func (window *Window) InvalidateContent(rect Rect) {
 	if window == nil || rect.Empty() {
 		return
@@ -115,6 +125,16 @@ func (window *Window) InvalidateContent(rect Rect) {
 		rect.Y -= window.scrollY
 	}
 	window.Invalidate(rect)
+}
+
+func (window *Window) InvalidateVisualContent(rect Rect) {
+	if window == nil || rect.Empty() {
+		return
+	}
+	if window.scrollEnabled() && window.scrollY != 0 {
+		rect.Y -= window.scrollY
+	}
+	window.InvalidateVisual(rect)
 }
 
 func (window *Window) collectDirty() bool {
