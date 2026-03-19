@@ -580,6 +580,87 @@ func buildDocumentNodes(doc *dom.Document, ctx *renderContext) []*ui.DocumentNod
 	return nodes
 }
 
+func buildFlowNodes(node *dom.Node, ctx *renderContext) []*ui.DocumentNode {
+	if node == nil {
+		return nil
+	}
+	nodes := make([]*ui.DocumentNode, 0, len(node.Children))
+	appendFlowContentNodes(&nodes, node, ctx)
+	return nodes
+}
+
+func appendFlowContentNodes(out *[]*ui.DocumentNode, node *dom.Node, ctx *renderContext) {
+	if out == nil || node == nil {
+		return
+	}
+	builder := inlinePieceBuilder{}
+	flushParagraph := func() {
+		if paragraph := flowParagraphNode(builder.pieces, ctx); paragraph != nil {
+			*out = append(*out, paragraph)
+		}
+		builder = inlinePieceBuilder{}
+	}
+	for _, child := range node.Children {
+		if child == nil {
+			continue
+		}
+		switch child.Type {
+		case dom.CommentNode:
+			continue
+		case dom.TextNode:
+			builder.appendText(child.Text)
+		case dom.DocumentNode:
+			flushParagraph()
+			appendFlowContentNodes(out, child, ctx)
+		case dom.ElementNode:
+			if isSkippableElementTag(child.Tag) {
+				continue
+			}
+			if nodeParticipatesInInlineFlow(child) {
+				collectInlinePieces(&builder, child, ctx)
+				continue
+			}
+			flushParagraph()
+			appendDocumentNodes(out, child, ctx)
+		}
+	}
+	flushParagraph()
+}
+
+func isSkippableElementTag(tag string) bool {
+	switch tag {
+	case "script", "style", "head", "title", "meta", "link", "option":
+		return true
+	default:
+		return false
+	}
+}
+
+func nodeParticipatesInInlineFlow(node *dom.Node) bool {
+	if node == nil {
+		return false
+	}
+	switch node.Type {
+	case dom.TextNode:
+		return normalizeBlockText(node.Text) != ""
+	case dom.CommentNode, dom.DocumentNode:
+		return false
+	case dom.ElementNode:
+	default:
+		return false
+	}
+	switch node.Tag {
+	case "script", "style", "head", "title", "meta", "link", "option":
+		return false
+	case "br", "a", "code", "img", "span", "strong", "em", "b", "i", "u", "small", "big", "abbr", "cite", "q", "s", "sub", "sup", "mark", "time", "kbd", "samp", "var", "wbr":
+		return true
+	case "html", "body", "main", "section", "article", "aside", "nav", "header", "footer", "div", "form", "fieldset", "legend", "label", "figure", "figcaption", "details", "summary", "dl", "dt", "dd", "table", "caption", "tbody", "thead", "tfoot", "tr", "td", "th", "hr", "h1", "h2", "h3", "h4", "h5", "h6", "p", "blockquote", "pre", "ul", "ol", "li", "button", "input", "textarea", "select", "progress":
+		return false
+	default:
+		return true
+	}
+}
+
 func appendDocumentNodes(out *[]*ui.DocumentNode, node *dom.Node, ctx *renderContext) {
 	if out == nil || node == nil {
 		return
@@ -595,9 +676,7 @@ func appendDocumentNodes(out *[]*ui.DocumentNode, node *dom.Node, ctx *renderCon
 		}
 		return
 	case dom.DocumentNode:
-		for _, child := range node.Children {
-			appendDocumentNodes(out, child, ctx)
-		}
+		appendFlowContentNodes(out, node, ctx)
 		return
 	case dom.ElementNode:
 	default:
@@ -605,11 +684,54 @@ func appendDocumentNodes(out *[]*ui.DocumentNode, node *dom.Node, ctx *renderCon
 	}
 
 	switch node.Tag {
-	case "script", "style", "head", "title", "meta", "link":
+	case "script", "style", "head", "title", "meta", "link", "option":
 		return
-	case "html", "body", "main", "section", "article", "aside", "nav", "header", "footer", "div", "form", "table", "tbody", "thead", "tfoot", "tr", "td", "th", "fieldset", "label":
-		for _, child := range node.Children {
-			appendDocumentNodes(out, child, ctx)
+	case "html", "body", "main", "section", "article", "aside", "nav", "header", "footer", "div", "form", "label", "dl", "tbody", "thead", "tfoot", "tr", "td", "th":
+		appendFlowContentNodes(out, node, ctx)
+		return
+	case "fieldset":
+		if fieldset := fieldsetBlockNode(node, ctx); fieldset != nil {
+			*out = append(*out, fieldset)
+		}
+		return
+	case "legend":
+		if legend := legendBlockNode(node, ctx); legend != nil {
+			*out = append(*out, legend)
+		}
+		return
+	case "figure":
+		if figure := figureBlockNode(node, ctx); figure != nil {
+			*out = append(*out, figure)
+		}
+		return
+	case "figcaption", "caption":
+		if caption := figureCaptionBlockNode(node, ctx); caption != nil {
+			*out = append(*out, caption)
+		}
+		return
+	case "details":
+		if details := detailsBlockNode(node, ctx); details != nil {
+			*out = append(*out, details)
+		}
+		return
+	case "summary":
+		if summary := summaryBlockNode(node, ctx); summary != nil {
+			*out = append(*out, summary)
+		}
+		return
+	case "dt":
+		if term := definitionTermBlockNode(node, ctx); term != nil {
+			*out = append(*out, term)
+		}
+		return
+	case "dd":
+		if detail := definitionDetailBlockNode(node, ctx); detail != nil {
+			*out = append(*out, detail)
+		}
+		return
+	case "table":
+		if table := tableBlockNode(node, ctx); table != nil {
+			*out = append(*out, table)
 		}
 		return
 	case "hr":
@@ -622,9 +744,14 @@ func appendDocumentNodes(out *[]*ui.DocumentNode, node *dom.Node, ctx *renderCon
 			*out = append(*out, heading)
 		}
 		return
-	case "p", "blockquote":
+	case "p":
 		if paragraph := paragraphBlockNode(node, ctx); paragraph != nil {
 			*out = append(*out, paragraph)
+		}
+		return
+	case "blockquote":
+		if quote := blockquoteBlockNode(node, ctx); quote != nil {
+			*out = append(*out, quote)
 		}
 		return
 	case "pre", "code":
@@ -637,7 +764,7 @@ func appendDocumentNodes(out *[]*ui.DocumentNode, node *dom.Node, ctx *renderCon
 		appendListNodes(out, node, ctx)
 		return
 	case "li":
-		if item := listItemBlockNode(node, ctx); item != nil {
+		if item := listItemBlockNode(node, ctx, "-"); item != nil {
 			*out = append(*out, item)
 		}
 		return
@@ -679,15 +806,7 @@ func appendDocumentNodes(out *[]*ui.DocumentNode, node *dom.Node, ctx *renderCon
 		}
 		return
 	default:
-		text := collectNodeText(node, true)
-		if text != "" {
-			*out = append(*out, paragraphNode(text))
-		} else {
-			for _, child := range node.Children {
-				appendDocumentNodes(out, child, ctx)
-			}
-		}
-		appendNestedDocumentLinks(out, node, ctx)
+		appendFlowContentNodes(out, node, ctx)
 	}
 }
 
@@ -695,12 +814,24 @@ func appendListNodes(out *[]*ui.DocumentNode, node *dom.Node, ctx *renderContext
 	if out == nil || node == nil {
 		return
 	}
+	ordered := node.Tag == "ol"
+	index := attrInt(node, "start", 1)
+	if index <= 0 {
+		index = 1
+	}
 	for _, child := range node.Children {
 		if child == nil {
 			continue
 		}
 		if child.Type == dom.ElementNode && child.Tag == "li" {
-			appendDocumentNodes(out, child, ctx)
+			marker := "-"
+			if ordered {
+				marker = strconv.Itoa(index) + "."
+				index++
+			}
+			if item := listItemBlockNode(child, ctx, marker); item != nil {
+				*out = append(*out, item)
+			}
 			continue
 		}
 		appendDocumentNodes(out, child, ctx)
@@ -828,14 +959,36 @@ type inlinePieceBuilder struct {
 	needSpace bool
 }
 
-func paragraphNode(text string) *ui.DocumentNode {
-	return ui.NewDocumentText(text, styled(func(style *ui.Style) {
+func paragraphInlineStyle() ui.Style {
+	return styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayInline)
+		style.SetForeground(ui.Black)
+		style.SetFontSize(13)
+		style.SetLineHeight(18)
+	})
+}
+
+func paragraphBlockStyle() ui.Style {
+	return styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
 		style.SetMargin(0, 0, 8, 0)
 		style.SetForeground(ui.Black)
 		style.SetFontSize(13)
 		style.SetLineHeight(18)
-	}))
+		style.SetContain(ui.ContainPaint)
+	})
+}
+
+func paragraphNode(text string) *ui.DocumentNode {
+	return ui.NewDocumentText(text, paragraphBlockStyle())
+}
+
+func flowParagraphNode(pieces []inlinePiece, ctx *renderContext) *ui.DocumentNode {
+	children := inlineNodesFromPieces(pieces, paragraphInlineStyle(), ctx)
+	if len(children) == 0 {
+		return nil
+	}
+	return ui.NewDocumentElement("flow-paragraph", paragraphBlockStyle(), children...)
 }
 
 func headingBlockNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
@@ -877,62 +1030,234 @@ func paragraphBlockNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
 	if node == nil {
 		return nil
 	}
-	children := buildInlineNodes(node, ctx, styled(func(style *ui.Style) {
-		style.SetDisplay(ui.DisplayInline)
-		style.SetForeground(ui.Black)
-		style.SetFontSize(13)
-		style.SetLineHeight(18)
-	}))
+	children := buildInlineNodes(node, ctx, paragraphInlineStyle())
 	if len(children) == 0 {
 		return nil
 	}
-	name := "paragraph"
-	blockStyle := styled(func(style *ui.Style) {
+	return ui.NewDocumentElement("paragraph", paragraphBlockStyle(), children...)
+}
+
+func blockquoteBlockNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
+	if node == nil {
+		return nil
+	}
+	children := buildFlowNodes(node, ctx)
+	if len(children) == 0 {
+		return nil
+	}
+	return ui.NewDocumentElement("blockquote", styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
-		style.SetMargin(0, 0, 8, 0)
+		style.SetMargin(0, 0, 10, 0)
+		style.SetPadding(2, 0, 2, 12)
+		style.SetBorder(0, ui.White)
+		style.SetBorderLeft(3, 0xC0C6CC)
 		style.SetForeground(ui.Black)
 		style.SetFontSize(13)
 		style.SetLineHeight(18)
 		style.SetContain(ui.ContainPaint)
-	})
-	if node.Tag == "blockquote" {
-		name = "blockquote"
-		blockStyle = styled(func(style *ui.Style) {
-			style.SetDisplay(ui.DisplayBlock)
-			style.SetMargin(0, 0, 10, 0)
-			style.SetPadding(2, 0, 2, 12)
-			style.SetBorder(0, ui.White)
-			style.SetBorderLeft(3, 0xC0C6CC)
-			style.SetForeground(ui.Black)
-			style.SetFontSize(13)
-			style.SetLineHeight(18)
-			style.SetContain(ui.ContainPaint)
-		})
-	}
-	return ui.NewDocumentElement(name, blockStyle, children...)
+	}), children...)
 }
 
-func listItemBlockNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
+func semanticLabelInlineStyle() ui.Style {
+	return styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayInline)
+		style.SetForeground(ui.Navy)
+		style.SetFontSize(13)
+		style.SetLineHeight(18)
+	})
+}
+
+func semanticLabelBlockStyle(marginBottom int) ui.Style {
+	return styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, marginBottom, 0)
+		style.SetForeground(ui.Navy)
+		style.SetFontSize(13)
+		style.SetLineHeight(18)
+		style.SetContain(ui.ContainPaint)
+	})
+}
+
+func legendBlockNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
+	if node == nil {
+		return nil
+	}
+	children := buildInlineNodes(node, ctx, semanticLabelInlineStyle())
+	if len(children) == 0 {
+		return nil
+	}
+	return ui.NewDocumentElement("legend", semanticLabelBlockStyle(6), children...)
+}
+
+func figureCaptionBlockNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
 	if node == nil {
 		return nil
 	}
 	children := buildInlineNodes(node, ctx, styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayInline)
-		style.SetForeground(ui.Black)
-		style.SetFontSize(13)
-		style.SetLineHeight(18)
+		style.SetForeground(ui.Gray)
+		style.SetFontSize(12)
+		style.SetLineHeight(17)
 	}))
 	if len(children) == 0 {
 		return nil
 	}
-	itemChildren := make([]*ui.DocumentNode, 0, len(children)+2)
-	itemChildren = append(itemChildren, ui.NewDocumentText("- ", styled(func(style *ui.Style) {
+	return ui.NewDocumentElement("figcaption", styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(4, 0, 8, 0)
+		style.SetForeground(ui.Gray)
+		style.SetFontSize(12)
+		style.SetLineHeight(17)
+		style.SetContain(ui.ContainPaint)
+	}), children...)
+}
+
+func summaryBlockNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
+	if node == nil {
+		return nil
+	}
+	children := buildInlineNodes(node, ctx, semanticLabelInlineStyle())
+	if len(children) == 0 {
+		return nil
+	}
+	return ui.NewDocumentElement("summary", semanticLabelBlockStyle(6), children...)
+}
+
+func definitionTermBlockNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
+	if node == nil {
+		return nil
+	}
+	children := buildInlineNodes(node, ctx, semanticLabelInlineStyle())
+	if len(children) == 0 {
+		return nil
+	}
+	return ui.NewDocumentElement("definition-term", semanticLabelBlockStyle(2), children...)
+}
+
+func definitionDetailBlockNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
+	if node == nil {
+		return nil
+	}
+	children := buildFlowNodes(node, ctx)
+	if len(children) == 0 {
+		return nil
+	}
+	return ui.NewDocumentElement("definition-detail", styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 8, 14)
+		style.SetContain(ui.ContainPaint)
+	}), children...)
+}
+
+func fieldsetBlockNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
+	if node == nil {
+		return nil
+	}
+	children := buildFlowNodes(node, ctx)
+	if len(children) == 0 {
+		return nil
+	}
+	return ui.NewDocumentElement("fieldset", styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 10, 0)
+		style.SetPadding(10, 12)
+		style.SetBorderRadius(8)
+		style.SetBorder(1, 0xD8DEE4)
+		style.SetBackground(0xFAFBFC)
+		style.SetContain(ui.ContainPaint)
+	}), children...)
+}
+
+func figureBlockNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
+	if node == nil {
+		return nil
+	}
+	children := buildFlowNodes(node, ctx)
+	if len(children) == 0 {
+		return nil
+	}
+	return ui.NewDocumentElement("figure", styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 10, 0)
+		style.SetContain(ui.ContainPaint)
+	}), children...)
+}
+
+func detailsBlockNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
+	if node == nil {
+		return nil
+	}
+	children := buildFlowNodes(node, ctx)
+	if len(children) == 0 {
+		return nil
+	}
+	return ui.NewDocumentElement("details", styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 10, 0)
+		style.SetPadding(10, 12)
+		style.SetBorderRadius(8)
+		style.SetBorder(1, 0xD8DEE4)
+		style.SetBackground(ui.White)
+		style.SetContain(ui.ContainPaint)
+	}), children...)
+}
+
+func listMarkerNode(marker string) *ui.DocumentNode {
+	return ui.NewDocumentText(marker+" ", styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayInline)
 		style.SetForeground(ui.Navy)
 		style.SetFontSize(13)
 		style.SetLineHeight(18)
-	})))
-	itemChildren = append(itemChildren, children...)
+	}))
+}
+
+func listLeadChildren(node *ui.DocumentNode) ([]*ui.DocumentNode, bool) {
+	if node == nil || node.Kind != ui.DocumentNodeElement {
+		return nil, false
+	}
+	switch node.Name {
+	case "flow-paragraph", "paragraph":
+		if len(node.Children) == 0 {
+			return nil, false
+		}
+		return node.Children, true
+	default:
+		return nil, false
+	}
+}
+
+func listItemBlockNode(node *dom.Node, ctx *renderContext, marker string) *ui.DocumentNode {
+	if node == nil {
+		return nil
+	}
+	children := buildFlowNodes(node, ctx)
+	itemChildren := make([]*ui.DocumentNode, 0, len(children)+2)
+	bodyChildren := children
+	if len(children) > 0 {
+		if lead, ok := listLeadChildren(children[0]); ok {
+			rowChildren := make([]*ui.DocumentNode, 0, len(lead)+1)
+			rowChildren = append(rowChildren, listMarkerNode(marker))
+			rowChildren = append(rowChildren, lead...)
+			itemChildren = append(itemChildren, ui.NewDocumentElement("list-item-row", styled(func(style *ui.Style) {
+				style.SetDisplay(ui.DisplayBlock)
+				style.SetContain(ui.ContainPaint)
+			}), rowChildren...))
+			bodyChildren = children[1:]
+		}
+	}
+	if len(itemChildren) == 0 {
+		itemChildren = append(itemChildren, ui.NewDocumentElement("list-item-row", styled(func(style *ui.Style) {
+			style.SetDisplay(ui.DisplayBlock)
+			style.SetContain(ui.ContainPaint)
+		}), listMarkerNode(marker)))
+	}
+	if len(bodyChildren) > 0 {
+		itemChildren = append(itemChildren, ui.NewDocumentElement("list-item-body", styled(func(style *ui.Style) {
+			style.SetDisplay(ui.DisplayBlock)
+			style.SetMargin(0, 0, 0, 18)
+			style.SetContain(ui.ContainPaint)
+		}), bodyChildren...))
+	}
 	return ui.NewDocumentElement("list-item", styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
 		style.SetMargin(0, 0, 6, 10)
@@ -1275,6 +1600,132 @@ func preformattedNode(text string) *ui.DocumentNode {
 		style.SetWhiteSpace(ui.WhiteSpacePreWrap)
 		style.SetLineHeight(17)
 	})))
+}
+
+func tableBlockNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
+	if node == nil {
+		return nil
+	}
+	children := make([]*ui.DocumentNode, 0, len(node.Children)+1)
+	for _, child := range node.Children {
+		if child == nil || child.Type != dom.ElementNode {
+			continue
+		}
+		switch child.Tag {
+		case "caption":
+			if caption := figureCaptionBlockNode(child, ctx); caption != nil {
+				children = append(children, caption)
+			}
+		case "thead", "tbody", "tfoot":
+			appendTableRowNodes(&children, child, ctx)
+		case "tr":
+			if row := tableRowNode(child, ctx); row != nil {
+				children = append(children, row)
+			}
+		}
+	}
+	if len(children) == 0 {
+		children = buildFlowNodes(node, ctx)
+	}
+	if len(children) == 0 {
+		return nil
+	}
+	return ui.NewDocumentElement("table", styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 10, 0)
+		style.SetPadding(8, 10)
+		style.SetBorderRadius(8)
+		style.SetBorder(1, 0xD8DEE4)
+		style.SetBackground(ui.White)
+		style.SetContain(ui.ContainPaint)
+	}), children...)
+}
+
+func appendTableRowNodes(out *[]*ui.DocumentNode, node *dom.Node, ctx *renderContext) {
+	if out == nil || node == nil {
+		return
+	}
+	for _, child := range node.Children {
+		if child == nil || child.Type != dom.ElementNode {
+			continue
+		}
+		switch child.Tag {
+		case "tr":
+			if row := tableRowNode(child, ctx); row != nil {
+				*out = append(*out, row)
+			}
+		case "thead", "tbody", "tfoot":
+			appendTableRowNodes(out, child, ctx)
+		}
+	}
+}
+
+func tableRowNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
+	if node == nil {
+		return nil
+	}
+	cells := make([]*ui.DocumentNode, 0, len(node.Children))
+	for _, child := range node.Children {
+		if child == nil || child.Type != dom.ElementNode {
+			continue
+		}
+		switch child.Tag {
+		case "td", "th":
+			if cell := tableCellNode(child, ctx); cell != nil {
+				cells = append(cells, cell)
+			}
+		}
+	}
+	if len(cells) == 0 {
+		text := collectNodeText(node, false)
+		if text == "" {
+			return nil
+		}
+		return paragraphNode(text)
+	}
+	return ui.NewDocumentElement("table-row", styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 4, 0)
+		style.SetContain(ui.ContainPaint)
+	}), cells...)
+}
+
+func tableCellNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
+	if node == nil {
+		return nil
+	}
+	header := node.Tag == "th"
+	textStyle := paragraphInlineStyle()
+	if header {
+		textStyle.SetForeground(ui.Navy)
+	}
+	builder := inlinePieceBuilder{}
+	for _, child := range node.Children {
+		collectInlinePieces(&builder, child, ctx)
+	}
+	children := inlineNodesFromPieces(builder.pieces, textStyle, ctx)
+	if len(children) == 0 {
+		text := collectNodeText(node, false)
+		if text == "" {
+			return nil
+		}
+		children = inlineTextTokens(text, textStyle)
+	}
+	return ui.NewDocumentElement("table-cell", styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayInlineBlock)
+		style.SetMargin(0, 6, 0, 0)
+		style.SetPadding(2, 6)
+		style.SetBorderRadius(6)
+		style.SetContain(ui.ContainPaint)
+		if header {
+			style.SetBorder(1, 0xB5C7DD)
+			style.SetBackground(0xEEF4FB)
+			style.SetForeground(ui.Navy)
+			return
+		}
+		style.SetBorder(1, 0xD8DEE4)
+		style.SetBackground(0xF8FAFC)
+	}), children...)
 }
 
 func listItemNode(text string) *ui.DocumentNode {
