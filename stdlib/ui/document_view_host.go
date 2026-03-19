@@ -77,14 +77,21 @@ func (view *DocumentView) HandleKey(key kos.KeyEvent) bool {
 	}
 	if view.focusNode != nil {
 		event := DocumentEvent{
-			Type:    EventKeyDown,
-			Key:     key,
-			ScrollX: 0,
-			ScrollY: view.scrollY,
-			View:    view,
-			Node:    view.focusNode,
+			Type:       EventKeyDown,
+			Key:        key,
+			ScrollX:    0,
+			ScrollY:    view.scrollY,
+			View:       view,
+			Node:       view.focusNode,
+			Bubbles:    true,
+			Cancelable: true,
 		}
-		if dispatchDocumentNodeHandler(view.focusNode.OnKeyDown, view.focusNode, event) {
+		if dispatchDocumentNodeEvent(&event, documentEventPath(view.focusNode), func(current *DocumentNode) interface{} {
+			return current.OnKeyDown
+		}) {
+			return true
+		}
+		if event.DefaultPrevented() {
 			return true
 		}
 	}
@@ -134,15 +141,21 @@ func (view *DocumentView) HandleScroll(deltaX int, deltaY int) bool {
 	}
 	if target != nil {
 		event := DocumentEvent{
-			Type:    EventScroll,
-			DeltaX:  deltaX,
-			DeltaY:  deltaY,
-			ScrollX: 0,
-			ScrollY: view.scrollY,
-			View:    view,
-			Node:    target,
+			Type:       EventScroll,
+			DeltaX:     deltaX,
+			DeltaY:     deltaY,
+			ScrollX:    0,
+			ScrollY:    view.scrollY,
+			View:       view,
+			Node:       target,
+			Cancelable: true,
 		}
-		if dispatchDocumentNodeHandler(target.OnScroll, target, event) {
+		if dispatchDocumentNodeEvent(&event, documentEventPath(target), func(current *DocumentNode) interface{} {
+			return current.OnScroll
+		}) {
+			return true
+		}
+		if event.DefaultPrevented() {
 			return true
 		}
 	}
@@ -164,7 +177,11 @@ func (view *DocumentView) HandleMouseMove(x int, y int) bool {
 		return view.clearHoverNode()
 	}
 	changed := view.setHoverNode(event.Node, event)
-	if event.Node != nil && dispatchDocumentNodeHandler(event.Node.OnMouseMove, event.Node, event) {
+	event.Bubbles = true
+	event.Cancelable = true
+	if event.Node != nil && dispatchDocumentNodeEvent(&event, documentEventPath(event.Node), func(current *DocumentNode) interface{} {
+		return current.OnMouseMove
+	}) {
 		changed = true
 	}
 	return changed
@@ -189,7 +206,11 @@ func (view *DocumentView) HandleMouseDown(x int, y int, button MouseButton) bool
 	if view.setActiveNode(event.Node, event) {
 		changed = true
 	}
-	if event.Node != nil && dispatchDocumentNodeHandler(event.Node.OnMouseDown, event.Node, event) {
+	event.Bubbles = true
+	event.Cancelable = true
+	if event.Node != nil && dispatchDocumentNodeEvent(&event, documentEventPath(event.Node), func(current *DocumentNode) interface{} {
+		return current.OnMouseDown
+	}) {
 		changed = true
 	}
 	return changed
@@ -230,7 +251,11 @@ func (view *DocumentView) HandleMouseUp(x int, y int, button MouseButton) bool {
 	if view.activeNode != nil {
 		activeEvent := event
 		activeEvent.Node = view.activeNode
-		if dispatchDocumentNodeHandler(view.activeNode.OnMouseUp, view.activeNode, activeEvent) {
+		activeEvent.Bubbles = true
+		activeEvent.Cancelable = true
+		if dispatchDocumentNodeEvent(&activeEvent, documentEventPath(view.activeNode), func(current *DocumentNode) interface{} {
+			return current.OnMouseUp
+		}) {
 			changed = true
 		}
 	}
@@ -279,7 +304,7 @@ func (view *DocumentView) setHoverNode(node *DocumentNode, event DocumentEvent) 
 		leave := event
 		leave.Type = EventMouseLeave
 		leave.Node = previous
-		if dispatchDocumentNodeHandler(previous.OnMouseLeave, previous, leave) {
+		if dispatchDocumentNodeHandler(previous.OnMouseLeave, previous, &leave) {
 			changed = true
 		}
 	}
@@ -292,7 +317,7 @@ func (view *DocumentView) setHoverNode(node *DocumentNode, event DocumentEvent) 
 		enter := event
 		enter.Type = EventMouseEnter
 		enter.Node = node
-		if dispatchDocumentNodeHandler(node.OnMouseEnter, node, enter) {
+		if dispatchDocumentNodeHandler(node.OnMouseEnter, node, &enter) {
 			changed = true
 		}
 	}
@@ -342,7 +367,7 @@ func (view *DocumentView) setFocusNode(node *DocumentNode, event DocumentEvent) 
 		blur := event
 		blur.Type = EventBlur
 		blur.Node = previous
-		if dispatchDocumentNodeHandler(previous.OnBlur, previous, blur) {
+		if dispatchDocumentNodeHandler(previous.OnBlur, previous, &blur) {
 			changed = true
 		}
 	}
@@ -355,7 +380,7 @@ func (view *DocumentView) setFocusNode(node *DocumentNode, event DocumentEvent) 
 		focus := event
 		focus.Type = EventFocus
 		focus.Node = node
-		if dispatchDocumentNodeHandler(node.OnFocus, node, focus) {
+		if dispatchDocumentNodeHandler(node.OnFocus, node, &focus) {
 			changed = true
 		}
 		if view.scrollDocumentNodeIntoView(node) {

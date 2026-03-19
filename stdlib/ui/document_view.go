@@ -3,21 +3,56 @@ package ui
 import "kos"
 
 type DocumentEvent struct {
-	Type      EventType
-	X         int
-	Y         int
-	LocalX    int
-	LocalY    int
-	DocumentX int
-	DocumentY int
-	DeltaX    int
-	DeltaY    int
-	Button    MouseButton
-	Key       kos.KeyEvent
-	ScrollX   int
-	ScrollY   int
-	View      *DocumentView
-	Node      *DocumentNode
+	Type          EventType
+	Phase         EventPhase
+	X             int
+	Y             int
+	LocalX        int
+	LocalY        int
+	DocumentX     int
+	DocumentY     int
+	DeltaX        int
+	DeltaY        int
+	Button        MouseButton
+	Key           kos.KeyEvent
+	ScrollX       int
+	ScrollY       int
+	View          *DocumentView
+	Node          *DocumentNode
+	CurrentTarget *DocumentNode
+	Bubbles       bool
+	Cancelable    bool
+
+	defaultPrevented   bool
+	propagationStopped bool
+}
+
+func (event *DocumentEvent) PreventDefault() {
+	if event == nil || !event.Cancelable {
+		return
+	}
+	event.defaultPrevented = true
+}
+
+func (event *DocumentEvent) DefaultPrevented() bool {
+	if event == nil {
+		return false
+	}
+	return event.defaultPrevented
+}
+
+func (event *DocumentEvent) StopPropagation() {
+	if event == nil {
+		return
+	}
+	event.propagationStopped = true
+}
+
+func (event *DocumentEvent) PropagationStopped() bool {
+	if event == nil {
+		return false
+	}
+	return event.propagationStopped
 }
 
 type DocumentView struct {
@@ -386,7 +421,12 @@ func dispatchDocumentClick(node *DocumentNode, event DocumentEvent) bool {
 	if node == nil {
 		return false
 	}
-	return dispatchDocumentNodeHandler(node.OnClick, node, event)
+	event.Node = node
+	event.Bubbles = true
+	event.Cancelable = true
+	return dispatchDocumentNodeEvent(&event, documentEventPath(node), func(current *DocumentNode) interface{} {
+		return current.OnClick
+	})
 }
 
 func dispatchDocumentViewClick(view *DocumentView, event DocumentEvent) bool {
@@ -397,8 +437,20 @@ func dispatchDocumentViewClick(view *DocumentView, event DocumentEvent) bool {
 	case func():
 		handler()
 		return true
+	case func(*DocumentView):
+		handler(view)
+		return true
 	case func(DocumentEvent):
 		handler(event)
+		return true
+	case func(*DocumentEvent):
+		handler(&event)
+		return true
+	case func(*DocumentView, DocumentEvent):
+		handler(view, event)
+		return true
+	case func(*DocumentView, *DocumentEvent):
+		handler(view, &event)
 		return true
 	default:
 		return false

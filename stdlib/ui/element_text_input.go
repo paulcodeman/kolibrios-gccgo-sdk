@@ -953,8 +953,18 @@ func (element *Element) Handle(event Event) bool {
 	if event.Type != EventClick {
 		return false
 	}
+	clickEvent := &event
+	clickEvent.Target = element
+	clickEvent.Bubbles = true
+	clickEvent.Cancelable = true
 	handled := false
-	if element.handleControlClick(event) {
+	if element.dispatchClickEvent(clickEvent) {
+		handled = true
+	}
+	if clickEvent.DefaultPrevented() {
+		return handled
+	}
+	if element.handleControlClick(clickEvent) {
 		handled = true
 	}
 	if element.isTextInput() {
@@ -963,17 +973,11 @@ func (element *Element) Handle(event Event) bool {
 		if rect.Empty() {
 			rect = element.Bounds()
 		}
-		if element.handleScrollbarClick(event.X, event.Y, rect, style) {
+		if element.handleScrollbarClick(clickEvent.X, clickEvent.Y, rect, style) {
 			handled = true
-		} else if element.setCaretFromPoint(event.X, event.Y, rect, style) {
+		} else if element.setCaretFromPoint(clickEvent.X, clickEvent.Y, rect, style) {
 			handled = true
 		}
-	}
-	if element.OnClick == nil {
-		return handled
-	}
-	if element.dispatchClickEvent(event) {
-		return true
 	}
 	return handled
 }
@@ -982,11 +986,19 @@ func (element *Element) HandleKey(key kos.KeyEvent) bool {
 	if element == nil || !element.focused {
 		return false
 	}
-	handled := dispatchElementHandler(element.OnKeyDown, element, Event{
-		Type:   EventKeyDown,
-		Key:    key,
-		Target: element,
+	keyEvent := &Event{
+		Type:       EventKeyDown,
+		Key:        key,
+		Target:     element,
+		Bubbles:    true,
+		Cancelable: true,
+	}
+	handled := dispatchElementEvent(keyEvent, elementEventPath(element), func(current *Element) interface{} {
+		return current.OnKeyDown
 	})
+	if keyEvent.DefaultPrevented() {
+		return handled
+	}
 	if element.handleControlKey(key) {
 		return true
 	}
@@ -1092,14 +1104,21 @@ func (element *Element) HandleScroll(deltaX int, deltaY int) bool {
 	if deltaX == 0 && deltaY == 0 {
 		return false
 	}
-	handled := false
+	scrollEvent := &Event{
+		Type:       EventScroll,
+		DeltaX:     deltaX,
+		DeltaY:     deltaY,
+		Target:     element,
+		Cancelable: true,
+	}
+	handled := dispatchElementEvent(scrollEvent, elementEventPath(element), func(current *Element) interface{} {
+		return current.OnScroll
+	})
+	if scrollEvent.DefaultPrevented() {
+		return handled
+	}
 	if !element.isTextInput() {
-		return dispatchElementHandler(element.OnScroll, element, Event{
-			Type:   EventScroll,
-			DeltaX: deltaX,
-			DeltaY: deltaY,
-			Target: element,
-		})
+		return handled
 	}
 	style := element.effectiveStyle()
 	rect := element.layoutRect
@@ -1164,25 +1183,10 @@ func (element *Element) HandleScroll(deltaX int, deltaY int) bool {
 			}
 		}
 	}
-	if !changed {
-		return dispatchElementHandler(element.OnScroll, element, Event{
-			Type:   EventScroll,
-			DeltaX: deltaX,
-			DeltaY: deltaY,
-			Target: element,
-		})
+	if changed {
+		element.markDirty()
 	}
-	element.markDirty()
-	handled = true
-	if dispatchElementHandler(element.OnScroll, element, Event{
-		Type:   EventScroll,
-		DeltaX: deltaX,
-		DeltaY: deltaY,
-		Target: element,
-	}) {
-		handled = true
-	}
-	return handled
+	return handled || changed
 }
 
 func (element *Element) selectAll() bool {

@@ -386,6 +386,38 @@ func Run() {
 		style.SetFontSize(12)
 	})
 
+	eventBubbleHost := elements.Box()
+	apply(eventBubbleHost, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 6, 0)
+		style.SetPadding(8)
+		style.SetBackground(ui.White)
+		style.SetBorder(1, ui.Silver)
+		style.SetBorderRadius(8)
+	})
+
+	eventBubbleHint := elements.Label("Bubble click through parent + preventDefault on a checkbox default action.")
+	apply(eventBubbleHint, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 6, 0)
+		style.SetForeground(ui.Gray)
+		style.SetFontSize(11)
+		style.SetLineHeight(15)
+	})
+
+	bubbleButton := elements.Button("Bubble click to parent")
+	apply(bubbleButton, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayInlineBlock)
+		style.SetMargin(0, 8, 0, 0)
+	})
+
+	preventCheckbox := elements.Checkbox("Prevent checkbox default toggle", false)
+	apply(preventCheckbox, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(6, 0, 0, 0)
+		style.SetBorderRadius(6)
+	})
+
 	notifyCheckbox := elements.Checkbox("Enable notifications", true)
 	apply(notifyCheckbox, func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
@@ -645,6 +677,25 @@ func Run() {
 	setEvent := func(text string) {
 		eventSummary.SetText(window, "event: "+text)
 	}
+	phaseName := func(phase ui.EventPhase) string {
+		switch phase {
+		case ui.EventPhaseTarget:
+			return "target"
+		case ui.EventPhaseBubble:
+			return "bubble"
+		default:
+			return "none"
+		}
+	}
+	nodeName := func(node ui.Node) string {
+		if element, ok := node.(*ui.Element); ok && element != nil {
+			if spec := element.Spec(); spec != nil && spec.Name != "" {
+				return spec.Name
+			}
+			return element.Kind().String()
+		}
+		return "node"
+	}
 
 	inc.OnClick = func() {
 		count++
@@ -718,7 +769,20 @@ func Run() {
 	styled.OnMouseLeave = func() {
 		setEvent("rounded leave")
 	}
+	eventBubbleHost.OnClick = func(_ *ui.Element, event *ui.Event) {
+		setEvent("bubble target=" + nodeName(event.Target) + " current=" + nodeName(event.CurrentTarget) + " phase=" + phaseName(event.Phase))
+	}
+	preventCheckbox.OnClick = func(_ *ui.Element, event *ui.Event) {
+		event.PreventDefault()
+		setEvent("preventDefault on checkbox click")
+	}
+	preventCheckbox.OnChange = func(checked bool) {
+		setEvent("checkbox changed=" + strconv.FormatBool(checked))
+	}
 	updateControlLab()
+	eventBubbleHost.Append(eventBubbleHint)
+	eventBubbleHost.Append(bubbleButton)
+	eventBubbleHost.Append(preventCheckbox)
 
 	card.Append(counterRow)
 	card.Append(controlsTitle)
@@ -740,6 +804,7 @@ func Run() {
 	card.Append(controlLabHint)
 	card.Append(controlSummary)
 	card.Append(eventSummary)
+	card.Append(eventBubbleHost)
 	card.Append(notifyCheckbox)
 	card.Append(denseCheckbox)
 	card.Append(themeLabel)

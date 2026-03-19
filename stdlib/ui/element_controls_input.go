@@ -81,11 +81,22 @@ func (element *Element) handleRangeMouseUp() bool {
 	return false
 }
 
-func (element *Element) dispatchClickEvent(event Event) bool {
-	return dispatchElementHandler(element.OnClick, element, event)
+func (element *Element) dispatchClickEvent(event *Event) bool {
+	if element == nil || event == nil {
+		return false
+	}
+	if event.Target == nil {
+		event.Target = element
+	}
+	if !event.Bubbles {
+		event.Bubbles = true
+	}
+	return dispatchElementEvent(event, elementEventPath(element), func(current *Element) interface{} {
+		return current.OnClick
+	})
 }
 
-func (element *Element) handleControlClick(event Event) bool {
+func (element *Element) handleControlClick(event *Event) bool {
 	if element == nil {
 		return false
 	}
@@ -102,7 +113,7 @@ func (element *Element) handleControlClick(event Event) bool {
 		if rect.Empty() {
 			rect = element.Bounds()
 		}
-		if element.SetValue(element.rangeValueFromPoint(event.X, rect, style)) {
+		if event != nil && element.SetValue(element.rangeValueFromPoint(event.X, rect, style)) {
 			element.dispatchInputEvent()
 			element.dispatchChange()
 			return true
@@ -129,7 +140,12 @@ func (element *Element) handleControlKey(key kos.KeyEvent) bool {
 			if changed {
 				element.dispatchInputEvent()
 				element.dispatchChange()
-				element.dispatchClickEvent(Event{Type: EventClick, Target: element})
+				element.dispatchClickEvent(&Event{
+					Type:       EventClick,
+					Target:     element,
+					Bubbles:    true,
+					Cancelable: true,
+				})
 			}
 			return changed
 		}

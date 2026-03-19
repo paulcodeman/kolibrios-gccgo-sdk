@@ -152,9 +152,20 @@ func (fragment *Fragment) effectiveStyle() Style {
 	return fragment.Style
 }
 
-func dispatchDocumentNodeHandler(handler interface{}, node *DocumentNode, event DocumentEvent) bool {
+func dispatchDocumentNodeHandler(handler interface{}, node *DocumentNode, event *DocumentEvent) bool {
 	if handler == nil || node == nil {
 		return false
+	}
+	if event != nil {
+		if event.Node == nil {
+			event.Node = node
+		}
+		if event.CurrentTarget == nil {
+			event.CurrentTarget = node
+		}
+		if event.Phase == EventPhaseNone {
+			event.Phase = EventPhaseTarget
+		}
 	}
 	switch current := handler.(type) {
 	case func():
@@ -164,9 +175,65 @@ func dispatchDocumentNodeHandler(handler interface{}, node *DocumentNode, event 
 		current(node)
 		return true
 	case func(DocumentEvent):
+		if event == nil {
+			current(DocumentEvent{})
+		} else {
+			current(*event)
+		}
+		return true
+	case func(*DocumentEvent):
 		current(event)
+		return true
+	case func(*DocumentNode, DocumentEvent):
+		if event == nil {
+			current(node, DocumentEvent{})
+		} else {
+			current(node, *event)
+		}
+		return true
+	case func(*DocumentNode, *DocumentEvent):
+		current(node, event)
 		return true
 	default:
 		return false
 	}
+}
+
+func documentEventPath(node *DocumentNode) []*DocumentNode {
+	if node == nil {
+		return nil
+	}
+	path := make([]*DocumentNode, 0, 4)
+	for current := node; current != nil; current = current.Parent {
+		path = append(path, current)
+	}
+	return path
+}
+
+func dispatchDocumentNodeEvent(event *DocumentEvent, path []*DocumentNode, handler func(*DocumentNode) interface{}) bool {
+	if event == nil || len(path) == 0 || handler == nil {
+		return false
+	}
+	handled := false
+	for index, current := range path {
+		if current == nil {
+			continue
+		}
+		if index > 0 && !event.Bubbles {
+			break
+		}
+		event.CurrentTarget = current
+		if index == 0 {
+			event.Phase = EventPhaseTarget
+		} else {
+			event.Phase = EventPhaseBubble
+		}
+		if dispatchDocumentNodeHandler(handler(current), current, event) {
+			handled = true
+		}
+		if event.PropagationStopped() {
+			break
+		}
+	}
+	return handled
 }

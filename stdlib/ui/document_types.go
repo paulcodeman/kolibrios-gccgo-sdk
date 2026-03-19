@@ -24,6 +24,8 @@ type DocumentNode struct {
 	StyleFocus   Style
 	Focusable    bool
 	OnClick      interface{}
+	OnChange     interface{}
+	OnInput      interface{}
 	OnMouseDown  interface{}
 	OnMouseUp    interface{}
 	OnMouseMove  interface{}

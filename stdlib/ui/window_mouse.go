@@ -160,12 +160,7 @@ func (window *Window) handleMouse() bool {
 	if hover != window.mouseHover {
 		if element, ok := window.mouseHover.(*Element); ok && element != nil {
 			window.noteHandlerMayMutate(element)
-			if dispatchElementHandler(element.OnMouseLeave, element, Event{
-				Type:   EventMouseLeave,
-				X:      eventX,
-				Y:      eventY,
-				Target: element,
-			}) {
+			if element.dispatchMouseLeaveEvent(eventX, eventY) {
 				needsRedraw = true
 				window.noteDirty(element)
 			}
@@ -185,12 +180,7 @@ func (window *Window) handleMouse() bool {
 		}
 		if element, ok := hover.(*Element); ok && element != nil {
 			window.noteHandlerMayMutate(element)
-			if dispatchElementHandler(element.OnMouseEnter, element, Event{
-				Type:   EventMouseEnter,
-				X:      eventX,
-				Y:      eventY,
-				Target: element,
-			}) {
+			if element.dispatchMouseEnterEvent(eventX, eventY) {
 				needsRedraw = true
 				window.noteDirty(element)
 			}
