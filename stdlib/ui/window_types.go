@@ -89,6 +89,8 @@ type Window struct {
 	backgroundCacheKey      styleVisualKey
 	backgroundCacheRect     Rect
 	tinyglNodes             []*Element
+	focusables              []Node
+	focusIndex              map[Node]int
 	hitGrid                 hitTestGrid
 	hitGridValid            bool
 	allNodes                []Node

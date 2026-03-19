@@ -52,10 +52,16 @@ func (window *Window) buildRenderList() {
 	window.renderList = window.renderList[:0]
 	window.allNodes = window.allNodes[:0]
 	window.tinyglNodes = window.tinyglNodes[:0]
+	window.focusables = window.focusables[:0]
 	if window.renderIndex == nil {
 		window.renderIndex = make(map[Node]int)
 	} else {
 		clearRenderIndex(window.renderIndex)
+	}
+	if window.focusIndex == nil {
+		window.focusIndex = make(map[Node]int)
+	} else {
+		clearRenderIndex(window.focusIndex)
 	}
 	if window.nodeBounds == nil {
 		window.nodeBounds = make(map[Node]Rect)
