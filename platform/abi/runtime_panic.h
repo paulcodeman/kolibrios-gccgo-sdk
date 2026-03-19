@@ -24,7 +24,7 @@ typedef struct runtime_pool_node runtime_pool_node;
 typedef struct runtime_sudog runtime_sudog;
 
 #ifndef RUNTIME_POOL_LOCAL_CLASS_COUNT
-#define RUNTIME_POOL_LOCAL_CLASS_COUNT 6u
+#define RUNTIME_POOL_LOCAL_CLASS_COUNT 8u
 #endif
 
 struct runtime_panic {

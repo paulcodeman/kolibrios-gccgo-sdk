@@ -246,21 +246,10 @@ static int runtime_pool_local_class_index(int class_index) {
     return class_index;
 }
 
-static void* runtime_pool_alloc_local(size_t size) {
-    size_t class_size;
-    int class_index;
-    int local_index;
-    runtime_m* m;
+static void* runtime_pool_alloc_local_class(runtime_m* m, int local_index, size_t class_size) {
     runtime_pool_node* node;
 
-    class_index = runtime_pool_class_index(size, &class_size);
-    local_index = runtime_pool_local_class_index(class_index);
-    if (local_index < 0) {
-        return NULL;
-    }
-
-    m = runtime_getm();
-    if (m == NULL) {
+    if (m == NULL || local_index < 0) {
         return NULL;
     }
 
@@ -281,26 +270,11 @@ static void* runtime_pool_alloc_local(size_t size) {
     return (void*)node;
 }
 
-static bool runtime_pool_release_local(void* ptr, size_t size) {
-    size_t class_size;
-    int class_index;
-    int local_index;
-    runtime_m* m;
+static bool runtime_pool_release_local_class(runtime_m* m, void* ptr, int local_index, size_t class_size) {
     uint8_t local_cap;
     runtime_pool_node* node;
 
-    if (ptr == NULL) {
-        return false;
-    }
-
-    class_index = runtime_pool_class_index(size, &class_size);
-    local_index = runtime_pool_local_class_index(class_index);
-    if (local_index < 0) {
-        return false;
-    }
-
-    m = runtime_getm();
-    if (m == NULL) {
+    if (ptr == NULL || m == NULL || local_index < 0) {
         return false;
     }
 
@@ -418,7 +392,7 @@ void* runtime_pool_malloc(size_t size) {
     size_t class_size = 0;
     int class_index;
     int local_index;
-    runtime_m* m = NULL;
+    runtime_m* m;
     void* result = NULL;
 
     if (size > (size_t)-1 - RUNTIME_POOL_HEADER_SIZE) {
@@ -437,10 +411,10 @@ void* runtime_pool_malloc(size_t size) {
         return result;
     }
 
-    header = (runtime_pool_header*)runtime_pool_alloc_local(total);
+    local_index = runtime_pool_local_class_index(class_index);
+    m = runtime_getm();
+    header = (runtime_pool_header*)runtime_pool_alloc_local_class(m, local_index, class_size);
     if (header == NULL) {
-        local_index = runtime_pool_local_class_index(class_index);
-        m = runtime_getm();
         runtime_lock_mutex(&runtime_pool_lock);
         if (m != NULL && local_index >= 0) {
             header = (runtime_pool_header*)runtime_pool_refill_local_locked(m, local_index, class_index, class_size);
@@ -465,6 +439,8 @@ void runtime_pool_free(void* ptr) {
     runtime_pool_header* header;
     uint16_t class_index;
     size_t class_size;
+    int local_index;
+    runtime_m* m;
     bool released;
 
     if (ptr == NULL) {
@@ -488,7 +464,9 @@ void runtime_pool_free(void* ptr) {
     }
 
     class_size = ((size_t)1u) << ((size_t)class_index + RUNTIME_POOL_MIN_SHIFT);
-    if (runtime_pool_release_local(header, class_size)) {
+    local_index = runtime_pool_local_class_index((int)class_index);
+    m = runtime_getm();
+    if (runtime_pool_release_local_class(m, header, local_index, class_size)) {
         return;
     }
     runtime_lock_mutex(&runtime_pool_lock);
