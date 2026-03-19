@@ -75,13 +75,14 @@ type FragmentDisplayList struct {
 type Document struct {
 	Root *DocumentNode
 
-	rootFragment *Fragment
-	displayList  FragmentDisplayList
-	viewport     Rect
-	content      Rect
-	host         *DocumentView
-	hitGrid      fragmentHitTestGrid
-	hitGridValid bool
+	rootFragment   *Fragment
+	displayList    FragmentDisplayList
+	viewport       Rect
+	content        Rect
+	host           *DocumentView
+	fragmentByNode map[*DocumentNode]*Fragment
+	hitGrid        fragmentHitTestGrid
+	hitGridValid   bool
 }
 
 func NewDocument(root *DocumentNode) *Document {
@@ -157,6 +158,11 @@ func (document *Document) RootFragment() *Fragment {
 func (document *Document) FragmentForNode(node *DocumentNode) *Fragment {
 	if document == nil || node == nil {
 		return nil
+	}
+	if document.fragmentByNode != nil {
+		if fragment, ok := document.fragmentByNode[node]; ok {
+			return fragment
+		}
 	}
 	return findDocumentFragment(document.rootFragment, node)
 }

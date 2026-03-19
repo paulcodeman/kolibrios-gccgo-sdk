@@ -241,9 +241,14 @@ func (view *DocumentView) focusableNodes() []*DocumentNode {
 	if view == nil || view.Document == nil {
 		return nil
 	}
+	if view.focusablesValid {
+		return view.focusablesCache
+	}
 	nodes := make([]*DocumentNode, 0, 8)
 	collectDocumentFocusables(view.Document.Root, &nodes)
-	return nodes
+	view.focusablesCache = nodes
+	view.focusablesValid = true
+	return view.focusablesCache
 }
 
 func collectDocumentFocusables(node *DocumentNode, out *[]*DocumentNode) {
@@ -401,7 +406,7 @@ func (view *DocumentView) documentEventFor(kind EventType, x int, y int, button 
 	if view == nil || view.Document == nil {
 		return event, false
 	}
-	viewport := view.documentViewportRect(view.effectiveStyle())
+	viewport := view.documentHostState(view.effectiveStyle()).viewport
 	if viewport.Empty() || !viewport.Contains(x, y) {
 		return event, false
 	}
@@ -417,39 +422,15 @@ func (view *DocumentView) documentViewportRect(style Style) Rect {
 	if view == nil {
 		return Rect{}
 	}
-	return view.documentViewportRectIn(view.layoutRect, style)
+	return view.documentHostStateIn(view.layoutRect, style).viewport
 }
 
 func (view *DocumentView) documentViewportRectIn(rect Rect, style Style) Rect {
-	viewport := contentRectFor(rect, style)
-	if viewport.Empty() {
-		return viewport
-	}
-	if !view.documentShowsScrollbar(style) {
-		return viewport
-	}
-	scrollbar := resolveScrollbarStyle(style)
-	reserve := scrollbar.width + scrollbar.padding.Left + scrollbar.padding.Right
-	if reserve <= 0 {
-		return viewport
-	}
-	viewport.Width -= reserve
-	if viewport.Width < 0 {
-		viewport.Width = 0
-	}
-	return viewport
+	return view.documentHostStateIn(rect, style).viewport
 }
 
 func (view *DocumentView) documentShowsScrollbar(style Style) bool {
-	mode := overflowModeFor(style, "y")
-	switch mode {
-	case OverflowScroll:
-		return true
-	case OverflowAuto:
-		return view.scrollMaxY > 0
-	default:
-		return false
-	}
+	return view.documentHostState(style).scrollbarVisible
 }
 
 func (view *DocumentView) updateDocumentScrollMetrics(viewport Rect, style Style) bool {
@@ -490,35 +471,93 @@ func (view *DocumentView) documentContentExtentHeightOnly() int {
 	return height
 }
 
-func (view *DocumentView) documentScrollbarLayoutIn(rect Rect, style Style) (Rect, Rect, bool) {
-	if view == nil || !view.documentShowsScrollbar(style) {
-		return Rect{}, Rect{}, false
+func (view *DocumentView) documentHostState(style Style) documentViewHostState {
+	if view == nil {
+		return documentViewHostState{}
 	}
-	base := contentRectFor(rect, style)
-	if base.Empty() {
-		return Rect{}, Rect{}, false
+	return view.documentHostStateIn(view.layoutRect, style)
+}
+
+func (view *DocumentView) documentHostStateIn(rect Rect, style Style) documentViewHostState {
+	if view == nil {
+		return documentViewHostState{}
 	}
+	insets := boxInsets(style)
+	overflowY := overflowModeFor(style, "y")
 	scrollbar := resolveScrollbarStyle(style)
-	if scrollbar.width <= 0 {
-		return Rect{}, Rect{}, false
-	}
-	track := Rect{
-		X:      base.X + base.Width - scrollbar.width - scrollbar.padding.Right,
-		Y:      base.Y + scrollbar.padding.Top,
-		Width:  scrollbar.width,
-		Height: base.Height - scrollbar.padding.Top - scrollbar.padding.Bottom,
-	}
-	if track.Width <= 0 || track.Height <= 0 {
-		return Rect{}, Rect{}, false
-	}
 	contentHeight := view.documentContentExtentHeightOnly()
+	lineStep := metricsForStyle(style).height * 3
+	if lineStep < defaultFontHeight {
+		lineStep = defaultFontHeight
+	}
+	key := documentViewHostStateKey{
+		rect:          rect,
+		insets:        insets,
+		overflowY:     overflowY,
+		scrollbar:     scrollbar,
+		contentHeight: contentHeight,
+		scrollMaxY:    view.scrollMaxY,
+		lineStep:      lineStep,
+	}
+	if view.hostStateCache.valid && view.hostStateCache.key == key {
+		return view.hostStateCache.state
+	}
+	state := documentViewHostState{
+		baseContent:   contentRectFor(rect, style),
+		scrollbar:     scrollbar,
+		contentHeight: contentHeight,
+		scrollMaxY:    view.scrollMaxY,
+		lineStep:      lineStep,
+		pageStep:      defaultFontHeight,
+	}
+	state.viewport = state.baseContent
+	switch overflowY {
+	case OverflowScroll:
+		state.scrollbarVisible = true
+	case OverflowAuto:
+		state.scrollbarVisible = view.scrollMaxY > 0
+	}
+	if state.scrollbarVisible && !state.baseContent.Empty() && scrollbar.width > 0 {
+		reserve := scrollbar.width + scrollbar.padding.Left + scrollbar.padding.Right
+		if reserve > 0 {
+			state.viewport.Width -= reserve
+			if state.viewport.Width < 0 {
+				state.viewport.Width = 0
+			}
+		}
+		track := Rect{
+			X:      state.baseContent.X + state.baseContent.Width - scrollbar.width - scrollbar.padding.Right,
+			Y:      state.baseContent.Y + scrollbar.padding.Top,
+			Width:  scrollbar.width,
+			Height: state.baseContent.Height - scrollbar.padding.Top - scrollbar.padding.Bottom,
+		}
+		if track.Width > 0 && track.Height > 0 {
+			state.scrollbarTrack = track
+		}
+	}
+	if state.viewport.Height > defaultFontHeight {
+		state.pageStep = state.viewport.Height - defaultFontHeight
+	}
+	view.hostStateCache = documentViewHostStateCache{key: key, state: state, valid: true}
+	return state
+}
+
+func (view *DocumentView) documentScrollbarLayoutIn(rect Rect, style Style) (Rect, Rect, bool) {
+	state := view.documentHostStateIn(rect, style)
+	if view == nil || !state.scrollbarVisible {
+		return Rect{}, Rect{}, false
+	}
+	track := state.scrollbarTrack
+	if track.Empty() {
+		return Rect{}, Rect{}, false
+	}
+	contentHeight := state.contentHeight
 	if contentHeight <= 0 {
 		contentHeight = track.Height
 	}
 	thumbHeight := track.Height
-	if contentHeight > 0 && view.scrollMaxY > 0 {
-		viewport := view.documentViewportRectIn(rect, style)
-		thumbHeight = track.Height * viewport.Height / contentHeight
+	if contentHeight > 0 && state.scrollMaxY > 0 {
+		thumbHeight = track.Height * state.viewport.Height / contentHeight
 		if thumbHeight < defaultScrollbarMinThumb {
 			thumbHeight = defaultScrollbarMinThumb
 		}
@@ -528,8 +567,8 @@ func (view *DocumentView) documentScrollbarLayoutIn(rect Rect, style Style) (Rec
 	}
 	thumbY := track.Y
 	offsetRange := track.Height - thumbHeight
-	if offsetRange > 0 && view.scrollMaxY > 0 {
-		thumbY = track.Y + view.scrollY*offsetRange/view.scrollMaxY
+	if offsetRange > 0 && state.scrollMaxY > 0 {
+		thumbY = track.Y + view.scrollY*offsetRange/state.scrollMaxY
 	}
 	thumb := Rect{
 		X:      track.X,
@@ -597,7 +636,7 @@ func (view *DocumentView) drawDocumentScrollbar(canvas *Canvas, rect Rect, style
 	if !ok {
 		return
 	}
-	scrollbar := resolveScrollbarStyle(style)
+	scrollbar := view.documentHostStateIn(rect, style).scrollbar
 	radii := scrollBarRadii(scrollbar.radius)
 	canvas.FillRoundedRect(track.X, track.Y, track.Width, track.Height, radii, scrollbar.track)
 	canvas.FillRoundedRect(thumb.X, thumb.Y, thumb.Width, thumb.Height, radii, scrollbar.thumb)
@@ -607,10 +646,7 @@ func (view *DocumentView) scrollDocumentBy(deltaY int) bool {
 	if view == nil || deltaY == 0 {
 		return false
 	}
-	step := metricsForStyle(view.effectiveStyle()).height * 3
-	if step < defaultFontHeight {
-		step = defaultFontHeight
-	}
+	step := view.documentHostState(view.effectiveStyle()).lineStep
 	return view.scrollDocumentTo(view.scrollY + deltaY*step)
 }
 
@@ -618,11 +654,7 @@ func (view *DocumentView) scrollDocumentByPage(delta int) bool {
 	if view == nil || delta == 0 {
 		return false
 	}
-	viewport := view.documentViewportRect(view.effectiveStyle())
-	step := viewport.Height - defaultFontHeight
-	if step < defaultFontHeight {
-		step = defaultFontHeight
-	}
+	step := view.documentHostState(view.effectiveStyle()).pageStep
 	return view.scrollDocumentTo(view.scrollY + delta*step)
 }
 
@@ -636,7 +668,8 @@ func (view *DocumentView) noteDocumentScrollChanged() {
 		return
 	}
 	style := view.effectiveStyle()
-	viewport := view.documentViewportRect(style)
+	state := view.documentHostState(style)
+	viewport := state.viewport
 	if viewport.Empty() {
 		view.MarkDirty()
 		return
@@ -649,8 +682,8 @@ func (view *DocumentView) noteDocumentScrollChanged() {
 		}
 		view.window.markPresentRect(viewport)
 	}
-	if track, _, ok := view.documentScrollbarLayoutIn(view.layoutRect, style); ok {
-		dirty = UnionRect(dirty, track)
+	if state.scrollbarVisible && !state.scrollbarTrack.Empty() {
+		dirty = UnionRect(dirty, state.scrollbarTrack)
 	}
 	view.window.Invalidate(dirty)
 }
@@ -682,7 +715,7 @@ func (view *DocumentView) scrollDocumentNodeIntoView(node *DocumentNode) bool {
 	if view == nil || node == nil || view.Document == nil {
 		return false
 	}
-	viewport := view.documentViewportRect(view.effectiveStyle())
+	viewport := view.documentHostState(view.effectiveStyle()).viewport
 	if viewport.Empty() {
 		return false
 	}

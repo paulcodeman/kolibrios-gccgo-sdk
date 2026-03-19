@@ -26,6 +26,7 @@ func (document *Document) Layout(ctx LayoutContext) {
 	if document.Root == nil {
 		return
 	}
+	document.fragmentByNode = make(map[*DocumentNode]*Fragment, 16)
 	root, _ := document.layoutNode(ctx, Style{}, document.Root, ctx.Viewport, ctx.Viewport.Y)
 	document.rootFragment = root
 	document.displayList = buildFragmentDisplayList(root, ctx.Viewport)
@@ -81,7 +82,18 @@ func (document *Document) clearLayout() {
 	document.rootFragment = nil
 	document.displayList = FragmentDisplayList{}
 	document.content = Rect{}
+	document.fragmentByNode = nil
 	document.invalidateHitGrid()
+}
+
+func (document *Document) registerFragment(fragment *Fragment) {
+	if document == nil || fragment == nil || fragment.Node == nil {
+		return
+	}
+	if document.fragmentByNode == nil {
+		document.fragmentByNode = make(map[*DocumentNode]*Fragment, 16)
+	}
+	document.fragmentByNode[fragment.Node] = fragment
 }
 
 func (document *Document) layoutNode(ctx LayoutContext, parentStyle Style, node *DocumentNode, container Rect, flowY int) (*Fragment, int) {
@@ -172,6 +184,7 @@ func (document *Document) layoutElementNode(ctx LayoutContext, node *DocumentNod
 		Children:   children,
 	}
 	fragment.PaintBounds = fragmentPaintBounds(fragment)
+	document.registerFragment(fragment)
 	return fragment, nextFlowY(plan, height, flowY)
 }
 
@@ -226,6 +239,7 @@ func (document *Document) layoutTextNode(ctx LayoutContext, node *DocumentNode, 
 		linesOwned: FastNoTextCache,
 	}
 	fragment.PaintBounds = fragmentPaintBounds(fragment)
+	document.registerFragment(fragment)
 	return fragment, nextFlowY(plan, height, flowY)
 }
 

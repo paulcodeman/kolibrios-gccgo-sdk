@@ -63,9 +63,40 @@ type DocumentView struct {
 	layerVisualKey      styleVisualKey
 	effectiveStyleCache Style
 	effectiveStyleValid bool
+	hostStateCache      documentViewHostStateCache
+	focusablesCache     []*DocumentNode
+	focusablesValid     bool
 	renderVisitGen      uint32
 	layoutVisitGen      uint32
 	dirtyQueueGen       uint32
+}
+
+type documentViewHostStateKey struct {
+	rect          Rect
+	insets        Spacing
+	overflowY     OverflowMode
+	scrollbar     scrollbarStyle
+	contentHeight int
+	scrollMaxY    int
+	lineStep      int
+}
+
+type documentViewHostState struct {
+	viewport         Rect
+	baseContent      Rect
+	scrollbarVisible bool
+	scrollbarTrack   Rect
+	scrollbar        scrollbarStyle
+	contentHeight    int
+	scrollMaxY       int
+	lineStep         int
+	pageStep         int
+}
+
+type documentViewHostStateCache struct {
+	key   documentViewHostStateKey
+	state documentViewHostState
+	valid bool
 }
 
 type documentViewLayoutKey struct {
@@ -110,6 +141,7 @@ func (view *DocumentView) setWindow(window *Window) {
 	view.invalidateVisualBoundsCache()
 	view.layerValid = false
 	view.clearRetainedLayerDirty()
+	view.invalidateDocumentViewCaches()
 	view.renderVisitGen = 0
 	view.layoutVisitGen = 0
 	view.dirtyQueueGen = 0
@@ -142,6 +174,7 @@ func (view *DocumentView) setDocument(document *Document) {
 	view.invalidateVisualBoundsCache()
 	view.layerValid = false
 	view.clearRetainedLayerDirty()
+	view.invalidateDocumentViewCaches()
 }
 
 func (view *DocumentView) SetDocument(document *Document) bool {
@@ -236,6 +269,7 @@ func (view *DocumentView) MarkDirty() {
 	view.invalidateVisualBoundsCache()
 	view.layerValid = false
 	view.clearRetainedLayerDirty()
+	view.focusablesValid = false
 	if view.window != nil {
 		view.window.noteDirty(view)
 	}
@@ -253,6 +287,7 @@ func (view *DocumentView) MarkLayoutDirty() {
 	view.invalidateVisualBoundsCache()
 	view.layerValid = false
 	view.clearRetainedLayerDirty()
+	view.invalidateDocumentViewCaches()
 	view.MarkDirty()
 	if view.window != nil {
 		view.window.layoutDirty = true
@@ -304,6 +339,7 @@ func (view *DocumentView) invalidateEffectiveStyleCache() {
 	}
 	view.effectiveStyleCache = Style{}
 	view.effectiveStyleValid = false
+	view.hostStateCache = documentViewHostStateCache{}
 }
 
 func (view *DocumentView) invalidateVisualBoundsCache() {
@@ -312,6 +348,16 @@ func (view *DocumentView) invalidateVisualBoundsCache() {
 	}
 	view.visualRect = Rect{}
 	view.visualRectValid = false
+	view.hostStateCache = documentViewHostStateCache{}
+}
+
+func (view *DocumentView) invalidateDocumentViewCaches() {
+	if view == nil {
+		return
+	}
+	view.hostStateCache = documentViewHostStateCache{}
+	view.focusablesCache = nil
+	view.focusablesValid = false
 }
 
 func (view *DocumentView) Handle(event Event) bool {
