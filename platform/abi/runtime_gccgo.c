@@ -4374,7 +4374,7 @@ static void runtime_gc_index_add(runtime_gc_header* header) {
         runtime_gc_page_entry* entry;
         size_t bucket;
 
-        entry = (runtime_gc_page_entry*)malloc(sizeof(runtime_gc_page_entry));
+        entry = (runtime_gc_page_entry*)runtime_pool_malloc(sizeof(runtime_gc_page_entry));
         if (entry == NULL) {
             runtime_gc_page_index_complete = 0;
             break;
@@ -4425,7 +4425,7 @@ static void runtime_gc_index_remove(runtime_gc_header* header) {
         if (entry->next_in_bucket != NULL) {
             entry->next_in_bucket->prev_in_bucket = entry->prev_in_bucket;
         }
-        free(entry);
+        runtime_pool_free(entry);
         entry = next;
     }
 
