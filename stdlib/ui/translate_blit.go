@@ -5,6 +5,25 @@ type translateBlitOp struct {
 	dst Rect
 }
 
+func (element *Element) canUseTranslateBlit(style Style) bool {
+	if element == nil {
+		return false
+	}
+	if !element.canUseDirtyClip(style) {
+		return false
+	}
+	if element.isFocusable() || element.OnClick != nil {
+		return false
+	}
+	if !element.StyleHover.IsZero() || !element.StyleActive.IsZero() || !element.StyleFocus.IsZero() {
+		return false
+	}
+	if element.hovered || element.active || element.focused {
+		return false
+	}
+	return true
+}
+
 func rectContainsRect(outer Rect, inner Rect) bool {
 	if outer.Empty() || inner.Empty() {
 		return false
@@ -107,7 +126,7 @@ func (window *Window) tryTranslateBlit(node Node, oldBounds Rect, newBounds Rect
 		return Rect{}, false
 	}
 	style := element.effectiveStyle()
-	if !element.canUseDirtyClip(style) {
+	if !element.canUseTranslateBlit(style) {
 		return Rect{}, false
 	}
 	oldKey, ok := window.oldRenderKeyFor(node, oldKeys)
