@@ -194,7 +194,7 @@ func (view *DocumentView) effectiveStyle() Style {
 		return view.effectiveStyleCache
 	}
 	style := view.Style
-	if view.focused && !view.StyleFocus.IsZero() {
+	if view.focused && view.focusNode == nil && !view.StyleFocus.IsZero() {
 		style = mergeStyle(style, view.StyleFocus)
 	}
 	if view.active && !view.StyleActive.IsZero() {

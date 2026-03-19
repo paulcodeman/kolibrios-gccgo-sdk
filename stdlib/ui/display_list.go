@@ -90,6 +90,12 @@ func nodeAllowsDirtyClip(node Node, dirty Rect) bool {
 			clipRect := current.textInputDirtyClipRect(style)
 			return !clipRect.Empty() && rectContainsRect(clipRect, dirty)
 		}
+		// Cached element paint and retained subtree layers are already fully
+		// rasterized offscreen, so clipping the final blit to the dirty rect is
+		// safe even when the source visual uses radius/shadow/opacity/focus ring.
+		if current.useRetainedSubtreeLayer(style) || current.canUseDirtyClip(style) {
+			return true
+		}
 		if elementShowsDefaultFocusRing(current) {
 			return false
 		}

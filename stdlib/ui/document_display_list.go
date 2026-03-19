@@ -200,6 +200,42 @@ func fragmentPaintBounds(fragment *Fragment) Rect {
 	return bounds
 }
 
+func syncFragmentPaintState(fragment *Fragment) (Rect, Rect) {
+	if fragment == nil {
+		return Rect{}, Rect{}
+	}
+	oldBounds := fragment.PaintBounds
+	if oldBounds.Empty() {
+		oldBounds = fragmentPaintBounds(fragment)
+	}
+	style := fragment.Style
+	if fragment.Node != nil {
+		style = mergeStyle(style, documentNodePaintStyle(fragment.Node))
+	}
+	fragment.PaintStyle = style
+	newBounds := fragmentPaintBounds(fragment)
+	fragment.PaintBounds = newBounds
+	return oldBounds, newBounds
+}
+
+func syncDisplayItemPaint(item FragmentDisplayItem) FragmentDisplayItem {
+	if item.Fragment == nil {
+		return item
+	}
+	paint := item.Fragment.PaintBounds
+	if paint.Empty() {
+		paint = item.Fragment.Bounds
+	}
+	if !styleVisible(item.Fragment.effectiveStyle()) {
+		paint = Rect{}
+	}
+	if item.ClipSet {
+		paint = IntersectRect(paint, item.Clip)
+	}
+	item.Paint = paint
+	return item
+}
+
 func appendFragmentDisplayItems(items *[]FragmentDisplayItem, fragment *Fragment, clip clipState, viewport Rect) {
 	if fragment == nil {
 		return

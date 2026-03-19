@@ -328,6 +328,7 @@ func (view *DocumentView) setFocusNode(node *DocumentNode, event DocumentEvent) 
 	if view == nil || view.focusNode == node {
 		return false
 	}
+	hostFocusVisibleBefore := view.focused && view.focusNode == nil && !view.StyleFocus.IsZero()
 	changed := false
 	if previous := view.focusNode; previous != nil {
 		if updated, needsLayout := previous.setFocus(false); updated {
@@ -360,6 +361,13 @@ func (view *DocumentView) setFocusNode(node *DocumentNode, event DocumentEvent) 
 			changed = true
 		}
 	}
+	hostFocusVisibleAfter := view.focused && view.focusNode == nil && !view.StyleFocus.IsZero()
+	if hostFocusVisibleBefore != hostFocusVisibleAfter {
+		view.invalidateEffectiveStyleCache()
+		if view.markDirtyForStyle(view.StyleFocus) {
+			changed = true
+		}
+	}
 	return changed
 }
 
@@ -382,12 +390,52 @@ func (view *DocumentView) documentNodeDirtyRect(node *DocumentNode) Rect {
 	return bounds
 }
 
+func (view *DocumentView) syncDocumentNodePaintState(node *DocumentNode) Rect {
+	if view == nil || node == nil || view.Document == nil {
+		return Rect{}
+	}
+	fragment := view.Document.FragmentForNode(node)
+	if fragment == nil {
+		return Rect{}
+	}
+	oldBounds, newBounds := syncFragmentPaintState(fragment)
+	for index := range view.Document.displayList.items {
+		item := view.Document.displayList.items[index]
+		if item.Fragment != fragment {
+			continue
+		}
+		view.Document.displayList.items[index] = syncDisplayItemPaint(item)
+	}
+	if oldBounds != newBounds {
+		view.Document.bumpDisplayVersion()
+	}
+	dirty := oldBounds
+	if dirty.Empty() {
+		dirty = newBounds
+	} else if !newBounds.Empty() {
+		dirty = UnionRect(dirty, newBounds)
+	}
+	if dirty.Empty() {
+		dirty = fragment.Bounds
+	}
+	if dirty.Empty() {
+		return Rect{}
+	}
+	dirty.Y -= view.scrollY
+	return dirty
+}
+
 func (view *DocumentView) markDocumentNodeStateChange(node *DocumentNode, needsLayout bool) {
 	if view == nil {
 		return
 	}
 	if needsLayout {
 		view.MarkLayoutDirty()
+		return
+	}
+	if dirty := view.syncDocumentNodePaintState(node); !dirty.Empty() && view.window != nil {
+		view.dirty = true
+		view.window.InvalidateVisual(dirty)
 		return
 	}
 	view.MarkDirty()
