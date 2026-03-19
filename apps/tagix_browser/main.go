@@ -12,7 +12,6 @@ import (
 const (
 	defaultWindowWidth  = 780
 	defaultWindowHeight = 560
-	defaultShellHeight  = 86
 	defaultPageHeight   = 420
 	rootInset           = 0
 	shellGap            = 0
@@ -95,7 +94,6 @@ func (app *App) buildUI() {
 	app.shellView = ui.CreateDocumentView(app.shellDocument)
 	app.shellView.Style = styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
-		style.SetHeight(defaultShellHeight)
 		style.SetMargin(0, 0, shellGap, 0)
 		style.SetPadding(8, 12)
 		style.SetBorder(0, 0xF1F3F4)
@@ -132,7 +130,7 @@ func (app *App) buildUI() {
 	root.Append(app.pageView)
 	window.Append(root)
 	window.OnResize = app.handleResize
-	app.handleResize(ui.Rect{Height: defaultWindowHeight})
+	app.handleResize(window.ClientRect())
 }
 
 func (app *App) Run() {
@@ -416,7 +414,8 @@ func (app *App) handleResize(client ui.Rect) {
 	if app == nil || app.pageView == nil || app.shellView == nil {
 		return
 	}
-	pageHeight := client.Height - rootInset*2 - defaultShellHeight - shellGap
+	shellHeight := app.shellHeightForClient(client)
+	pageHeight := client.Height - rootInset*2 - shellHeight - shellGap
 	if pageHeight < minPageHeight {
 		pageHeight = minPageHeight
 	}
@@ -425,14 +424,52 @@ func (app *App) handleResize(client ui.Rect) {
 		app.pageView.Style.SetHeight(pageHeight)
 		changed = true
 	}
-	if current, ok := app.shellView.Style.GetHeight(); !ok || current != defaultShellHeight {
-		app.shellView.Style.SetHeight(defaultShellHeight)
-		changed = true
-	}
 	if changed {
 		app.shellView.MarkLayoutDirty()
 		app.pageView.MarkLayoutDirty()
 	}
+}
+
+func (app *App) shellHeightForClient(client ui.Rect) int {
+	if app == nil || app.shellView == nil {
+		return 0
+	}
+	width := client.Width - rootInset*2
+	if width < 0 {
+		width = 0
+	}
+	height := client.Height - rootInset*2
+	if height < 0 {
+		height = 0
+	}
+	app.shellView.LayoutWithContext(ui.DefaultLayoutContext(ui.Rect{
+		X:      0,
+		Y:      0,
+		Width:  width,
+		Height: height,
+	}))
+	if bounds := app.shellView.Bounds(); bounds.Height > 0 {
+		return bounds.Height
+	}
+	fallback := 0
+	if lineHeight, ok := app.shellView.Style.GetLineHeight(); ok {
+		fallback += lineHeight
+	} else {
+		fallback += 18
+	}
+	if padding, ok := app.shellView.Style.GetPadding(); ok {
+		fallback += padding.Top + padding.Bottom
+	}
+	if border, ok := app.shellView.Style.GetBorderTopWidth(); ok {
+		fallback += border
+	}
+	if border, ok := app.shellView.Style.GetBorderBottomWidth(); ok {
+		fallback += border
+	}
+	if fallback <= 0 {
+		return 40
+	}
+	return fallback
 }
 
 func formatUint(value uint32) string {

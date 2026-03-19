@@ -84,6 +84,11 @@ func (view *DocumentView) applyLayoutWithContext(ctx LayoutContext, container Re
 	height, heightSet := explicitOuterHeight(style)
 	rect := view.resolveRectIn(container, style, width, height)
 	viewport := view.documentViewportRectIn(rect, style)
+	if view.Document != nil && !heightSet && viewport.Empty() {
+		provisionalHeight := view.provisionalOuterHeightForAutoLayout(style, container)
+		rect = view.resolveRectIn(container, style, width, provisionalHeight)
+		viewport = view.documentViewportRectIn(rect, style)
+	}
 	if view.Document != nil && !viewport.Empty() {
 		for i := 0; i < 3; i++ {
 			docCtx := layoutContextWithViewport(ctx, viewport)
@@ -110,6 +115,15 @@ func (view *DocumentView) applyLayoutWithContext(ctx LayoutContext, container Re
 	view.visualRect = visualBoundsForStyle(rect, style, false)
 	view.visualRectValid = true
 	view.layoutDirty = false
+}
+
+func (view *DocumentView) provisionalOuterHeightForAutoLayout(style Style, container Rect) int {
+	insets := boxInsets(style)
+	height := insets.Top + insets.Bottom + 1
+	if container.Height > height {
+		height = container.Height
+	}
+	return clampHeightForStyle(style, height)
 }
 
 func (view *DocumentView) layoutKeyFor(style Style, container Rect) documentViewLayoutKey {

@@ -185,8 +185,8 @@ func buildShellDocument(app *App) *ui.DocumentNode {
 	}))
 
 	actions := ui.NewDocumentElement("browser-shell-actions", styled(func(style *ui.Style) {
-		style.SetDisplay(ui.DisplayBlock)
-		style.SetMargin(0, 0, 4, 0)
+		style.SetDisplay(ui.DisplayInlineBlock)
+		style.SetMargin(0, 8, 0, 0)
 	}),
 		shellButtonNode(app, "Back", "back", canBack),
 		shellButtonNode(app, "Forward", "forward", canForward),
@@ -282,8 +282,8 @@ func buildShellTemplateNode(app *App, node *dom.Node) *ui.DocumentNode {
 		return nil
 	case "nav-row", "toolbar", "actions":
 		return ui.NewDocumentElement("browser-shell-actions", styled(func(style *ui.Style) {
-			style.SetDisplay(ui.DisplayBlock)
-			style.SetMargin(0, 0, 4, 0)
+			style.SetDisplay(ui.DisplayInlineBlock)
+			style.SetMargin(0, 8, 0, 0)
 		}), buildShellChildren(app, node)...)
 	case "button":
 		return shellButtonNode(app, collectNodeText(node, false), strings.TrimSpace(node.Attrs["data-action"]), attrIsTrue(node.Attrs["data-enabled"]))
@@ -422,7 +422,7 @@ func applyShellButtonState(node *ui.DocumentNode, enabled bool) {
 
 func shellAddressNode(app *App, value string) *ui.DocumentNode {
 	input := ui.NewDocumentElement("shell-address", styled(func(style *ui.Style) {
-		style.SetDisplay(ui.DisplayBlock)
+		style.SetDisplay(ui.DisplayInlineBlock)
 		style.SetPadding(7, 12)
 		style.SetBorderRadius(10)
 		style.SetBorder(1, 0x808A96)
@@ -430,6 +430,7 @@ func shellAddressNode(app *App, value string) *ui.DocumentNode {
 		style.SetContain(ui.ContainPaint)
 		style.SetOverflow(ui.OverflowHidden)
 		style.SetWhiteSpace(ui.WhiteSpaceNoWrap)
+		style.SetMinWidth(180)
 		style.SetFontPath(webSansFontPath)
 		style.SetFontSize(13)
 		style.SetLineHeight(18)
@@ -652,9 +653,9 @@ func nodeParticipatesInInlineFlow(node *dom.Node) bool {
 	switch node.Tag {
 	case "script", "style", "head", "title", "meta", "link", "option":
 		return false
-	case "br", "a", "code", "img", "span", "strong", "em", "b", "i", "u", "small", "big", "abbr", "cite", "q", "s", "sub", "sup", "mark", "time", "kbd", "samp", "var", "wbr":
+	case "br", "a", "code", "img", "span", "strong", "em", "b", "i", "u", "small", "big", "abbr", "cite", "q", "s", "sub", "sup", "mark", "time", "kbd", "samp", "var", "wbr", "label", "button", "input", "textarea", "select", "progress":
 		return true
-	case "html", "body", "main", "section", "article", "aside", "nav", "header", "footer", "div", "form", "fieldset", "legend", "label", "figure", "figcaption", "details", "summary", "dl", "dt", "dd", "table", "caption", "tbody", "thead", "tfoot", "tr", "td", "th", "hr", "h1", "h2", "h3", "h4", "h5", "h6", "p", "blockquote", "pre", "ul", "ol", "li", "button", "input", "textarea", "select", "progress":
+	case "html", "body", "main", "section", "article", "aside", "nav", "header", "footer", "div", "form", "fieldset", "legend", "figure", "figcaption", "details", "summary", "dl", "dt", "dd", "table", "caption", "tbody", "thead", "tfoot", "tr", "td", "th", "hr", "h1", "h2", "h3", "h4", "h5", "h6", "p", "blockquote", "pre", "ul", "ol", "li":
 		return false
 	default:
 		return true
@@ -946,12 +947,14 @@ const (
 	inlinePieceCode
 	inlinePieceImage
 	inlinePieceBreak
+	inlinePieceControl
 )
 
 type inlinePiece struct {
 	kind inlinePieceKind
 	text string
 	href string
+	node *dom.Node
 }
 
 type inlinePieceBuilder struct {
@@ -1334,6 +1337,15 @@ func collectInlinePieces(builder *inlinePieceBuilder, node *dom.Node, ctx *rende
 		}
 		builder.appendImage(label)
 		return
+	case "button", "textarea", "select", "progress":
+		builder.appendControl(node)
+		return
+	case "input":
+		if htmlInputType(node) == "hidden" {
+			return
+		}
+		builder.appendControl(node)
+		return
 	default:
 		for _, child := range node.Children {
 			collectInlinePieces(builder, child, ctx)
@@ -1420,6 +1432,20 @@ func (builder *inlinePieceBuilder) appendBreak() {
 	builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceBreak})
 }
 
+func (builder *inlinePieceBuilder) appendControl(node *dom.Node) {
+	if builder == nil || node == nil {
+		return
+	}
+	if builder.needSpace && len(builder.pieces) > 0 {
+		builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceText, text: " "})
+		builder.needSpace = false
+	}
+	builder.pieces = append(builder.pieces, inlinePiece{
+		kind: inlinePieceControl,
+		node: node,
+	})
+}
+
 func inlineNodesFromPieces(pieces []inlinePiece, baseStyle ui.Style, ctx *renderContext) []*ui.DocumentNode {
 	if len(pieces) == 0 {
 		return nil
@@ -1443,9 +1469,33 @@ func inlineNodesFromPieces(pieces []inlinePiece, baseStyle ui.Style, ctx *render
 			}
 		case inlinePieceBreak:
 			nodes = append(nodes, inlineBreakNode(baseStyle))
+		case inlinePieceControl:
+			if control := inlineControlNode(piece.node, ctx); control != nil {
+				nodes = append(nodes, control)
+			}
 		}
 	}
 	return nodes
+}
+
+func inlineControlNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
+	if node == nil {
+		return nil
+	}
+	switch node.Tag {
+	case "button":
+		return htmlButtonNode(node, ctx)
+	case "input":
+		return htmlInputNode(node, ctx)
+	case "textarea":
+		return htmlTextareaNode(node, ctx)
+	case "select":
+		return htmlSelectNode(node, ctx)
+	case "progress":
+		return htmlProgressNode(node)
+	default:
+		return nil
+	}
 }
 
 func inlineTextNode(text string, baseStyle ui.Style) *ui.DocumentNode {
@@ -1876,8 +1926,8 @@ func requestRenderedPageLayout(ctx *renderContext) {
 
 func htmlControlStyle() ui.Style {
 	return styled(func(style *ui.Style) {
-		style.SetDisplay(ui.DisplayBlock)
-		style.SetMargin(0, 0, 8, 0)
+		style.SetDisplay(ui.DisplayInlineBlock)
+		style.SetMargin(0, 6, 0, 0)
 		style.SetPadding(8, 10)
 		style.SetBorderRadius(8)
 		style.SetBorder(1, 0xC9CFD5)
@@ -2055,6 +2105,8 @@ func htmlTextInputNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
 			width = 520
 		}
 		input.Style.SetWidth(width)
+	} else {
+		input.Style.SetWidth(220)
 	}
 	input.StyleHover = styled(func(style *ui.Style) {
 		style.SetBorderColor(ui.Teal)
@@ -2299,6 +2351,7 @@ func htmlRangeNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
 	}
 	update()
 	control := ui.NewDocumentElement("html-range", htmlControlStyle(), valueText, hintText)
+	control.Style.SetWidth(220)
 	control.Focusable = true
 	applyInteractiveControlStyles(control)
 	disabled := hasAttr(node, "disabled")
@@ -2388,6 +2441,18 @@ func htmlTextareaNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
 			style.SetWhiteSpace(ui.WhiteSpacePreWrap)
 		})),
 	)
+	if cols := attrInt(node, "cols", 0); cols > 0 {
+		width := cols * 10
+		if width < 180 {
+			width = 180
+		}
+		if width > 520 {
+			width = 520
+		}
+		area.Style.SetWidth(width)
+	} else {
+		area.Style.SetWidth(320)
+	}
 	if form := ctx.formForControl(node); form != nil {
 		name := attrValue(node, "name")
 		form.addControl(&formControlState{
@@ -2442,6 +2507,7 @@ func htmlSelectNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
 	initialSelected := selected
 	valueText := ui.NewDocumentText(options[selected].label, htmlControlTextStyle())
 	control := ui.NewDocumentElement("html-select", htmlControlStyle(), valueText)
+	control.Style.SetMinWidth(140)
 	control.Focusable = true
 	applyInteractiveControlStyles(control)
 	disabled := hasAttr(node, "disabled")
@@ -2517,10 +2583,12 @@ func htmlProgressNode(node *dom.Node) *ui.DocumentNode {
 		value = maxValue
 	}
 	percent := (value * 100) / maxValue
-	return ui.NewDocumentElement("html-progress", htmlControlStyle(),
+	control := ui.NewDocumentElement("html-progress", htmlControlStyle(),
 		ui.NewDocumentText("Progress", htmlControlTextStyle()),
 		ui.NewDocumentText(strconv.Itoa(percent)+"% complete", htmlControlHintStyle()),
 	)
+	control.Style.SetWidth(180)
+	return control
 }
 
 func buildMessageDocument(title string, detail string) *ui.DocumentNode {
