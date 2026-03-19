@@ -106,11 +106,11 @@ func textColumnForX(text string, x int, font *ttfFont, charWidth int) int {
 }
 
 func maxLineWidth(lines []textLine, font *ttfFont, charWidth int) int {
+	ensureTextLineMetrics(lines, font, charWidth)
 	maxWidth := 0
 	for _, line := range lines {
-		width := textWidthWithFont(line.text, font, charWidth)
-		if width > maxWidth {
-			maxWidth = width
+		if line.width > maxWidth {
+			maxWidth = line.width
 		}
 	}
 	return maxWidth

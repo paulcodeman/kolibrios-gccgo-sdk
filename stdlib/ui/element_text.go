@@ -41,9 +41,12 @@ type textPreserveCache struct {
 }
 
 type textLine struct {
-	text  string
-	start int
-	end   int
+	text         string
+	start        int
+	end          int
+	width        int
+	columns      int
+	metricsReady bool
 }
 
 func (element *Element) clearTextCache() {
@@ -62,14 +65,18 @@ func (element *Element) wrapTextLinesCached(text string, maxWidth int, font *ttf
 
 func (element *Element) wrapTextLinesCachedStyle(text string, maxWidth int, font *ttfFont, charWidth int, style Style) []textLine {
 	if element == nil || FastNoTextCache {
-		return wrapTextForStyle(text, maxWidth, font, charWidth, style)
+		lines := wrapTextForStyle(text, maxWidth, font, charWidth, style)
+		ensureTextLineMetrics(lines, font, charWidth)
+		return lines
 	}
 	return wrapTextLinesCachedStyleWith(&element.wrapCache, text, maxWidth, font, charWidth, style)
 }
 
 func wrapTextLinesCachedStyleWith(cache *textWrapCache, text string, maxWidth int, font *ttfFont, charWidth int, style Style) []textLine {
 	if cache == nil || FastNoTextCache {
-		return wrapTextForStyle(text, maxWidth, font, charWidth, style)
+		lines := wrapTextForStyle(text, maxWidth, font, charWidth, style)
+		ensureTextLineMetrics(lines, font, charWidth)
+		return lines
 	}
 	hasFont := font != nil
 	key := fontKey{}
@@ -83,12 +90,14 @@ func wrapTextLinesCachedStyleWith(cache *textWrapCache, text string, maxWidth in
 		cache.hasFont == hasFont && cache.whiteSpace == whiteSpace &&
 		cache.overflowWrap == overflowWrap && cache.wordBreak == wordBreak &&
 		(!hasFont || cache.fontKey == key) {
+		ensureTextLineMetrics(cache.lines, font, charWidth)
 		return cache.lines
 	}
 	if cache.lines != nil {
 		releaseTextLines(cache.lines)
 	}
 	lines := wrapTextForStyle(text, maxWidth, font, charWidth, style)
+	ensureTextLineMetrics(lines, font, charWidth)
 	cache.text = text
 	cache.maxWidth = maxWidth
 	cache.charWidth = charWidth
@@ -103,14 +112,18 @@ func wrapTextLinesCachedStyleWith(cache *textWrapCache, text string, maxWidth in
 
 func (node *DocumentNode) wrapTextLinesCachedStyle(text string, maxWidth int, font *ttfFont, charWidth int, style Style) []textLine {
 	if node == nil || FastNoTextCache {
-		return wrapTextForStyle(text, maxWidth, font, charWidth, style)
+		lines := wrapTextForStyle(text, maxWidth, font, charWidth, style)
+		ensureTextLineMetrics(lines, font, charWidth)
+		return lines
 	}
 	return wrapTextLinesCachedStyleWith(&node.wrapCache, text, maxWidth, font, charWidth, style)
 }
 
 func (element *Element) wrapTextPreserveCached(text string, maxWidth int, wrap bool, font *ttfFont, charWidth int) []textLine {
 	if element == nil || FastNoTextCache {
-		return wrapTextPreserve(text, maxWidth, wrap, font, charWidth)
+		lines := wrapTextPreserve(text, maxWidth, wrap, font, charWidth)
+		ensureTextLineMetrics(lines, font, charWidth)
+		return lines
 	}
 	cache := &element.preserveCache
 	hasFont := font != nil
@@ -120,12 +133,14 @@ func (element *Element) wrapTextPreserveCached(text string, maxWidth int, wrap b
 	}
 	if cache.lines != nil && cache.text == text && cache.maxWidth == maxWidth && cache.charWidth == charWidth &&
 		cache.wrap == wrap && cache.hasFont == hasFont && (!hasFont || cache.fontKey == key) {
+		ensureTextLineMetrics(cache.lines, font, charWidth)
 		return cache.lines
 	}
 	if cache.lines != nil {
 		releaseTextLines(cache.lines)
 	}
 	lines := wrapTextPreserve(text, maxWidth, wrap, font, charWidth)
+	ensureTextLineMetrics(lines, font, charWidth)
 	cache.text = text
 	cache.maxWidth = maxWidth
 	cache.charWidth = charWidth
@@ -803,7 +818,7 @@ func (element *Element) forEachTextLine(rect Rect, style Style, fn func(x, y int
 		if line.text == "" {
 			continue
 		}
-		x := textLineX(rect, style, leftPad, rightPad, availableW, line.text, font, charWidth)
+		x := textLineXForWidth(rect, style, leftPad, rightPad, availableW, line.width)
 		y := rect.Y + topPad + i*lineHeight
 		fn(x, y, line.text)
 	}
@@ -826,6 +841,10 @@ func textLineX(rect Rect, style Style, leftPad, rightPad, availableW int, line s
 		charWidth = defaultCharWidth
 	}
 	lineWidth := textWidthWithFont(line, font, charWidth)
+	return textLineXForWidth(rect, style, leftPad, rightPad, availableW, lineWidth)
+}
+
+func textLineXForWidth(rect Rect, style Style, leftPad, rightPad, availableW int, lineWidth int) int {
 	x := rect.X + leftPad
 	align := TextAlignLeft
 	if value, ok := resolveTextAlign(style.textAlign); ok {
@@ -851,10 +870,29 @@ func (element *Element) textPosition(rect Rect, style Style) (int, int) {
 	if text != "" {
 		lines := element.wrapTextLinesCachedStyle(text, availableW, font, charWidth, style)
 		if len(lines) > 0 {
-			line = lines[0].text
+			x := textLineXForWidth(rect, style, leftPad, rightPad, availableW, lines[0].width)
+			y := rect.Y + topPad
+			return x, y
 		}
 	}
 	x := textLineX(rect, style, leftPad, rightPad, availableW, line, font, charWidth)
 	y := rect.Y + topPad
 	return x, y
+}
+
+func ensureTextLineMetrics(lines []textLine, font *ttfFont, charWidth int) {
+	if len(lines) == 0 {
+		return
+	}
+	if charWidth <= 0 {
+		charWidth = defaultCharWidth
+	}
+	for i := range lines {
+		if lines[i].metricsReady {
+			continue
+		}
+		lines[i].columns = textColumnCount(lines[i].text)
+		lines[i].width = textWidthWithFont(lines[i].text, font, charWidth)
+		lines[i].metricsReady = true
+	}
 }

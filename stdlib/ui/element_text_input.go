@@ -31,8 +31,8 @@ func (element *Element) editLines(content Rect, style Style, font *ttfFont, char
 func maxLineLength(lines []textLine) int {
 	maxLen := 0
 	for _, line := range lines {
-		if cols := textColumnCount(line.text); cols > maxLen {
-			maxLen = cols
+		if line.columns > maxLen {
+			maxLen = line.columns
 		}
 	}
 	return maxLen
@@ -147,6 +147,7 @@ func (element *Element) textInputLayout(rect Rect, style Style) textInputLayout 
 		lines = append(lines, textLine{text: "", start: 0, end: 0})
 		linesCached = false
 	}
+	ensureTextLineMetrics(lines, font, layout.charWidth)
 
 	if element.kind == ElementKindTextarea {
 		totalHeight := len(lines) * layout.lineHeight
@@ -180,6 +181,7 @@ func (element *Element) textInputLayout(rect Rect, style Style) textInputLayout 
 				lines = append(lines, textLine{text: "", start: 0, end: 0})
 				linesCached = false
 			}
+			ensureTextLineMetrics(lines, font, layout.charWidth)
 			totalHeight = len(lines) * layout.lineHeight
 		}
 		layout.lines = lines
@@ -259,7 +261,7 @@ func (element *Element) caretLineAndColumn(lines []textLine) (int, int) {
 		}
 	}
 	last := lines[len(lines)-1]
-	return len(lines) - 1, textColumnCount(last.text)
+	return len(lines) - 1, last.columns
 }
 
 func caretIndexForLineColumn(lines []textLine, line int, col int) int {
@@ -275,7 +277,7 @@ func caretIndexForLineColumn(lines []textLine, line int, col int) int {
 	if col < 0 {
 		col = 0
 	}
-	maxCol := textColumnCount(target.text)
+	maxCol := target.columns
 	if col > maxCol {
 		col = maxCol
 	}
@@ -367,6 +369,7 @@ func (element *Element) ensureCaretVisibleWithLines(content Rect, lines []textLi
 	if len(lines) == 0 {
 		lines = []textLine{{text: "", start: 0, end: 0}}
 	}
+	ensureTextLineMetrics(lines, font, charWidth)
 	hScroll := element.kind == ElementKindInput ||
 		(element.kind == ElementKindTextarea && (overflowX == OverflowScroll || overflowX == OverflowAuto))
 	changed := false
@@ -560,7 +563,7 @@ func (element *Element) drawEditableTextLines(layout textInputLayout, style Styl
 			continue
 		}
 		lineText := lines[i].text
-		lineCols := textColumnCount(lineText)
+		lineCols := lines[i].columns
 		if hasSelection && drawSelection != nil {
 			line := lines[i]
 			lineStart := line.start
@@ -646,13 +649,14 @@ func (element *Element) caretRectFromLayout(layout textInputLayout) Rect {
 	if len(lines) == 0 {
 		lines = []textLine{{text: "", start: 0, end: 0}}
 	}
-	lineHeight := layout.lineHeight
-	if lineHeight <= 0 {
-		lineHeight = defaultFontHeight
-	}
 	charWidth := layout.charWidth
 	if charWidth <= 0 {
 		charWidth = defaultCharWidth
+	}
+	ensureTextLineMetrics(lines, layout.font, charWidth)
+	lineHeight := layout.lineHeight
+	if lineHeight <= 0 {
+		lineHeight = defaultFontHeight
 	}
 	line, col := element.caretLineAndColumn(lines)
 	lineText := ""

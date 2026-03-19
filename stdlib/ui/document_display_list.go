@@ -307,7 +307,7 @@ func (fragment *Fragment) paintTextOffset(canvas *Canvas, offsetX int, offsetY i
 			bounds.X += offsetX
 			bounds.Y += offsetY
 		}
-		x := textLineX(bounds, style, leftPad, rightPad, availableW, line.text, font, charWidth)
+		x := textLineXForWidth(bounds, style, leftPad, rightPad, availableW, line.width)
 		y := bounds.Y + topPad + i*lineHeight
 		if shadowOK {
 			if font != nil {
