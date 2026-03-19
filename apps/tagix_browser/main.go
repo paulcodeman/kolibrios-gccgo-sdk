@@ -171,6 +171,12 @@ func (app *App) openURL(url string, push bool) {
 	app.syncShell()
 	app.loadURL(url)
 	app.syncShell()
+	if app.shellView != nil {
+		app.shellView.MarkDirty()
+	}
+	if app.pageView != nil {
+		app.pageView.MarkDirty()
+	}
 }
 
 func (app *App) pushHistory(url string) {
@@ -288,6 +294,9 @@ func (app *App) showMessageDocument(title string, detail string) {
 		return
 	}
 	app.pageDocument.SetRoot(buildMessageDocument(title, detail))
+	if app.pageView != nil {
+		app.pageView.MarkDirty()
+	}
 }
 
 func (app *App) syncShell() {

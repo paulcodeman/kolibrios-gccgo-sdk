@@ -56,6 +56,7 @@ type DocumentNode struct {
 	focused      bool
 	wrapCache    textWrapCache
 	inputCaret   int
+	selectAnchor int
 	inputScrollX int
 	document     *Document
 }

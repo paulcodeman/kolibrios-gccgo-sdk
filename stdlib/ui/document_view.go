@@ -87,6 +87,7 @@ type DocumentView struct {
 	scrollDrag          bool
 	scrollDragOff       int
 	skipScrollBlitOnce  bool
+	textInputDragNode   *DocumentNode
 	hoverNode           *DocumentNode
 	activeNode          *DocumentNode
 	focusNode           *DocumentNode

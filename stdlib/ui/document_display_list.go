@@ -352,6 +352,9 @@ func (fragment *Fragment) paintTextInputOffset(canvas *Canvas, bounds Rect, styl
 		shadowOK = false
 	}
 	canvas.PushClip(content)
+	if selection := documentNodeInputSelectionRect(fragment.Node, bounds, style); !selection.Empty() {
+		canvas.FillRect(selection.X, selection.Y, selection.Width, selection.Height, defaultSelectionBackground)
+	}
 	if text != "" {
 		drawText := text
 		startCol := 0
