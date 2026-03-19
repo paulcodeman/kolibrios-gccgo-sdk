@@ -320,8 +320,7 @@ func shellAddressNode(app *App, value string) *ui.DocumentNode {
 		style.SetBorderColor(0x7E8B98)
 	})
 	input.StyleFocus = styled(func(style *ui.Style) {
-		style.SetOutline(2, 0x1A73E8)
-		style.SetOutlineOffset(1)
+		style.SetBorderColor(0x1A73E8)
 	})
 	if app != nil {
 		app.shellAddressNode = input
