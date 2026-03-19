@@ -101,10 +101,11 @@ func (window *Window) handleMouse() bool {
 	if leftPressed {
 		window.awaitingPress = false
 	}
+	scrollState := window.windowScrollbarState()
 	if window.scrollDragActive {
 		needsRedraw := false
 		if leftHeld {
-			if window.handleWindowScrollbarDrag(y) {
+			if window.handleWindowScrollbarDragWithState(scrollState, y) {
 				needsRedraw = true
 			}
 		}
@@ -126,7 +127,7 @@ func (window *Window) handleMouse() bool {
 		}
 		return needsRedraw
 	}
-	scrollbarHit := window.windowScrollbarHit(x, y)
+	scrollbarHit := windowScrollbarHitWithState(scrollState, x, y)
 
 	hover := window.mouseHover
 	inside := x >= 0 && y >= 0 && x < window.client.Width && y < window.client.Height
@@ -184,7 +185,7 @@ func (window *Window) handleMouse() bool {
 
 	if leftPressed {
 		if scrollbarHit {
-			if window.handleWindowScrollbarMouseDown(x, y) {
+			if window.handleWindowScrollbarMouseDownWithState(scrollState, x, y) {
 				needsRedraw = true
 				if DebugMouseHook != nil {
 					DebugMouseHook(window, MouseDebugEvent{

@@ -93,27 +93,42 @@ func (window *Window) windowScrollbarLayout() (Rect, Rect, int, bool) {
 	if window == nil || !window.scrollEnabled() {
 		return Rect{}, Rect{}, 0, false
 	}
-	window.updateScrollMetrics()
-	state := window.windowScrollPropertyStateValue()
+	state := window.windowScrollbarState()
+	return scrollbarLayoutForState(state)
+}
+
+func scrollbarLayoutForState(state windowScrollPropertyState) (Rect, Rect, int, bool) {
 	if !state.visible {
 		return Rect{}, Rect{}, 0, false
 	}
 	return state.track, state.thumb, state.scrollMaxY, true
 }
 
-func (window *Window) windowScrollbarHit(x int, y int) bool {
-	track, _, _, ok := window.windowScrollbarLayout()
+func (window *Window) windowScrollbarState() windowScrollPropertyState {
+	if window == nil || !window.scrollEnabled() {
+		return windowScrollPropertyState{}
+	}
+	window.updateScrollMetrics()
+	return window.windowScrollPropertyStateValue()
+}
+
+func windowScrollbarHitWithState(state windowScrollPropertyState, x int, y int) bool {
+	track, _, _, ok := scrollbarLayoutForState(state)
 	if !ok {
 		return false
 	}
 	return track.Contains(x, y)
 }
 
-func (window *Window) handleWindowScrollbarMouseDown(x int, y int) bool {
+func (window *Window) windowScrollbarHit(x int, y int) bool {
+	return windowScrollbarHitWithState(window.windowScrollbarState(), x, y)
+}
+
+func (window *Window) handleWindowScrollbarMouseDownWithState(state windowScrollPropertyState, x int, y int) bool {
 	if window == nil || !window.scrollEnabled() {
 		return false
 	}
-	track, thumb, maxScroll, ok := window.windowScrollbarLayout()
+	track, thumb, maxScroll, ok := scrollbarLayoutForState(state)
 	if !ok || maxScroll <= 0 {
 		return false
 	}
@@ -143,11 +158,15 @@ func (window *Window) handleWindowScrollbarMouseDown(x int, y int) bool {
 	return true
 }
 
-func (window *Window) handleWindowScrollbarDrag(y int) bool {
+func (window *Window) handleWindowScrollbarMouseDown(x int, y int) bool {
+	return window.handleWindowScrollbarMouseDownWithState(window.windowScrollbarState(), x, y)
+}
+
+func (window *Window) handleWindowScrollbarDragWithState(state windowScrollPropertyState, y int) bool {
 	if window == nil || !window.scrollDragActive {
 		return false
 	}
-	track, thumb, maxScroll, ok := window.windowScrollbarLayout()
+	track, thumb, maxScroll, ok := scrollbarLayoutForState(state)
 	if !ok || maxScroll <= 0 {
 		return false
 	}
@@ -170,6 +189,10 @@ func (window *Window) handleWindowScrollbarDrag(y int) bool {
 	return false
 }
 
+func (window *Window) handleWindowScrollbarDrag(y int) bool {
+	return window.handleWindowScrollbarDragWithState(window.windowScrollbarState(), y)
+}
+
 func scrollBarRadii(radius int) CornerRadii {
 	if radius <= 0 {
 		return CornerRadii{}
@@ -182,11 +205,11 @@ func scrollBarRadii(radius int) CornerRadii {
 	}
 }
 
-func (window *Window) drawWindowScrollbar(full bool, dirty Rect) {
+func (window *Window) drawWindowScrollbarWithState(state windowScrollPropertyState, full bool, dirty Rect) {
 	if window == nil || window.canvas == nil || !window.scrollEnabled() {
 		return
 	}
-	track, thumb, _, ok := window.windowScrollbarLayout()
+	track, thumb, _, ok := scrollbarLayoutForState(state)
 	if !ok {
 		return
 	}
@@ -202,6 +225,17 @@ func (window *Window) drawWindowScrollbar(full bool, dirty Rect) {
 	radii := scrollBarRadii(scrollbar.radius)
 	window.canvas.FillRoundedRect(track.X, track.Y, track.Width, track.Height, radii, scrollbar.track)
 	window.canvas.FillRoundedRect(thumb.X, thumb.Y, thumb.Width, thumb.Height, radii, scrollbar.thumb)
+}
+
+func (window *Window) drawWindowScrollbar(full bool, dirty Rect) {
+	if window == nil {
+		return
+	}
+	state := window.windowScrollbarState()
+	if window.frameStateActive {
+		state = window.currentFrameScrollPropertyState()
+	}
+	window.drawWindowScrollbarWithState(state, full, dirty)
 }
 
 func (window *Window) noteScrollChanged() {
@@ -233,8 +267,9 @@ func (window *Window) noteScrollChanged() {
 		}
 		window.markPresentRect(viewport)
 	}
-	if track, _, _, ok := window.windowScrollbarLayout(); ok {
-		dirty = UnionRect(dirty, track)
+	scrollState := window.windowScrollbarState()
+	if scrollState.visible {
+		dirty = UnionRect(dirty, scrollState.track)
 	}
 	window.Invalidate(dirty)
 }
