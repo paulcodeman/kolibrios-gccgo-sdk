@@ -44,7 +44,7 @@ func (window *Window) hitTestNodes(nodes []Node, x int, y int, inheritedHidden b
 				continue
 			}
 			style := element.effectiveStyle()
-			clipX, clipY := overflowClipAxes(style)
+			clipX, clipY := paintClipAxes(style)
 			skipChildren := false
 			if clipX || clipY {
 				rect := element.layoutRect

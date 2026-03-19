@@ -162,44 +162,41 @@ func (window *Window) applyDirtyPlan(plan *windowDirtyPlan) bool {
 		// No structural work needed; keep current dirty state.
 	case windowDirtyPlanLayout:
 		oldBounds := window.copyNodeBounds()
+		oldPaints := window.copyNodePaints()
 		oldKeys := copyElementRenderKeys(oldBounds)
 		window.layoutFlow()
 		window.buildRenderList()
-		dirty, dirtySet = window.mergeDirtyBounds(dirty, dirtySet, oldBounds, oldKeys, window.nodeBounds, plan.scrollOffset)
+		dirty, dirtySet = window.mergeDirtyBounds(dirty, dirtySet, oldBounds, oldPaints, oldKeys, window.nodeBounds, window.copyNodePaints(), plan.scrollOffset)
 		window.invalidateHoverTracking()
 		window.layoutDirty = false
 		window.resetDirtyQueue()
 	case windowDirtyPlanRebuild:
 		oldBounds := window.copyNodeBounds()
+		oldPaints := window.copyNodePaints()
 		oldKeys := copyElementRenderKeys(oldBounds)
 		window.buildRenderList()
-		dirty, dirtySet = window.mergeDirtyBounds(dirty, dirtySet, oldBounds, oldKeys, window.nodeBounds, plan.scrollOffset)
+		dirty, dirtySet = window.mergeDirtyBounds(dirty, dirtySet, oldBounds, oldPaints, oldKeys, window.nodeBounds, window.copyNodePaints(), plan.scrollOffset)
 		window.resetDirtyQueue()
 	case windowDirtyPlanNodeUpdate:
 		boundsChanged := false
 		for _, node := range plan.dirtyNodes {
 			oldBounds := window.nodeBounds[node]
+			oldPaint := oldBounds
 			newBounds := window.nodeVisualBoundsFor(node, true)
 			window.nodeBounds[node] = newBounds
 			if oldBounds != newBounds {
 				boundsChanged = true
 			}
 			window.noteRetainedLayerDirtyBounds(node, oldBounds, newBounds)
+			if idx, ok := window.renderIndex[node]; ok && idx >= 0 && idx < len(window.renderList) {
+				oldPaint = window.renderList[idx].paint
+			}
+			newPaint := newBounds
 			rawUpdated := UnionRect(oldBounds, newBounds)
 			updated := rawUpdated
 			if exposed, ok := window.tryTranslateBlit(node, oldBounds, newBounds, nil, plan.scrollOffset); ok {
 				plan.damage |= windowDirtyDamageTranslate
 				updated = exposed
-			} else if plan.scrollOffset != 0 && !updated.Empty() {
-				updated.Y += plan.scrollOffset
-			}
-			if !updated.Empty() {
-				if dirtySet {
-					dirty = UnionRect(dirty, updated)
-				} else {
-					dirty = updated
-					dirtySet = true
-				}
 			}
 			if idx, ok := window.renderIndex[node]; ok && idx >= 0 && idx < len(window.renderList) {
 				item := window.renderList[idx]
@@ -210,6 +207,19 @@ func (window *Window) applyDirtyPlan(plan *windowDirtyPlan) bool {
 				}
 				item.paint = paint
 				window.renderList[idx] = item
+				newPaint = paint
+			}
+			if updated == rawUpdated {
+				updated = UnionRect(mergeDirtyPaintBounds(oldBounds, oldPaint), mergeDirtyPaintBounds(newBounds, newPaint))
+				updated = applyDirtyScrollOffset(updated, plan.scrollOffset)
+			}
+			if !updated.Empty() {
+				if dirtySet {
+					dirty = UnionRect(dirty, updated)
+				} else {
+					dirty = updated
+					dirtySet = true
+				}
 			}
 		}
 		if boundsChanged {

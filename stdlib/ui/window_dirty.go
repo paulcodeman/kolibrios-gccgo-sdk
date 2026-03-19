@@ -181,7 +181,39 @@ func (window *Window) copyNodeBounds() map[Node]Rect {
 	return copied
 }
 
-func (window *Window) mergeDirtyBounds(dirty Rect, dirtySet bool, oldBounds map[Node]Rect, oldKeys map[Node]elementRenderKey, newBounds map[Node]Rect, scrollOffset int) (Rect, bool) {
+func (window *Window) copyNodePaints() map[Node]Rect {
+	if window == nil || len(window.renderList) == 0 {
+		return nil
+	}
+	copied := make(map[Node]Rect, len(window.renderList))
+	for _, item := range window.renderList {
+		if item.node == nil {
+			continue
+		}
+		copied[item.node] = item.paint
+	}
+	if len(copied) == 0 {
+		return nil
+	}
+	return copied
+}
+
+func mergeDirtyPaintBounds(bounds Rect, paint Rect) Rect {
+	if !paint.Empty() {
+		return paint
+	}
+	return bounds
+}
+
+func applyDirtyScrollOffset(rect Rect, scrollOffset int) Rect {
+	if rect.Empty() || scrollOffset == 0 {
+		return rect
+	}
+	rect.Y += scrollOffset
+	return rect
+}
+
+func (window *Window) mergeDirtyBounds(dirty Rect, dirtySet bool, oldBounds map[Node]Rect, oldPaints map[Node]Rect, oldKeys map[Node]elementRenderKey, newBounds map[Node]Rect, newPaints map[Node]Rect, scrollOffset int) (Rect, bool) {
 	if len(newBounds) == 0 && len(oldBounds) == 0 {
 		return dirty, dirtySet
 	}
@@ -189,15 +221,17 @@ func (window *Window) mergeDirtyBounds(dirty Rect, dirtySet bool, oldBounds map[
 		oldBounds = map[Node]Rect{}
 	}
 	for node, bounds := range newBounds {
+		paint := mergeDirtyPaintBounds(bounds, newPaints[node])
 		if old, ok := oldBounds[node]; ok {
 			if old != bounds {
 				window.noteRetainedLayerDirtyBounds(node, old, bounds)
-				rawUpdated := UnionRect(old, bounds)
+				oldPaint := mergeDirtyPaintBounds(old, oldPaints[node])
+				rawUpdated := UnionRect(oldPaint, paint)
 				updated := rawUpdated
 				if exposed, ok := window.tryTranslateBlit(node, old, bounds, oldKeys, scrollOffset); ok {
 					updated = exposed
-				} else if scrollOffset != 0 && !updated.Empty() {
-					updated.Y += scrollOffset
+				} else {
+					updated = applyDirtyScrollOffset(updated, scrollOffset)
 				}
 				if !updated.Empty() {
 					if dirtySet {
@@ -211,31 +245,28 @@ func (window *Window) mergeDirtyBounds(dirty Rect, dirtySet bool, oldBounds map[
 			delete(oldBounds, node)
 			continue
 		}
-		if bounds.Empty() {
+		if paint.Empty() {
 			continue
 		}
 		window.noteRetainedLayerDirty(node, bounds)
-		if scrollOffset != 0 {
-			bounds.Y += scrollOffset
-		}
+		paint = applyDirtyScrollOffset(paint, scrollOffset)
 		if dirtySet {
-			dirty = UnionRect(dirty, bounds)
+			dirty = UnionRect(dirty, paint)
 		} else {
-			dirty = bounds
+			dirty = paint
 			dirtySet = true
 		}
 	}
-	for _, old := range oldBounds {
-		if old.Empty() {
+	for node, old := range oldBounds {
+		paint := mergeDirtyPaintBounds(old, oldPaints[node])
+		if paint.Empty() {
 			continue
 		}
-		if scrollOffset != 0 {
-			old.Y += scrollOffset
-		}
+		paint = applyDirtyScrollOffset(paint, scrollOffset)
 		if dirtySet {
-			dirty = UnionRect(dirty, old)
+			dirty = UnionRect(dirty, paint)
 		} else {
-			dirty = old
+			dirty = paint
 			dirtySet = true
 		}
 	}

@@ -148,7 +148,7 @@ func (window *Window) appendRenderItems(nodes []Node, clip clipState, gen uint32
 		if rect.Empty() {
 			rect = element.Bounds()
 		}
-		clipX, clipY := overflowClipAxes(style)
+		clipX, clipY := paintClipAxes(style)
 		childClip := clip
 		if clipX || clipY {
 			childClip = window.mergeClip(clip, rect, style, clipX, clipY)

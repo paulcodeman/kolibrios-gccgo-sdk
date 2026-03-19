@@ -202,7 +202,7 @@ func appendFragmentDisplayItems(items *[]FragmentDisplayItem, fragment *Fragment
 	}
 	childClip := clip
 	if fragment.Kind == FragmentKindBlock {
-		clipX, clipY := overflowClipAxes(fragment.Style)
+		clipX, clipY := paintClipAxes(fragment.Style)
 		if clipX || clipY {
 			childClip = mergeFragmentClip(viewport, clip, fragment.Content, clipX, clipY)
 		}

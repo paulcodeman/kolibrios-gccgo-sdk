@@ -141,3 +141,12 @@ func overflowClipAxes(style Style) (bool, bool) {
 	return clipX == OverflowHidden || clipX == OverflowScroll || clipX == OverflowAuto,
 		clipY == OverflowHidden || clipY == OverflowScroll || clipY == OverflowAuto
 }
+
+func paintClipAxes(style Style) (bool, bool) {
+	clipX, clipY := overflowClipAxes(style)
+	if styleContainsPaint(style) {
+		clipX = true
+		clipY = true
+	}
+	return clipX, clipY
+}

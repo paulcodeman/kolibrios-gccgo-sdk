@@ -403,6 +403,11 @@ func (element *Element) updateSubtreeRect() {
 	if rect.Empty() {
 		rect = element.Bounds()
 	}
+	if styleContainsPaint(element.effectiveStyle()) {
+		element.subtreeRect = rect
+		element.subtreeRectValid = true
+		return
+	}
 	for _, child := range element.Children {
 		if child == nil {
 			continue

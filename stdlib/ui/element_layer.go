@@ -321,7 +321,7 @@ func (element *Element) drawRetainedSubtreeNode(canvas *Canvas, originX int, ori
 	}
 	childClip := clip
 	if len(element.Children) > 0 {
-		clipX, clipY := overflowClipAxes(style)
+		clipX, clipY := paintClipAxes(style)
 		if clipX || clipY {
 			canvasBounds := Rect{X: 0, Y: 0, Width: canvas.Width(), Height: canvas.Height()}
 			childClip = mergeElementLayerClip(canvasBounds, clip, contentRectFor(localRect, style), clipX, clipY)
