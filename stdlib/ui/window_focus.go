@@ -163,6 +163,13 @@ func (window *Window) invalidateFocusNode(node Node) bool {
 			if rect.Empty() {
 				rect = current.Bounds()
 			}
+			if elementUsesDefaultFocusRing(current) {
+				base := current.layoutRect
+				if base.Empty() {
+					base = current.Bounds()
+				}
+				rect = UnionRect(rect, focusRingBounds(base))
+			}
 		case elementUsesDefaultFocusRing(current):
 			rect = current.layoutRect
 			if rect.Empty() {
