@@ -58,6 +58,9 @@ type textInputLayout struct {
 	lineHeight  int
 	charWidth   int
 	font        *ttfFont
+	overflowX   OverflowMode
+	overflowY   OverflowMode
+	allowH      bool
 	showV       bool
 	scrollbar   scrollbarStyle
 }
@@ -66,11 +69,54 @@ func (layout *textInputLayout) release() {
 	if layout == nil {
 		return
 	}
-	if !layout.linesCached {
-		releaseTextLines(layout.lines)
-	}
 	layout.lines = nil
 	layout.linesCached = false
+}
+
+type textInputLayoutKey struct {
+	kind       ElementKind
+	rect       Rect
+	text       string
+	insets     Spacing
+	overflowX  OverflowMode
+	overflowY  OverflowMode
+	scrollbar  scrollbarStyle
+	fontKey    fontKey
+	hasFont    bool
+	charWidth  int
+	lineHeight int
+}
+
+type textInputLayoutCache struct {
+	key    textInputLayoutKey
+	layout textInputLayout
+	valid  bool
+}
+
+func (element *Element) invalidateTextInputLayoutCache() {
+	if element == nil {
+		return
+	}
+	element.textInputLayoutCache = textInputLayoutCache{}
+}
+
+func (element *Element) textInputLayoutKey(rect Rect, style Style, font *ttfFont, charWidth int, lineHeight int, scrollbar scrollbarStyle) textInputLayoutKey {
+	key := textInputLayoutKey{
+		kind:       element.kind,
+		rect:       rect,
+		text:       element.text(),
+		insets:     boxInsets(style),
+		overflowX:  overflowModeFor(style, "x"),
+		overflowY:  overflowModeFor(style, "y"),
+		scrollbar:  scrollbar,
+		charWidth:  charWidth,
+		lineHeight: lineHeight,
+		hasFont:    font != nil,
+	}
+	if font != nil {
+		key.fontKey = fontKey{path: font.path, size: font.size}
+	}
+	return key
 }
 
 func overflowModeFor(style Style, axis string) OverflowMode {
@@ -139,23 +185,27 @@ func (element *Element) textInputLayout(rect Rect, style Style) textInputLayout 
 	if layout.charWidth <= 0 {
 		layout.charWidth = defaultCharWidth
 	}
+	key := element.textInputLayoutKey(rect, style, font, layout.charWidth, layout.lineHeight, layout.scrollbar)
+	if !FastNoTextCache && element.textInputLayoutCache.valid && element.textInputLayoutCache.key == key {
+		return element.textInputLayoutCache.layout
+	}
+	layout.overflowX = key.overflowX
+	layout.overflowY = key.overflowY
+	layout.allowH = element.kind == ElementKindInput ||
+		(element.kind == ElementKindTextarea && (layout.overflowX == OverflowScroll || layout.overflowX == OverflowAuto))
 
 	lines := element.editLines(base, style, font, layout.charWidth)
-	linesCached := true
 	if len(lines) == 0 {
-		lines = getTextLineSlice(1)
-		lines = append(lines, textLine{text: "", start: 0, end: 0})
-		linesCached = false
+		lines = blankTextLines()
 	}
 	ensureTextLineMetrics(lines, font, layout.charWidth)
 
 	if element.kind == ElementKindTextarea {
 		totalHeight := len(lines) * layout.lineHeight
-		overflowY := overflowModeFor(style, "y")
 		showV := false
 		minWidth := layout.scrollbar.width + layout.scrollbar.padding.Left + layout.scrollbar.padding.Right
 		if layout.scrollbar.width > 0 && base.Width > minWidth && base.Height > 0 {
-			switch overflowY {
+			switch layout.overflowY {
 			case OverflowScroll:
 				showV = true
 			case OverflowAuto:
@@ -171,29 +221,29 @@ func (element *Element) textInputLayout(rect Rect, style Style) textInputLayout 
 				content.Width = 0
 			}
 			layout.content = content
-			if !linesCached {
-				releaseTextLines(lines)
-			}
 			lines = element.editLines(content, style, font, layout.charWidth)
-			linesCached = true
 			if len(lines) == 0 {
-				lines = getTextLineSlice(1)
-				lines = append(lines, textLine{text: "", start: 0, end: 0})
-				linesCached = false
+				lines = blankTextLines()
 			}
 			ensureTextLineMetrics(lines, font, layout.charWidth)
 			totalHeight = len(lines) * layout.lineHeight
 		}
 		layout.lines = lines
-		layout.linesCached = linesCached
+		layout.linesCached = true
 		layout.totalHeight = totalHeight
 		layout.showV = showV
+		if !FastNoTextCache {
+			element.textInputLayoutCache = textInputLayoutCache{key: key, layout: layout, valid: true}
+		}
 		return layout
 	}
 
 	layout.lines = lines
-	layout.linesCached = linesCached
+	layout.linesCached = true
 	layout.totalWidth = maxLineWidth(lines, font, layout.charWidth)
+	if !FastNoTextCache {
+		element.textInputLayoutCache = textInputLayoutCache{key: key, layout: layout, valid: true}
+	}
 	return layout
 }
 
@@ -352,8 +402,7 @@ func (element *Element) ensureCaretVisible(rect Rect, style Style) bool {
 	if layout.content.Empty() {
 		return false
 	}
-	overflowX := overflowModeFor(style, "x")
-	return element.ensureCaretVisibleWithLines(layout.content, layout.lines, overflowX, layout.font, layout.charWidth, layout.lineHeight)
+	return element.ensureCaretVisibleWithLines(layout.content, layout.lines, layout.overflowX, layout.font, layout.charWidth, layout.lineHeight)
 }
 
 func (element *Element) ensureCaretVisibleWithLines(content Rect, lines []textLine, overflowX OverflowMode, font *ttfFont, charWidth int, lineHeight int) bool {
@@ -367,7 +416,7 @@ func (element *Element) ensureCaretVisibleWithLines(content Rect, lines []textLi
 		lineHeight = defaultFontHeight
 	}
 	if len(lines) == 0 {
-		lines = []textLine{{text: "", start: 0, end: 0}}
+		lines = blankTextLines()
 	}
 	ensureTextLineMetrics(lines, font, charWidth)
 	hScroll := element.kind == ElementKindInput ||
@@ -479,21 +528,19 @@ func (element *Element) setCaretFromPoint(x int, y int, rect Rect, style Style) 
 	}
 	lines := layout.lines
 	if len(lines) == 0 {
-		lines = []textLine{{text: "", start: 0, end: 0}}
+		lines = blankTextLines()
 	}
 	if element.kind == ElementKindTextarea && layout.showV {
 		if x >= content.X+content.Width {
 			return false
 		}
 	}
-	overflowX := overflowModeFor(style, "x")
-	hScroll := element.kind == ElementKindInput ||
-		(element.kind == ElementKindTextarea && (overflowX == OverflowScroll || overflowX == OverflowAuto))
+	hScroll := layout.allowH
 	if element.kind == ElementKindInput {
 		col := textColumnForX(element.text(), x-content.X+element.scrollX, layout.font, layout.charWidth)
 		caret := textByteIndexForColumn(element.text(), col)
 		changed := element.setCaret(caret)
-		element.ensureCaretVisibleWithLines(content, lines, overflowX, layout.font, layout.charWidth, layout.lineHeight)
+		element.ensureCaretVisibleWithLines(content, lines, layout.overflowX, layout.font, layout.charWidth, layout.lineHeight)
 		return changed
 	}
 	line := 0
@@ -519,7 +566,7 @@ func (element *Element) setCaretFromPoint(x int, y int, rect Rect, style Style) 
 	}
 	caret := caretIndexForLineColumn(lines, line, col)
 	changed := element.setCaret(caret)
-	element.ensureCaretVisibleWithLines(content, lines, overflowX, layout.font, layout.charWidth, layout.lineHeight)
+	element.ensureCaretVisibleWithLines(content, lines, layout.overflowX, layout.font, layout.charWidth, layout.lineHeight)
 	return changed
 }
 
@@ -533,7 +580,7 @@ func (element *Element) drawEditableTextLines(layout textInputLayout, style Styl
 	}
 	lines := layout.lines
 	if len(lines) == 0 {
-		lines = []textLine{{text: "", start: 0, end: 0}}
+		lines = blankTextLines()
 	}
 	scrollX := element.scrollX
 	scrollY := element.scrollY
@@ -647,7 +694,7 @@ func (element *Element) caretRectFromLayout(layout textInputLayout) Rect {
 	}
 	lines := layout.lines
 	if len(lines) == 0 {
-		lines = []textLine{{text: "", start: 0, end: 0}}
+		lines = blankTextLines()
 	}
 	charWidth := layout.charWidth
 	if charWidth <= 0 {
@@ -952,8 +999,7 @@ func (element *Element) HandleKey(key kos.KeyEvent) bool {
 		if changed {
 			layout.release()
 			layout = element.textInputLayout(rect, style)
-			overflowX := overflowModeFor(style, "x")
-			element.ensureCaretVisibleWithLines(layout.content, layout.lines, overflowX, layout.font, layout.charWidth, layout.lineHeight)
+			element.ensureCaretVisibleWithLines(layout.content, layout.lines, layout.overflowX, layout.font, layout.charWidth, layout.lineHeight)
 			layout.release()
 			return true
 		}
@@ -1003,8 +1049,7 @@ func (element *Element) HandleKey(key kos.KeyEvent) bool {
 	if changed {
 		layout.release()
 		layout = element.textInputLayout(rect, style)
-		overflowX := overflowModeFor(style, "x")
-		element.ensureCaretVisibleWithLines(layout.content, layout.lines, overflowX, layout.font, layout.charWidth, layout.lineHeight)
+		element.ensureCaretVisibleWithLines(layout.content, layout.lines, layout.overflowX, layout.font, layout.charWidth, layout.lineHeight)
 	}
 	layout.release()
 	return changed
@@ -1018,10 +1063,6 @@ func (element *Element) HandleScroll(deltaX int, deltaY int) bool {
 		return false
 	}
 	style := element.effectiveStyle()
-	overflowY := overflowModeFor(style, "y")
-	overflowX := overflowModeFor(style, "x")
-	allowHScroll := element.kind == ElementKindInput ||
-		(element.kind == ElementKindTextarea && (overflowX == OverflowScroll || overflowX == OverflowAuto))
 	rect := element.layoutRect
 	if rect.Empty() {
 		rect = element.Bounds()
@@ -1032,7 +1073,7 @@ func (element *Element) HandleScroll(deltaX int, deltaY int) bool {
 	totalHeight := layout.totalHeight
 	changed := false
 	if element.kind == ElementKindTextarea {
-		if overflowY != OverflowHidden && overflowY != OverflowVisible {
+		if layout.overflowY != OverflowHidden && layout.overflowY != OverflowVisible {
 			maxScrollY := 0
 			if content.Height > 0 && totalHeight > content.Height {
 				maxScrollY = totalHeight - content.Height
@@ -1056,10 +1097,10 @@ func (element *Element) HandleScroll(deltaX int, deltaY int) bool {
 			}
 		}
 	}
-	if allowHScroll && deltaX != 0 {
+	if layout.allowH && deltaX != 0 {
 		lines := layout.lines
 		if len(lines) == 0 {
-			lines = []textLine{{text: "", start: 0, end: 0}}
+			lines = blankTextLines()
 		}
 		textWidth := maxLineWidth(lines, layout.font, layout.charWidth)
 		maxScrollX := 0

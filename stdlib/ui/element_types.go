@@ -25,6 +25,7 @@ type Element struct {
 	renderKey              elementRenderKey
 	wrapCache              textWrapCache
 	preserveCache          textPreserveCache
+	textInputLayoutCache   textInputLayoutCache
 	effectiveStyleCache    Style
 	effectiveStyleValid    bool
 	visualRect             Rect

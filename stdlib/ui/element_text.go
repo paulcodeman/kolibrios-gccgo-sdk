@@ -49,6 +49,19 @@ type textLine struct {
 	metricsReady bool
 }
 
+var sharedBlankTextLines = []textLine{{
+	text:         "",
+	start:        0,
+	end:          0,
+	width:        0,
+	columns:      0,
+	metricsReady: true,
+}}
+
+func blankTextLines() []textLine {
+	return sharedBlankTextLines
+}
+
 func (element *Element) clearTextCache() {
 	if element == nil {
 		return
@@ -57,6 +70,7 @@ func (element *Element) clearTextCache() {
 	element.wrapCache = textWrapCache{}
 	releaseTextLines(element.preserveCache.lines)
 	element.preserveCache = textPreserveCache{}
+	element.invalidateTextInputLayoutCache()
 }
 
 func (element *Element) wrapTextLinesCached(text string, maxWidth int, font *ttfFont, charWidth int) []textLine {

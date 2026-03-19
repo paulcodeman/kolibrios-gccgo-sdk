@@ -113,6 +113,7 @@ func (element *Element) invalidateBoundsCache() {
 	if element == nil {
 		return
 	}
+	element.invalidateTextInputLayoutCache()
 	element.visualRect = Rect{}
 	element.visualRectValid = false
 	for current := element; current != nil; current = current.Parent {
