@@ -12,6 +12,7 @@ func (window *Window) setScrollMaxY(maxScroll int) {
 		return
 	}
 	window.scrollMaxY = maxScroll
+	window.invalidateWindowScrollMetricsState()
 	if window.backgroundScrollEffectChanged(oldMaxScroll, maxScroll) {
 		window.invalidateWindowEffectPropertyState()
 	}
@@ -69,51 +70,11 @@ func (window *Window) windowScrollbarLayout() (Rect, Rect, int, bool) {
 		return Rect{}, Rect{}, 0, false
 	}
 	window.updateScrollMetrics()
-	content := window.contentRect()
-	if window.scrollMaxY <= 0 || content.Empty() {
+	state := window.windowScrollPropertyStateValue()
+	if !state.visible {
 		return Rect{}, Rect{}, 0, false
 	}
-	scrollbar := resolveScrollbarStyle(window.Style)
-	width := scrollbar.width
-	if width <= 0 {
-		return Rect{}, Rect{}, 0, false
-	}
-	minWidth := width + scrollbar.padding.Left + scrollbar.padding.Right
-	if content.Width <= minWidth {
-		return Rect{}, Rect{}, 0, false
-	}
-	track := Rect{
-		X:      content.X + content.Width - width - scrollbar.padding.Right,
-		Y:      content.Y + scrollbar.padding.Top,
-		Width:  width,
-		Height: content.Height - scrollbar.padding.Top - scrollbar.padding.Bottom,
-	}
-	if track.Width <= 0 || track.Height <= 0 {
-		return Rect{}, Rect{}, 0, false
-	}
-	contentHeight := content.Height + window.scrollMaxY
-	thumbHeight := 0
-	if contentHeight > 0 {
-		thumbHeight = track.Height * content.Height / contentHeight
-	}
-	if thumbHeight < defaultScrollbarMinThumb {
-		thumbHeight = defaultScrollbarMinThumb
-	}
-	if thumbHeight > track.Height {
-		thumbHeight = track.Height
-	}
-	thumbY := track.Y
-	offsetRange := track.Height - thumbHeight
-	if offsetRange > 0 && window.scrollMaxY > 0 {
-		thumbY = track.Y + window.scrollY*offsetRange/window.scrollMaxY
-	}
-	thumb := Rect{
-		X:      track.X,
-		Y:      thumbY,
-		Width:  track.Width,
-		Height: thumbHeight,
-	}
-	return track, thumb, window.scrollMaxY, true
+	return state.track, state.thumb, state.scrollMaxY, true
 }
 
 func (window *Window) windowScrollbarHit(x int, y int) bool {

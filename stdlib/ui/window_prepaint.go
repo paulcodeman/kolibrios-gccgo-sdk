@@ -53,28 +53,28 @@ func (window *Window) splitScrollbarDirty(dirty Rect) (Rect, Rect) {
 	return contentDirty, scrollbarDirty
 }
 
-func (window *Window) scrollDirtyRectWithState(state windowPropertyState) Rect {
+func (window *Window) scrollDirtyRectWithState(scrollState windowScrollPropertyState) Rect {
 	if window == nil {
 		return Rect{}
 	}
-	viewport := state.scroll.viewport
+	viewport := scrollState.viewport
 	if viewport.Empty() {
 		return Rect{X: 0, Y: 0, Width: window.client.Width, Height: window.client.Height}
 	}
 	dirty := viewport
 	if window.canUseScrollBlit(viewport) {
-		exposed := scrollExposeRect(viewport, state.scroll.deltaY)
+		exposed := scrollExposeRect(viewport, scrollState.deltaY)
 		if !exposed.Empty() {
 			dirty = exposed
 		}
 	}
-	if track, _, _, ok := window.windowScrollbarLayout(); ok {
-		dirty = UnionRect(dirty, track)
+	if scrollState.visible {
+		dirty = UnionRect(dirty, scrollState.track)
 	}
 	return dirty
 }
 
-func (window *Window) buildPrepaintPlanWithState(state windowPropertyState, dirtyPlan windowDirtyPlan) (windowPrepaintPlan, bool) {
+func (window *Window) buildPrepaintPlanWithState(scrollState windowScrollPropertyState, effectState windowEffectPropertyState, dirtyPlan windowDirtyPlan) (windowPrepaintPlan, bool) {
 	if window == nil || window.canvas == nil || !window.dirtySet || !dirtyPlan.dirtySet {
 		return windowPrepaintPlan{}, false
 	}
@@ -96,13 +96,13 @@ func (window *Window) buildPrepaintPlanWithState(state windowPropertyState, dirt
 		plan.scrollbarDirty = full
 		return plan, true
 	}
-	if state.effect.simpleBackground {
+	if effectState.simpleBackground {
 		plan.clearMode = windowPrepaintClearSolid
-		plan.clearColor = state.effect.backgroundColor
-	} else if state.effect.backgroundCache != nil {
+		plan.clearColor = effectState.backgroundColor
+	} else if effectState.backgroundCache != nil {
 		plan.clearMode = windowPrepaintClearCache
-		plan.backgroundCache = state.effect.backgroundCache
-	} else if state.effect.needsFullRedraw {
+		plan.backgroundCache = effectState.backgroundCache
+	} else if effectState.needsFullRedraw {
 		plan.mode = windowPrepaintFull
 		plan.drawContent = true
 		plan.drawScrollbar = true
@@ -117,16 +117,16 @@ func (window *Window) buildPrepaintPlanWithState(state windowPropertyState, dirt
 	}
 	if dirtyPlan.mode == windowDirtyPlanNone &&
 		dirtyPlan.hasDamage(windowDirtyDamageScroll) &&
-		state.scroll.enabled &&
-		window.canUseScrollBlit(state.scroll.viewport) &&
-		dirtyPlan.dirty == window.scrollDirtyRectWithState(state) {
+		scrollState.enabled &&
+		window.canUseScrollBlit(scrollState.viewport) &&
+		dirtyPlan.dirty == window.scrollDirtyRectWithState(scrollState) {
 		plan.applyScrollBlit = true
-		plan.contentDirty = scrollExposeRect(state.scroll.viewport, state.scroll.deltaY)
+		plan.contentDirty = scrollExposeRect(scrollState.viewport, scrollState.deltaY)
 		if plan.contentDirty.Empty() {
-			plan.contentDirty = state.scroll.viewport
+			plan.contentDirty = scrollState.viewport
 		}
-		if track, _, _, ok := window.windowScrollbarLayout(); ok {
-			plan.scrollbarDirty = track
+		if scrollState.visible {
+			plan.scrollbarDirty = scrollState.track
 			plan.scrollbarDirtySet = true
 		}
 		plan.drawContent = !plan.contentDirty.Empty()
@@ -146,7 +146,7 @@ func (window *Window) buildPrepaintPlan() (windowPrepaintPlan, bool) {
 	if !ok {
 		return windowPrepaintPlan{}, false
 	}
-	return window.buildPrepaintPlanWithState(window.currentFramePropertyState(), dirtyPlan)
+	return window.buildPrepaintPlanWithState(window.currentFrameScrollPropertyState(), window.currentFrameEffectPropertyState(), dirtyPlan)
 }
 
 func (window *Window) applyPrepaintPlan(plan windowPrepaintPlan) {

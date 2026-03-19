@@ -160,7 +160,7 @@ func (window *Window) currentFramePrepaintPlan() (windowPrepaintPlan, bool) {
 	if !ok {
 		return windowPrepaintPlan{}, false
 	}
-	plan, ok := window.buildPrepaintPlanWithState(window.currentFramePropertyState(), dirtyPlan)
+	plan, ok := window.buildPrepaintPlanWithState(window.currentFrameScrollPropertyState(), window.currentFrameEffectPropertyState(), dirtyPlan)
 	if ok && window.frameStateActive {
 		window.frameState.prepaint = plan
 		window.frameState.prepaintValid = true

@@ -8,6 +8,9 @@ type windowScrollPropertyState struct {
 	offsetY    int
 	drawnY     int
 	deltaY     int
+	track      Rect
+	thumb      Rect
+	visible    bool
 	scrollMaxY int
 }
 
@@ -73,6 +76,14 @@ func (window *Window) invalidateWindowScrollPropertyState() {
 	if window == nil {
 		return
 	}
+	window.invalidateWindowScrollMetricsState()
+	window.invalidateWindowDisplayState()
+}
+
+func (window *Window) invalidateWindowScrollMetricsState() {
+	if window == nil {
+		return
+	}
 	window.propertyState.scroll = windowScrollPropertyState{}
 	window.propertyState.scrollValid = false
 	if window.frameStateActive {
@@ -81,7 +92,6 @@ func (window *Window) invalidateWindowScrollPropertyState() {
 		window.frameState.prepaint = windowPrepaintPlan{}
 		window.frameState.prepaintValid = false
 	}
-	window.invalidateWindowDisplayState()
 }
 
 func (window *Window) invalidateWindowClipPropertyState() {
@@ -202,6 +212,51 @@ func (window *Window) computeScrollPropertyState(content Rect) windowScrollPrope
 	}
 	state.viewport = content
 	state.scrollMaxY = window.scrollMaxY
+	if state.scrollMaxY <= 0 || content.Empty() {
+		return state
+	}
+	scrollbar := resolveScrollbarStyle(window.Style)
+	width := scrollbar.width
+	if width <= 0 {
+		return state
+	}
+	minWidth := width + scrollbar.padding.Left + scrollbar.padding.Right
+	if content.Width <= minWidth {
+		return state
+	}
+	track := Rect{
+		X:      content.X + content.Width - width - scrollbar.padding.Right,
+		Y:      content.Y + scrollbar.padding.Top,
+		Width:  width,
+		Height: content.Height - scrollbar.padding.Top - scrollbar.padding.Bottom,
+	}
+	if track.Width <= 0 || track.Height <= 0 {
+		return state
+	}
+	contentHeight := content.Height + state.scrollMaxY
+	thumbHeight := 0
+	if contentHeight > 0 {
+		thumbHeight = track.Height * content.Height / contentHeight
+	}
+	if thumbHeight < defaultScrollbarMinThumb {
+		thumbHeight = defaultScrollbarMinThumb
+	}
+	if thumbHeight > track.Height {
+		thumbHeight = track.Height
+	}
+	thumbY := track.Y
+	offsetRange := track.Height - thumbHeight
+	if offsetRange > 0 && state.scrollMaxY > 0 {
+		thumbY = track.Y + state.offsetY*offsetRange/state.scrollMaxY
+	}
+	state.track = track
+	state.thumb = Rect{
+		X:      track.X,
+		Y:      thumbY,
+		Width:  track.Width,
+		Height: thumbHeight,
+	}
+	state.visible = true
 	return state
 }
 
