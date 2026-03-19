@@ -47,6 +47,36 @@ func (window *Window) backgroundAttachment(style Style) BackgroundAttachment {
 	return BackgroundAttachmentFixed
 }
 
+func (window *Window) backgroundScrollDependentFor(style Style, scrollMaxY int) bool {
+	if window == nil {
+		return false
+	}
+	attachment := window.backgroundAttachment(style)
+	switch attachment {
+	case BackgroundAttachmentLocal, BackgroundAttachmentScroll:
+		return window.scrollEnabledForStyle(style) && scrollMaxY > 0
+	default:
+		return false
+	}
+}
+
+func (window *Window) backgroundScrollDependent() bool {
+	if window == nil {
+		return false
+	}
+	return window.backgroundScrollDependentFor(window.backgroundStyle(), window.scrollMaxY)
+}
+
+func (window *Window) backgroundScrollEffectChanged(oldScrollMaxY int, newScrollMaxY int) bool {
+	if window == nil {
+		return false
+	}
+	style := window.backgroundStyle()
+	oldDependent := window.backgroundScrollDependentFor(style, oldScrollMaxY)
+	newDependent := window.backgroundScrollDependentFor(style, newScrollMaxY)
+	return oldDependent != newDependent || (newDependent && oldScrollMaxY != newScrollMaxY)
+}
+
 func (window *Window) backgroundRectFor(style Style, rect Rect) Rect {
 	attachment := window.backgroundAttachment(style)
 	switch attachment {

@@ -1,11 +1,28 @@
 package ui
 
+func (window *Window) setScrollMaxY(maxScroll int) {
+	if window == nil {
+		return
+	}
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	oldMaxScroll := window.scrollMaxY
+	if oldMaxScroll == maxScroll {
+		return
+	}
+	window.scrollMaxY = maxScroll
+	if window.backgroundScrollEffectChanged(oldMaxScroll, maxScroll) {
+		window.invalidateWindowEffectPropertyState()
+	}
+}
+
 func (window *Window) updateScrollMetrics() {
 	if window == nil {
 		return
 	}
 	if !window.scrollEnabled() {
-		window.scrollMaxY = 0
+		window.setScrollMaxY(0)
 		if window.scrollY != 0 {
 			window.scrollY = 0
 			window.noteScrollChanged()
@@ -14,7 +31,7 @@ func (window *Window) updateScrollMetrics() {
 	}
 	content := window.contentRect()
 	if content.Empty() || content.Height <= 0 {
-		window.scrollMaxY = 0
+		window.setScrollMaxY(0)
 		if window.scrollY != 0 {
 			window.scrollY = 0
 			window.noteScrollChanged()
@@ -35,7 +52,7 @@ func (window *Window) updateScrollMetrics() {
 	if maxScroll < 0 {
 		maxScroll = 0
 	}
-	window.scrollMaxY = maxScroll
+	window.setScrollMaxY(maxScroll)
 	if window.scrollY < 0 {
 		window.scrollY = 0
 		window.noteScrollChanged()
@@ -207,7 +224,9 @@ func (window *Window) noteScrollChanged() {
 		return
 	}
 	window.invalidateWindowScrollPropertyState()
-	window.invalidateWindowEffectPropertyState()
+	if window.backgroundScrollDependent() {
+		window.invalidateWindowEffectPropertyState()
+	}
 	window.hoverDirty = true
 	window.lastMouseValid = false
 	window.scrollRedraw = true
