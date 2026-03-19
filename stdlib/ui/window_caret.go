@@ -9,11 +9,17 @@ func (window *Window) caretBlinkActive() bool {
 	if window == nil || window.focused == nil {
 		return false
 	}
-	element, ok := window.focused.(*Element)
-	if !ok || !element.isTextInput() {
+	switch current := window.focused.(type) {
+	case *Element:
+		if current == nil || !current.isTextInput() {
+			return false
+		}
+		return current.focused && !current.hasSelection()
+	case *DocumentView:
+		return current != nil && current.textInputBlinkActive()
+	default:
 		return false
 	}
-	return element.focused && !element.hasSelection()
 }
 
 func (window *Window) caretBlinkTimeout() uint32 {
@@ -79,16 +85,27 @@ func (window *Window) noteCaretBlinkDirty() {
 	if window == nil || window.focused == nil {
 		return
 	}
-	if element, ok := window.focused.(*Element); ok && element.isTextInput() {
-		style := element.effectiveStyle()
-		rect := element.layoutRect
-		if rect.Empty() {
-			rect = element.Bounds()
+	switch current := window.focused.(type) {
+	case *Element:
+		if current.isTextInput() {
+			style := current.effectiveStyle()
+			rect := current.layoutRect
+			if rect.Empty() {
+				rect = current.Bounds()
+			}
+			if dirty := current.caretDirtyRect(rect, style); !dirty.Empty() {
+				window.InvalidateVisualContent(dirty)
+				return
+			}
+			current.MarkDirty()
 		}
-		if dirty := element.caretDirtyRect(rect, style); !dirty.Empty() {
-			window.InvalidateVisualContent(dirty)
-			return
+	case *DocumentView:
+		if current != nil {
+			if dirty := current.textInputCaretDirtyRect(); !dirty.Empty() {
+				window.InvalidateVisual(dirty)
+				return
+			}
+			current.MarkDirty()
 		}
-		element.MarkDirty()
 	}
 }

@@ -25,13 +25,13 @@ type App struct {
 	pageDocument  *ui.Document
 	pageView      *ui.DocumentView
 
-	shellTitleNode    *ui.DocumentNode
-	shellStatusNode   *ui.DocumentNode
-	shellBackNode     *ui.DocumentNode
-	shellForwardNode  *ui.DocumentNode
-	shellReloadNode   *ui.DocumentNode
-	shellHomeNode     *ui.DocumentNode
-	shellAddressState shellAddressInputState
+	shellTitleNode   *ui.DocumentNode
+	shellStatusNode  *ui.DocumentNode
+	shellBackNode    *ui.DocumentNode
+	shellForwardNode *ui.DocumentNode
+	shellReloadNode  *ui.DocumentNode
+	shellHomeNode    *ui.DocumentNode
+	shellAddressNode *ui.DocumentNode
 
 	currentURL   string
 	addressText  string

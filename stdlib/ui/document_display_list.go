@@ -316,6 +316,9 @@ func (fragment *Fragment) paintOffset(canvas *Canvas, offsetX int, offsetY int) 
 			bounds.Y += offsetY
 		}
 		drawStyledBox(canvas, bounds, style, bounds, nil)
+		if documentNodeIsTextInput(fragment.Node) {
+			fragment.paintTextInputOffset(canvas, bounds, style)
+		}
 	}
 	if fragment.Node != nil && documentNodeShowsDefaultFocusRing(fragment.Node) {
 		bounds := fragment.Bounds
@@ -325,6 +328,62 @@ func (fragment *Fragment) paintOffset(canvas *Canvas, offsetX int, offsetY int) 
 		}
 		drawDefaultFocusRing(canvas, bounds, style)
 	}
+}
+
+func (fragment *Fragment) paintTextInputOffset(canvas *Canvas, bounds Rect, style Style) {
+	if fragment == nil || fragment.Node == nil || canvas == nil {
+		return
+	}
+	content := documentNodeInputContentRect(bounds, style)
+	if content.Empty() {
+		return
+	}
+	text, placeholder := documentNodeInputDisplayText(fragment.Node)
+	font, _, charWidth, lineHeight := documentNodeInputLineMetrics(style)
+	foreground, ok := resolveColor(style.foreground)
+	if !ok {
+		foreground = Black
+	}
+	if placeholder {
+		foreground = Gray
+	}
+	shadow, shadowOK := resolveTextShadow(style.textShadow)
+	if FastNoTextShadow || FastNoShadows {
+		shadowOK = false
+	}
+	canvas.PushClip(content)
+	if text != "" {
+		drawText := text
+		startCol := 0
+		endCol := textColumnCount(text)
+		if fragment.Node.inputScrollX > 0 || textWidthWithFont(text, font, charWidth) > content.Width {
+			startCol = textColumnForX(text, fragment.Node.inputScrollX, font, charWidth)
+			endCol = textColumnForX(text, fragment.Node.inputScrollX+content.Width, font, charWidth)
+			if endCol < startCol {
+				endCol = startCol
+			}
+			drawText = textSliceColumns(text, startCol, endCol)
+		}
+		textX := content.X + textWidthForColumns(text, startCol, font, charWidth) - fragment.Node.inputScrollX
+		textY := content.Y + (content.Height-lineHeight)/2
+		if shadowOK {
+			if font != nil {
+				canvas.DrawTextFont(textX+shadow.OffsetX, textY+shadow.OffsetY, shadow.Color, drawText, font)
+			} else {
+				canvas.DrawText(textX+shadow.OffsetX, textY+shadow.OffsetY, shadow.Color, drawText)
+			}
+		}
+		if font != nil {
+			canvas.DrawTextFont(textX, textY, foreground, drawText, font)
+		} else {
+			canvas.DrawText(textX, textY, foreground, drawText)
+		}
+		drawTextDecorations(canvas, textX, textY, drawText, style, font, charWidth, foreground)
+	}
+	if caret := documentNodeInputCaretRect(fragment.Node, bounds, style, documentNodeCaretVisible(fragment.Node)); !caret.Empty() {
+		canvas.FillRect(caret.X, caret.Y, caret.Width, caret.Height, Blue)
+	}
+	canvas.PopClip()
 }
 
 func (fragment *Fragment) paintTextOffset(canvas *Canvas, offsetX int, offsetY int, style Style) {

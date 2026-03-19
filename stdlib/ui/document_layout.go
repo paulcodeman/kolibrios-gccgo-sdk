@@ -238,6 +238,9 @@ func (document *Document) layoutChildFlow(ctx LayoutContext, parentStyle Style, 
 }
 
 func (document *Document) layoutElementNode(ctx LayoutContext, node *DocumentNode, style Style, display DisplayMode, container Rect, flowX int, flowY int) *Fragment {
+	if documentNodeIsTextInput(node) {
+		return document.layoutTextInputNode(ctx, node, style, display, container, flowX, flowY)
+	}
 	plan := planDocumentBox(style, display, container, flowX, flowY)
 	insets := boxInsets(style)
 	contentX := plan.x + insets.Left
@@ -305,6 +308,40 @@ func (document *Document) layoutElementNode(ctx LayoutContext, node *DocumentNod
 		Bounds:     bounds,
 		Content:    contentRectFor(bounds, style),
 		Children:   children,
+	}
+	fragment.PaintBounds = fragmentPaintBounds(fragment)
+	document.registerFragment(fragment)
+	return fragment
+}
+
+func (document *Document) layoutTextInputNode(ctx LayoutContext, node *DocumentNode, style Style, display DisplayMode, container Rect, flowX int, flowY int) *Fragment {
+	plan := planDocumentBox(style, display, container, flowX, flowY)
+	height, heightSet := explicitOuterHeight(style)
+	if !heightSet {
+		height = documentNodeInputHeight(style)
+	}
+	height = clampHeightForStyle(style, height)
+	if plan.position == PositionAbsolute && !plan.topSet && plan.bottomSet {
+		plan.y = container.Y + container.Height - plan.bottom - plan.margin.Bottom - height
+	}
+	bounds := Rect{
+		X:      plan.x,
+		Y:      plan.y,
+		Width:  plan.width,
+		Height: height,
+	}
+	documentNodeInputEnsureCaretVisible(node, bounds, style)
+	paintStyle := style
+	if node != nil {
+		paintStyle = mergeStyle(style, documentNodePaintStyle(node))
+	}
+	fragment := &Fragment{
+		Kind:       FragmentKindBlock,
+		Node:       node,
+		Style:      style,
+		PaintStyle: paintStyle,
+		Bounds:     bounds,
+		Content:    contentRectFor(bounds, style),
 	}
 	fragment.PaintBounds = fragmentPaintBounds(fragment)
 	document.registerFragment(fragment)

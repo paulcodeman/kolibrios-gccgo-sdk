@@ -34,6 +34,8 @@ func (window *Window) handleKey() bool {
 				window.noteDirty(window.focused)
 				if element, ok := window.focused.(*Element); ok && element.isTextInput() {
 					window.caretBlinkResetAt = kos.UptimeCentiseconds()
+				} else if view, ok := window.focused.(*DocumentView); ok && view.textInputBlinkActive() {
+					window.caretBlinkResetAt = kos.UptimeCentiseconds()
 				}
 			}
 			return handled

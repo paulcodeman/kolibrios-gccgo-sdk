@@ -105,6 +105,9 @@ func documentNodeCanFocus(node *DocumentNode) bool {
 	if node == nil {
 		return false
 	}
+	if documentNodeIsTextInput(node) {
+		return true
+	}
 	if node.Focusable {
 		return true
 	}

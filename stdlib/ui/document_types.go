@@ -18,6 +18,9 @@ type DocumentNode struct {
 	Kind            DocumentNodeKind
 	Name            string
 	Text            string
+	Value           string
+	Placeholder     string
+	Editable        bool
 	Style           Style
 	StyleHover      Style
 	StyleActive     Style
@@ -48,10 +51,13 @@ type DocumentNode struct {
 	Parent          *DocumentNode
 	Children        []*DocumentNode
 
-	hovered   bool
-	active    bool
-	focused   bool
-	wrapCache textWrapCache
+	hovered      bool
+	active       bool
+	focused      bool
+	wrapCache    textWrapCache
+	inputCaret   int
+	inputScrollX int
+	document     *Document
 }
 
 type Fragment struct {
@@ -133,7 +139,7 @@ func (node *DocumentNode) Append(children ...*DocumentNode) {
 			continue
 		}
 		node.Children = append(node.Children, child)
-		linkDocumentTree(node, child)
+		linkDocumentTree(node.document, node, child)
 	}
 }
 
@@ -145,6 +151,7 @@ func (node *DocumentNode) ClearChildren() {
 		if child != nil {
 			clearDocumentNodeCaches(child)
 			child.Parent = nil
+			child.document = nil
 		}
 	}
 	node.Children = nil
@@ -157,7 +164,7 @@ func (document *Document) SetRoot(root *DocumentNode) {
 	document.clearLayout()
 	clearDocumentNodeCaches(document.Root)
 	document.Root = root
-	linkDocumentTree(nil, root)
+	linkDocumentTree(document, nil, root)
 	if document.host != nil {
 		document.host.MarkLayoutDirty()
 	}
@@ -228,13 +235,14 @@ func (list FragmentDisplayList) Items() []FragmentDisplayItem {
 	return list.items
 }
 
-func linkDocumentTree(parent *DocumentNode, node *DocumentNode) {
+func linkDocumentTree(document *Document, parent *DocumentNode, node *DocumentNode) {
 	if node == nil {
 		return
 	}
 	node.Parent = parent
+	node.document = document
 	for _, child := range node.Children {
-		linkDocumentTree(node, child)
+		linkDocumentTree(document, node, child)
 	}
 }
 

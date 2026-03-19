@@ -95,6 +95,54 @@ func (view *DocumentView) HandleKey(key kos.KeyEvent) bool {
 			return true
 		}
 	}
+	if node := view.focusedTextInputNode(); node != nil {
+		changed, submitted := documentNodeInputHandleKey(node, key)
+		document := view.Document
+		fragment := (*Fragment)(nil)
+		if document != nil {
+			fragment = document.FragmentForNode(node)
+		}
+		if fragment != nil {
+			documentNodeInputEnsureCaretVisible(node, fragment.Bounds, fragment.effectiveStyle())
+		}
+		if changed {
+			view.noteDocumentTextInputChanged(node)
+			inputEvent := DocumentEvent{
+				Type:       EventInput,
+				Key:        key,
+				ScrollY:    view.scrollY,
+				View:       view,
+				Node:       node,
+				Bubbles:    true,
+				Cancelable: false,
+			}
+			dispatchDocumentNodeEvent(&inputEvent, documentEventPath(node), func(current *DocumentNode) interface{} {
+				return current.OnInput
+			})
+			return true
+		}
+		if submitted {
+			changeEvent := DocumentEvent{
+				Type:       EventChange,
+				Key:        key,
+				ScrollY:    view.scrollY,
+				View:       view,
+				Node:       node,
+				Bubbles:    true,
+				Cancelable: false,
+			}
+			dispatchDocumentNodeEvent(&changeEvent, documentEventPath(node), func(current *DocumentNode) interface{} {
+				return current.OnChange
+			})
+			view.noteDocumentTextInputCaretChanged(node)
+			return true
+		}
+		switch key.ScanCode {
+		case 0x4B, 0x4D, 0x47, 0x4F:
+			view.noteDocumentTextInputCaretChanged(node)
+			return true
+		}
+	}
 	switch {
 	case key.Code == 13 || key.Code == 32:
 		if view.focusNode != nil {
@@ -129,6 +177,67 @@ func (view *DocumentView) HandleKey(key kos.KeyEvent) bool {
 		return view.scrollDocumentTo(view.scrollMaxY)
 	}
 	return false
+}
+
+func (view *DocumentView) focusedTextInputNode() *DocumentNode {
+	if view == nil || !view.focused || view.focusNode == nil {
+		return nil
+	}
+	if !documentNodeIsTextInput(view.focusNode) {
+		return nil
+	}
+	return view.focusNode
+}
+
+func (view *DocumentView) textInputBlinkActive() bool {
+	return view.focusedTextInputNode() != nil
+}
+
+func (view *DocumentView) textInputCaretDirtyRect() Rect {
+	node := view.focusedTextInputNode()
+	if node == nil || view.Document == nil {
+		return Rect{}
+	}
+	fragment := view.Document.FragmentForNode(node)
+	if fragment == nil {
+		return Rect{}
+	}
+	rect := documentNodeInputCaretRect(node, fragment.Bounds, fragment.effectiveStyle(), true)
+	if rect.Empty() {
+		return Rect{}
+	}
+	rect.Y -= view.scrollY
+	return rect
+}
+
+func (view *DocumentView) noteDocumentTextInputChanged(node *DocumentNode) {
+	if view == nil || node == nil {
+		return
+	}
+	if view.window != nil {
+		view.window.caretBlinkResetAt = kos.UptimeCentiseconds()
+	}
+	view.noteDocumentTextInputCaretChanged(node)
+}
+
+func (view *DocumentView) noteDocumentTextInputCaretChanged(node *DocumentNode) {
+	if view == nil || node == nil {
+		return
+	}
+	if view.window != nil {
+		view.window.caretBlinkResetAt = kos.UptimeCentiseconds()
+	}
+	rect := view.documentNodeDirtyRect(node)
+	if rect.Empty() {
+		view.MarkDirty()
+		return
+	}
+	if view.window != nil {
+		view.dirty = true
+		view.window.InvalidateVisual(rect)
+		return
+	}
+	view.MarkDirtyRect(rect)
 }
 
 func (view *DocumentView) HandleScroll(deltaX int, deltaY int) bool {
@@ -249,6 +358,15 @@ func (view *DocumentView) HandleMouseUp(x int, y int, button MouseButton, button
 		if documentNodeCanFocus(event.Node) {
 			if view.setFocusNode(event.Node, event) {
 				changed = true
+			}
+			if documentNodeIsTextInput(event.Node) && view.Document != nil {
+				if fragment := view.Document.FragmentForNode(event.Node); fragment != nil {
+					caret := documentNodeInputCaretFromX(event.Node, fragment.Bounds, fragment.effectiveStyle(), event.DocumentX)
+					if documentNodeInputSetCaret(event.Node, caret) {
+						view.noteDocumentTextInputCaretChanged(event.Node)
+						changed = true
+					}
+				}
 			}
 		} else if view.focusNode != nil {
 			if view.setFocusNode(nil, event) {

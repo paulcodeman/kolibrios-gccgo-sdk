@@ -18,13 +18,6 @@ var (
 	cachedShellTemplateRead bool
 )
 
-type shellAddressInputState struct {
-	node    *ui.DocumentNode
-	value   string
-	caret   int
-	focused bool
-}
-
 func styled(update func(*ui.Style)) ui.Style {
 	value := ui.Style{}
 	if update != nil {
@@ -339,7 +332,10 @@ func shellAddressNode(app *App, value string) *ui.DocumentNode {
 		style.SetFontSize(13)
 		style.SetLineHeight(18)
 	}), nil)
+	input.Editable = true
 	input.Focusable = true
+	input.Value = value
+	input.Placeholder = "Type URL here"
 	input.StyleHover = styled(func(style *ui.Style) {
 		style.SetBorderColor(ui.Teal)
 	})
@@ -349,153 +345,20 @@ func shellAddressNode(app *App, value string) *ui.DocumentNode {
 		style.SetOutlineOffset(1)
 	})
 	if app != nil {
-		app.shellAddressState = shellAddressInputState{
-			node:  input,
-			value: value,
-			caret: len(value),
+		app.shellAddressNode = input
+	}
+	input.OnInput = func(node *ui.DocumentNode) {
+		if app != nil && node != nil {
+			app.addressText = node.Value
 		}
 	}
-	input.OnClick = func() {
-		if app != nil {
-			app.shellAddressState.caret = len(app.shellAddressState.value)
-			app.refreshShellAddressNode(true)
+	input.OnChange = func(node *ui.DocumentNode) {
+		if app != nil && node != nil {
+			app.addressText = node.Value
+			app.submitAddress()
 		}
-	}
-	input.OnFocus = func() {
-		if app != nil {
-			app.shellAddressState.focused = true
-			app.shellAddressState.caret = clampShellInputIndex(app.shellAddressState.value, app.shellAddressState.caret)
-			app.refreshShellAddressNode(true)
-		}
-	}
-	input.OnBlur = func() {
-		if app != nil {
-			app.shellAddressState.focused = false
-			app.addressText = app.shellAddressState.value
-			app.refreshShellAddressNode(true)
-		}
-	}
-	input.OnKeyDown = func(_ *ui.DocumentNode, event *ui.DocumentEvent) {
-		if app != nil {
-			app.handleShellAddressKey(event)
-		}
-	}
-	if app != nil {
-		app.refreshShellAddressNode(false)
 	}
 	return input
-}
-
-func (app *App) refreshShellAddressNode(markLayout bool) {
-	if app == nil || app.shellAddressState.node == nil {
-		return
-	}
-	node := app.shellAddressState.node
-	value := app.shellAddressState.value
-	node.ClearChildren()
-	textStyle := styled(func(style *ui.Style) {
-		style.SetDisplay(ui.DisplayInline)
-		style.SetForeground(ui.Black)
-		style.SetFontPath(webSansFontPath)
-		style.SetFontSize(13)
-		style.SetLineHeight(18)
-		style.SetWhiteSpace(ui.WhiteSpaceNoWrap)
-	})
-	if value == "" {
-		placeholderStyle := textStyle
-		placeholderStyle.SetForeground(ui.Gray)
-		node.Append(ui.NewDocumentText("Type URL here", placeholderStyle))
-	} else if !app.shellAddressState.focused {
-		node.Append(ui.NewDocumentText(value, textStyle))
-	} else {
-		caret := clampShellInputIndex(value, app.shellAddressState.caret)
-		before := value[:caret]
-		after := value[caret:]
-		if before != "" {
-			node.Append(ui.NewDocumentText(before, textStyle))
-		}
-		node.Append(ui.NewDocumentElement("shell-address-caret", styled(func(style *ui.Style) {
-			style.SetDisplay(ui.DisplayInlineBlock)
-			style.SetWidth(1)
-			style.SetHeight(16)
-			style.SetMargin(1, 0, 1, 0)
-			style.SetBackground(ui.Blue)
-			style.SetContain(ui.ContainPaint)
-		})))
-		if after != "" {
-			node.Append(ui.NewDocumentText(after, textStyle))
-		}
-	}
-	if app.shellDocument != nil {
-		if markLayout {
-			app.shellDocument.MarkLayoutDirty()
-		} else {
-			app.shellDocument.MarkDirty()
-		}
-	}
-}
-
-func (app *App) handleShellAddressKey(event *ui.DocumentEvent) {
-	if app == nil || event == nil {
-		return
-	}
-	state := &app.shellAddressState
-	value := state.value
-	caret := clampShellInputIndex(value, state.caret)
-	handled := false
-	changed := false
-	switch {
-	case event.Key.Code == 13:
-		handled = true
-		app.addressText = value
-		app.submitAddress()
-	case event.Key.Code == 8:
-		handled = true
-		if caret > 0 {
-			prev := prevShellInputIndex(value, caret)
-			value = value[:prev] + value[caret:]
-			caret = prev
-			changed = true
-		}
-	case event.Key.Code == 127 || event.Key.ScanCode == 0x53:
-		handled = true
-		if caret < len(value) {
-			next := nextShellInputIndex(value, caret)
-			value = value[:caret] + value[next:]
-			changed = true
-		}
-	case event.Key.ScanCode == 0x4B:
-		handled = true
-		caret = prevShellInputIndex(value, caret)
-	case event.Key.ScanCode == 0x4D:
-		handled = true
-		caret = nextShellInputIndex(value, caret)
-	case event.Key.ScanCode == 0x47:
-		handled = true
-		caret = 0
-	case event.Key.ScanCode == 0x4F:
-		handled = true
-		caret = len(value)
-	default:
-		if inserted := shellInputKeyString(event.Key.Code); inserted != "" {
-			handled = true
-			value = value[:caret] + inserted + value[caret:]
-			caret += len(inserted)
-			changed = true
-		}
-	}
-	if !handled {
-		return
-	}
-	event.PreventDefault()
-	state.value = value
-	state.caret = caret
-	app.addressText = value
-	if changed {
-		app.refreshShellAddressNode(true)
-	} else {
-		app.refreshShellAddressNode(false)
-	}
 }
 
 func syncShellDocument(app *App, title string, status string) {
@@ -519,10 +382,10 @@ func syncShellDocument(app *App, title string, status string) {
 	if address == "" {
 		address = defaultURL
 	}
-	if app.shellAddressState.value != address {
-		app.shellAddressState.value = address
-		app.shellAddressState.caret = len(address)
-		app.refreshShellAddressNode(true)
+	if app.shellAddressNode != nil && app.shellAddressNode.Value != address {
+		app.shellAddressNode.Value = address
+		app.shellAddressNode.Placeholder = "Type URL here"
+		app.shellDocument.MarkDirty()
 		layoutDirty = false
 	}
 	if layoutDirty {
