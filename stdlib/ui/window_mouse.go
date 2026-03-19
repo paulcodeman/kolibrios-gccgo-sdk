@@ -15,7 +15,7 @@ func (window *Window) handleMouse() bool {
 			if aware, ok := window.focused.(FocusAware); ok {
 				if aware.SetFocus(false) {
 					needsRedraw = true
-					window.noteDirty(window.focused)
+					window.noteFocusStateChange(window.focused)
 				}
 			}
 			window.focused = nil

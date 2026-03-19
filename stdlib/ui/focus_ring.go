@@ -16,6 +16,13 @@ func elementShowsDefaultFocusRing(element *Element) bool {
 	return element.StyleFocus.IsZero()
 }
 
+func elementUsesDefaultFocusRing(element *Element) bool {
+	if element == nil || !element.isFocusable() {
+		return false
+	}
+	return element.StyleFocus.IsZero()
+}
+
 func documentNodeShowsDefaultFocusRing(node *DocumentNode) bool {
 	if node == nil || !node.focused || !documentNodeCanFocus(node) {
 		return false

@@ -18,7 +18,7 @@ func (window *Window) setFocus(target Node) bool {
 		if aware, ok := window.focused.(FocusAware); ok {
 			if aware.SetFocus(false) {
 				needsRedraw = true
-				window.noteDirty(window.focused)
+				window.noteFocusStateChange(window.focused)
 			}
 		}
 	}
@@ -28,7 +28,7 @@ func (window *Window) setFocus(target Node) bool {
 		if aware, ok := target.(FocusAware); ok {
 			if aware.SetFocus(true) {
 				needsRedraw = true
-				window.noteDirty(target)
+				window.noteFocusStateChange(target)
 			}
 			window.focused = target
 		}
@@ -46,6 +46,32 @@ func (window *Window) setFocus(target Node) bool {
 		needsRedraw = true
 	}
 	return needsRedraw
+}
+
+func (window *Window) focusStateNeedsDirtyNode(node Node) bool {
+	if window == nil || node == nil {
+		return false
+	}
+	element, ok := node.(*Element)
+	if !ok || element == nil {
+		return true
+	}
+	if element.isTextInput() {
+		return true
+	}
+	if !elementUsesDefaultFocusRing(element) {
+		return true
+	}
+	return false
+}
+
+func (window *Window) noteFocusStateChange(node Node) {
+	if window == nil || node == nil {
+		return
+	}
+	if window.focusStateNeedsDirtyNode(node) {
+		window.noteDirty(node)
+	}
 }
 
 func (window *Window) scrollNodeIntoView(node Node) bool {
@@ -119,19 +145,38 @@ func (window *Window) focusScrollBounds(node Node) Rect {
 }
 
 func (window *Window) invalidateFocusNode(node Node) bool {
-	element, ok := node.(*Element)
-	if !ok || element == nil || !element.isTextInput() {
+	if window == nil || node == nil {
 		return false
 	}
-	rect := element.VisualBounds()
-	if rect.Empty() {
-		rect = element.Bounds()
-	}
-	if rect.Empty() {
+	switch current := node.(type) {
+	case *Element:
+		if current == nil {
+			return false
+		}
+		rect := Rect{}
+		switch {
+		case current.isTextInput():
+			rect = current.VisualBounds()
+			if rect.Empty() {
+				rect = current.Bounds()
+			}
+		case elementUsesDefaultFocusRing(current):
+			rect = current.layoutRect
+			if rect.Empty() {
+				rect = current.Bounds()
+			}
+			rect = focusRingBounds(rect)
+		default:
+			return false
+		}
+		if rect.Empty() {
+			return false
+		}
+		window.InvalidateContent(rect)
+		return true
+	default:
 		return false
 	}
-	window.InvalidateContent(rect)
-	return true
 }
 
 func (window *Window) focusNext() bool {
