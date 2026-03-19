@@ -93,6 +93,8 @@ type Window struct {
 	focusIndex              map[Node]int
 	hitGrid                 hitTestGrid
 	hitGridValid            bool
+	displayVersion          uint32
+	hitGridDisplayVersion   uint32
 	allNodes                []Node
 	nodeBounds              map[Node]Rect
 	renderIndex             map[Node]int

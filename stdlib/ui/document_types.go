@@ -83,6 +83,8 @@ type Document struct {
 	fragmentByNode map[*DocumentNode]*Fragment
 	hitGrid        fragmentHitTestGrid
 	hitGridValid   bool
+	displayVersion uint32
+	hitGridVersion uint32
 }
 
 func NewDocument(root *DocumentNode) *Document {

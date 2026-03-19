@@ -9,10 +9,26 @@ type windowDisplayState struct {
 	scrollOffsetValid bool
 }
 
+func nextWindowDisplayVersion(version uint32) uint32 {
+	version++
+	if version == 0 {
+		version = 1
+	}
+	return version
+}
+
+func (window *Window) bumpWindowDisplayVersion() {
+	if window == nil {
+		return
+	}
+	window.displayVersion = nextWindowDisplayVersion(window.displayVersion)
+}
+
 func (window *Window) invalidateWindowDisplayState() {
 	if window == nil {
 		return
 	}
+	window.bumpWindowDisplayVersion()
 	window.displayState = windowDisplayState{}
 	if window.frameStateActive {
 		window.frameState.display = DisplayList{}
@@ -24,6 +40,7 @@ func (window *Window) invalidateWindowDisplayItemsState() {
 	if window == nil {
 		return
 	}
+	window.bumpWindowDisplayVersion()
 	window.displayState.items = nil
 	window.displayState.itemsValid = false
 	if window.frameStateActive {
@@ -36,6 +53,7 @@ func (window *Window) invalidateWindowDisplayClipState() {
 	if window == nil {
 		return
 	}
+	window.bumpWindowDisplayVersion()
 	window.displayState.rootClip = clipState{}
 	window.displayState.rootClipValid = false
 	if window.frameStateActive {
@@ -48,6 +66,7 @@ func (window *Window) invalidateWindowDisplayScrollState() {
 	if window == nil {
 		return
 	}
+	window.bumpWindowDisplayVersion()
 	window.displayState.scrollOffset = 0
 	window.displayState.scrollOffsetValid = false
 	if window.frameStateActive {

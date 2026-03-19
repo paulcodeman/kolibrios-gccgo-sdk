@@ -9,6 +9,7 @@ func (window *Window) invalidateHitGrid() {
 		return
 	}
 	window.hitGridValid = false
+	window.hitGridDisplayVersion = 0
 }
 
 func (window *Window) shouldUseHitGrid(display DisplayList) bool {
@@ -35,17 +36,20 @@ func (window *Window) ensureHitGridWithDisplay(display DisplayList) bool {
 	if !window.shouldUseHitGrid(display) {
 		window.hitGrid.reset()
 		window.hitGridValid = false
+		window.hitGridDisplayVersion = 0
 		return false
 	}
-	if window.hitGridValid {
+	if window.hitGridValid && window.hitGridDisplayVersion == window.displayVersion {
 		return true
 	}
 	if !window.renderListValid || len(window.renderList) == 0 {
 		window.hitGrid.reset()
 		window.hitGridValid = false
+		window.hitGridDisplayVersion = 0
 		return false
 	}
 	window.hitGrid.build(window.client, display)
 	window.hitGridValid = true
+	window.hitGridDisplayVersion = window.displayVersion
 	return true
 }

@@ -38,6 +38,22 @@ func (document *Document) invalidateHitGrid() {
 	}
 	document.hitGrid.reset()
 	document.hitGridValid = false
+	document.hitGridVersion = 0
+}
+
+func nextDocumentDisplayVersion(version uint32) uint32 {
+	version++
+	if version == 0 {
+		version = 1
+	}
+	return version
+}
+
+func (document *Document) bumpDisplayVersion() {
+	if document == nil {
+		return
+	}
+	document.displayVersion = nextDocumentDisplayVersion(document.displayVersion)
 }
 
 func (document *Document) shouldUseHitGrid() bool {
@@ -73,7 +89,7 @@ func (document *Document) ensureHitGrid() bool {
 		document.invalidateHitGrid()
 		return false
 	}
-	if document.hitGridValid {
+	if document.hitGridValid && document.hitGridVersion == document.displayVersion {
 		return true
 	}
 	bounds := document.hitGridBounds()
@@ -86,6 +102,7 @@ func (document *Document) ensureHitGrid() bool {
 		return false
 	}
 	document.hitGridValid = true
+	document.hitGridVersion = document.displayVersion
 	return true
 }
 
