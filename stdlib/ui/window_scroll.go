@@ -246,8 +246,7 @@ func (window *Window) noteScrollChanged() {
 	if window.backgroundScrollDependent() {
 		window.invalidateWindowEffectPropertyState()
 	}
-	window.hoverDirty = true
-	window.lastMouseValid = false
+	window.invalidateHoverTracking()
 	window.scrollRedraw = true
 	if window.renderListValid {
 		window.invalidateHitGrid()

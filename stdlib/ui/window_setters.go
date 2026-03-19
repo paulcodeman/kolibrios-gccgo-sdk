@@ -136,8 +136,7 @@ func (window *Window) setSize(width int, height int) bool {
 		window.invalidateWindowEffectPropertyState()
 		window.layoutDirty = true
 		window.renderListValid = false
-		window.hoverDirty = true
-		window.lastMouseValid = false
+		window.invalidateHoverTracking()
 		if window.OnResize != nil {
 			window.OnResize(window.client)
 		}

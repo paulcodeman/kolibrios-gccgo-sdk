@@ -47,8 +47,7 @@ func (window *Window) Append(node Node) {
 	window.nodes = append(window.nodes, node)
 	window.layoutDirty = true
 	window.renderListValid = false
-	window.hoverDirty = true
-	window.lastMouseValid = false
+	window.invalidateHoverTracking()
 }
 
 func (window *Window) Close() {

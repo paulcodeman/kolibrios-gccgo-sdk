@@ -32,8 +32,7 @@ func (window *Window) UpdateStyle(update func(style *Style)) bool {
 	if window.styleLayoutChanged(oldStyle, window.Style) {
 		window.layoutDirty = true
 		window.renderListValid = false
-		window.hoverDirty = true
-		window.lastMouseValid = false
+		window.invalidateHoverTracking()
 		changed = true
 	}
 	if !styleVisualKeyEqual(oldVisual, newVisual) {

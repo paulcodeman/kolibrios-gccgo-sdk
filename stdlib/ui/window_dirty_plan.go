@@ -166,8 +166,7 @@ func (window *Window) applyDirtyPlan(plan *windowDirtyPlan) bool {
 		window.layoutFlow()
 		window.buildRenderList()
 		dirty, dirtySet = window.mergeDirtyBounds(dirty, dirtySet, oldBounds, oldKeys, window.nodeBounds, plan.scrollOffset)
-		window.hoverDirty = true
-		window.lastMouseValid = false
+		window.invalidateHoverTracking()
 		window.layoutDirty = false
 		window.resetDirtyQueue()
 	case windowDirtyPlanRebuild:

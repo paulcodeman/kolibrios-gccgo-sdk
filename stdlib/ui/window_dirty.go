@@ -80,12 +80,21 @@ func (window *Window) noteHandlerMayMutate(target Node) {
 	window.visualDirtyOnly = false
 	if element, ok := target.(*Element); ok {
 		if element.OnClick != nil {
-			window.hoverDirty = true
-			window.lastMouseValid = false
+			window.invalidateHoverTracking()
 		}
 		return
 	}
 	// Unknown node types may mutate arbitrary state.
+	window.invalidateHoverTracking()
+}
+
+func (window *Window) invalidateHoverTracking() {
+	if window == nil {
+		return
+	}
+	if !window.lastMouseValid && window.mouseHover == nil && window.mouseDown == nil {
+		return
+	}
 	window.hoverDirty = true
 	window.lastMouseValid = false
 }
@@ -100,8 +109,7 @@ func (window *Window) invalidateRect(rect Rect, invalidateHover bool) {
 		window.visualDirtyOnly = true
 	}
 	if invalidateHover {
-		window.hoverDirty = true
-		window.lastMouseValid = false
+		window.invalidateHoverTracking()
 	}
 	client := Rect{X: 0, Y: 0, Width: window.client.Width, Height: window.client.Height}
 	clamped := IntersectRect(rect, client)

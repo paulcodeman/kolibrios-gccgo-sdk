@@ -30,8 +30,7 @@ func (window *Window) syncWindowInfo() {
 		window.invalidateWindowEffectPropertyState()
 		window.layoutDirty = true
 		window.renderListValid = false
-		window.hoverDirty = true
-		window.lastMouseValid = false
+		window.invalidateHoverTracking()
 		if window.OnResize != nil {
 			window.OnResize(window.client)
 		}
