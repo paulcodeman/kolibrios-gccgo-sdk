@@ -175,31 +175,6 @@ func (window *Window) windowEffectPropertyStateValue() windowEffectPropertyState
 	return state
 }
 
-func (window *Window) windowPropertyStateValue() windowPropertyState {
-	if window == nil {
-		return windowPropertyState{}
-	}
-	state := window.propertyState
-	if !state.contentValid {
-		state.content = window.contentRect()
-		state.contentValid = true
-	}
-	if !state.scrollValid {
-		state.scroll = window.computeScrollPropertyState(state.content)
-		state.scrollValid = true
-	}
-	if !state.clipValid {
-		state.clip = window.computeClipPropertyState(state.content)
-		state.clipValid = true
-	}
-	if !state.effectValid {
-		state.effect = window.computeEffectPropertyState()
-		state.effectValid = true
-	}
-	window.propertyState = state
-	return state
-}
-
 func (window *Window) computeScrollPropertyState(content Rect) windowScrollPropertyState {
 	state := windowScrollPropertyState{
 		enabled: window != nil && window.scrollEnabled(),

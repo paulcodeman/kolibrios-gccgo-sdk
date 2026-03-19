@@ -34,20 +34,16 @@ type windowPrepaintPlan struct {
 	applyTranslateBlit bool
 }
 
-func (window *Window) splitScrollbarDirty(dirty Rect) (Rect, Rect) {
-	if window == nil || dirty.Empty() {
+func splitScrollbarDirtyWithState(scrollState windowScrollPropertyState, dirty Rect) (Rect, Rect) {
+	if dirty.Empty() || !scrollState.visible {
 		return dirty, Rect{}
 	}
-	track, _, _, ok := window.windowScrollbarLayout()
-	if !ok {
-		return dirty, Rect{}
-	}
-	scrollbarDirty := IntersectRect(dirty, track)
+	scrollbarDirty := IntersectRect(dirty, scrollState.track)
 	if scrollbarDirty.Empty() {
 		return dirty, Rect{}
 	}
 	contentDirty := dirty
-	if rectContainsRect(track, dirty) {
+	if rectContainsRect(scrollState.track, dirty) {
 		contentDirty = Rect{}
 	}
 	return contentDirty, scrollbarDirty
@@ -110,7 +106,7 @@ func (window *Window) buildPrepaintPlanWithState(scrollState windowScrollPropert
 		return plan, true
 	}
 	if dirtyPlan.mode == windowDirtyPlanNone && !dirtyPlan.hasDamage(windowDirtyDamageScroll) {
-		plan.contentDirty, plan.scrollbarDirty = window.splitScrollbarDirty(plan.dirty)
+		plan.contentDirty, plan.scrollbarDirty = splitScrollbarDirtyWithState(scrollState, plan.dirty)
 		plan.scrollbarDirtySet = !plan.scrollbarDirty.Empty()
 		plan.drawContent = !plan.contentDirty.Empty()
 		plan.drawScrollbar = plan.scrollbarDirtySet

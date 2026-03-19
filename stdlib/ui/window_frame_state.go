@@ -26,50 +26,6 @@ func (window *Window) endWindowFrameState() {
 	window.frameStateActive = false
 }
 
-func (window *Window) currentFramePropertyState() windowPropertyState {
-	if window == nil {
-		return windowPropertyState{}
-	}
-	if !window.frameStateActive {
-		return window.windowPropertyStateValue()
-	}
-	state := window.frameState.properties
-	if !state.contentValid {
-		state.content = window.windowContentPropertyStateValue()
-		state.contentValid = true
-	}
-	if !state.scrollValid {
-		state.scroll = window.windowScrollPropertyStateValue()
-		state.scrollValid = true
-	}
-	if !state.clipValid {
-		state.clip = window.windowClipPropertyStateValue()
-		state.clipValid = true
-	}
-	if !state.effectValid {
-		state.effect = window.windowEffectPropertyStateValue()
-		state.effectValid = true
-	}
-	window.frameState.properties = state
-	return state
-}
-
-func (window *Window) currentFrameContentPropertyState() Rect {
-	if window == nil {
-		return Rect{}
-	}
-	if !window.frameStateActive {
-		return window.windowContentPropertyStateValue()
-	}
-	if window.frameState.properties.contentValid {
-		return window.frameState.properties.content
-	}
-	content := window.windowContentPropertyStateValue()
-	window.frameState.properties.content = content
-	window.frameState.properties.contentValid = true
-	return content
-}
-
 func (window *Window) currentFrameScrollPropertyState() windowScrollPropertyState {
 	if window == nil {
 		return windowScrollPropertyState{}
