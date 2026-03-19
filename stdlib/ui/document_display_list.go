@@ -136,6 +136,28 @@ func (list FragmentDisplayList) Find(x int, y int) *DocumentNode {
 	return nil
 }
 
+func sameFragmentDisplayHitGeometry(a FragmentDisplayList, b FragmentDisplayList) bool {
+	if len(a.items) != len(b.items) {
+		return false
+	}
+	for i := range a.items {
+		left := a.items[i]
+		right := b.items[i]
+		var leftNode *DocumentNode
+		var rightNode *DocumentNode
+		if left.Fragment != nil {
+			leftNode = left.Fragment.Node
+		}
+		if right.Fragment != nil {
+			rightNode = right.Fragment.Node
+		}
+		if leftNode != rightNode || left.Bounds != right.Bounds || left.Clip != right.Clip || left.ClipSet != right.ClipSet {
+			return false
+		}
+	}
+	return true
+}
+
 func buildFragmentDisplayList(root *Fragment, viewport Rect) FragmentDisplayList {
 	if root == nil {
 		return FragmentDisplayList{}

@@ -17,13 +17,27 @@ type documentBoxPlan struct {
 	y         int
 }
 
+func documentHitGridBoundsFor(viewport Rect, content Rect) Rect {
+	if !content.Empty() {
+		return content
+	}
+	return viewport
+}
+
 func (document *Document) Layout(ctx LayoutContext) {
 	if document == nil {
 		return
 	}
-	document.clearLayout()
+	oldHitBounds := documentHitGridBoundsFor(document.viewport, document.content)
+	oldDisplay := document.resetLayoutState()
 	document.viewport = ctx.Viewport
 	if document.Root == nil {
+		document.bumpDisplayVersion()
+		newHitBounds := documentHitGridBoundsFor(document.viewport, document.content)
+		if oldHitBounds != newHitBounds || !sameFragmentDisplayHitGeometry(oldDisplay, document.displayList) {
+			document.bumpGeometryVersion()
+			document.invalidateHitGrid()
+		}
 		return
 	}
 	document.fragmentByNode = make(map[*DocumentNode]*Fragment, 16)
@@ -32,8 +46,11 @@ func (document *Document) Layout(ctx LayoutContext) {
 	document.displayList = buildFragmentDisplayList(root, ctx.Viewport)
 	document.content = fragmentUnionBounds(root)
 	document.bumpDisplayVersion()
-	document.bumpGeometryVersion()
-	document.invalidateHitGrid()
+	newHitBounds := documentHitGridBoundsFor(document.viewport, document.content)
+	if oldHitBounds != newHitBounds || !sameFragmentDisplayHitGeometry(oldDisplay, document.displayList) {
+		document.bumpGeometryVersion()
+		document.invalidateHitGrid()
+	}
 }
 
 func (document *Document) Paint(canvas *Canvas) {
@@ -80,14 +97,27 @@ func (document *Document) clearLayout() {
 	if document == nil {
 		return
 	}
+	oldHitBounds := documentHitGridBoundsFor(document.viewport, document.content)
+	oldDisplay := document.resetLayoutState()
+	document.bumpDisplayVersion()
+	newHitBounds := documentHitGridBoundsFor(document.viewport, document.content)
+	if oldHitBounds != newHitBounds || !sameFragmentDisplayHitGeometry(oldDisplay, document.displayList) {
+		document.bumpGeometryVersion()
+		document.invalidateHitGrid()
+	}
+}
+
+func (document *Document) resetLayoutState() FragmentDisplayList {
+	if document == nil {
+		return FragmentDisplayList{}
+	}
+	oldDisplay := document.displayList
 	releaseFragmentTree(document.rootFragment)
 	document.rootFragment = nil
 	document.displayList = FragmentDisplayList{}
 	document.content = Rect{}
 	document.fragmentByNode = nil
-	document.bumpDisplayVersion()
-	document.bumpGeometryVersion()
-	document.invalidateHitGrid()
+	return oldDisplay
 }
 
 func (document *Document) registerFragment(fragment *Fragment) {
