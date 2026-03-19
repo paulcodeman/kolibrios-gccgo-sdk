@@ -139,11 +139,23 @@ func (document *Document) layoutNode(ctx LayoutContext, parentStyle Style, node 
 	if display == DisplayNone {
 		return nil, flowY
 	}
+	fragment := document.layoutStyledNode(ctx, node, style, display, container, 0, flowY)
+	if fragment == nil {
+		return nil, flowY
+	}
+	if effectivePosition(style) == PositionAbsolute {
+		return fragment, flowY
+	}
+	margin, _ := resolveSpacingNormalized(style.margin)
+	return fragment, flowY + fragment.Bounds.Height + margin.Top + margin.Bottom
+}
+
+func (document *Document) layoutStyledNode(ctx LayoutContext, node *DocumentNode, style Style, display DisplayMode, container Rect, flowX int, flowY int) *Fragment {
 	switch node.Kind {
 	case DocumentNodeText:
-		return document.layoutTextNode(ctx, node, style, container, flowY)
+		return document.layoutTextNode(ctx, node, style, display, container, flowX, flowY)
 	default:
-		return document.layoutElementNode(ctx, node, style, container, flowY)
+		return document.layoutElementNode(ctx, node, style, display, container, flowX, flowY)
 	}
 }
 
@@ -152,22 +164,81 @@ func (document *Document) layoutChildren(ctx LayoutContext, parentStyle Style, n
 		return nil, container.Y
 	}
 	children := make([]*Fragment, 0, len(nodes))
+	cursorX := 0
 	cursorY := container.Y
+	lineHeight := 0
+	maxWidth := container.Width
 	for _, child := range nodes {
-		fragment, nextY := document.layoutNode(ctx, parentStyle, child, container, cursorY)
+		fragment, nextX, nextY, nextLineHeight := document.layoutChildFlow(ctx, parentStyle, child, container, cursorX, cursorY, lineHeight, maxWidth)
 		if fragment == nil {
 			continue
 		}
 		children = append(children, fragment)
-		if nextY > cursorY {
-			cursorY = nextY
-		}
+		cursorX = nextX
+		cursorY = nextY
+		lineHeight = nextLineHeight
 	}
-	return children, cursorY
+	flowBottom := cursorY
+	if lineHeight > 0 && cursorY+lineHeight > flowBottom {
+		flowBottom = cursorY + lineHeight
+	}
+	return children, flowBottom
 }
 
-func (document *Document) layoutElementNode(ctx LayoutContext, node *DocumentNode, style Style, container Rect, flowY int) (*Fragment, int) {
-	plan := planDocumentBox(style, container, flowY)
+func (document *Document) layoutChildFlow(ctx LayoutContext, parentStyle Style, node *DocumentNode, container Rect, cursorX int, cursorY int, lineHeight int, maxWidth int) (*Fragment, int, int, int) {
+	if node == nil {
+		return nil, cursorX, cursorY, lineHeight
+	}
+	style := documentComputedStyle(parentStyle, node)
+	display := documentDisplay(style, node.Kind)
+	if display == DisplayNone {
+		return nil, cursorX, cursorY, lineHeight
+	}
+	if effectivePosition(style) == PositionAbsolute {
+		fragment := document.layoutStyledNode(ctx, node, style, display, container, 0, cursorY)
+		return fragment, cursorX, cursorY, lineHeight
+	}
+	margin, _ := resolveSpacingNormalized(style.margin)
+	if display == DisplayBlock {
+		if cursorX > 0 {
+			cursorX = 0
+			cursorY += lineHeight
+			lineHeight = 0
+		}
+		fragment := document.layoutStyledNode(ctx, node, style, display, container, 0, cursorY)
+		if fragment == nil {
+			return nil, cursorX, cursorY, lineHeight
+		}
+		nextY := cursorY + fragment.Bounds.Height + margin.Top + margin.Bottom
+		return fragment, 0, nextY, 0
+	}
+
+	fragment := document.layoutStyledNode(ctx, node, style, display, container, cursorX, cursorY)
+	if fragment == nil {
+		return nil, cursorX, cursorY, lineHeight
+	}
+	outerW := fragment.Bounds.Width + margin.Left + margin.Right
+	outerH := fragment.Bounds.Height + margin.Top + margin.Bottom
+	if cursorX > 0 && outerW > 0 && cursorX+outerW > maxWidth {
+		cursorX = 0
+		cursorY += lineHeight
+		lineHeight = 0
+		fragment = document.layoutStyledNode(ctx, node, style, display, container, 0, cursorY)
+		if fragment == nil {
+			return nil, cursorX, cursorY, lineHeight
+		}
+		outerW = fragment.Bounds.Width + margin.Left + margin.Right
+		outerH = fragment.Bounds.Height + margin.Top + margin.Bottom
+	}
+	cursorX += outerW
+	if outerH > lineHeight {
+		lineHeight = outerH
+	}
+	return fragment, cursorX, cursorY, lineHeight
+}
+
+func (document *Document) layoutElementNode(ctx LayoutContext, node *DocumentNode, style Style, display DisplayMode, container Rect, flowX int, flowY int) *Fragment {
+	plan := planDocumentBox(style, display, container, flowX, flowY)
 	insets := boxInsets(style)
 	contentX := plan.x + insets.Left
 	contentY := plan.y + insets.Top
@@ -191,6 +262,24 @@ func (document *Document) layoutElementNode(ctx LayoutContext, node *DocumentNod
 		height = insets.Top + contentHeight + insets.Bottom
 	}
 	height = clampHeightForStyle(style, height)
+	if !plan.widthSet && display != DisplayBlock {
+		autoWidth := insets.Left + insets.Right
+		maxRight := contentX
+		for _, child := range children {
+			if child == nil {
+				continue
+			}
+			right := child.Bounds.X + child.Bounds.Width
+			if !child.PaintBounds.Empty() {
+				right = child.PaintBounds.X + child.PaintBounds.Width
+			}
+			if right > maxRight {
+				maxRight = right
+			}
+		}
+		autoWidth += maxRight - contentX
+		plan.width = clampWidthForStyle(style, autoWidth)
+	}
 	if plan.position == PositionAbsolute && !plan.topSet && plan.bottomSet {
 		finalY := container.Y + container.Height - plan.bottom - plan.margin.Bottom - height
 		if finalY != plan.y {
@@ -219,14 +308,14 @@ func (document *Document) layoutElementNode(ctx LayoutContext, node *DocumentNod
 	}
 	fragment.PaintBounds = fragmentPaintBounds(fragment)
 	document.registerFragment(fragment)
-	return fragment, nextFlowY(plan, height, flowY)
+	return fragment
 }
 
-func (document *Document) layoutTextNode(ctx LayoutContext, node *DocumentNode, style Style, container Rect, flowY int) (*Fragment, int) {
+func (document *Document) layoutTextNode(ctx LayoutContext, node *DocumentNode, style Style, display DisplayMode, container Rect, flowX int, flowY int) *Fragment {
 	if node == nil || node.Text == "" {
-		return nil, flowY
+		return nil
 	}
-	plan := planDocumentBox(style, container, flowY)
+	plan := planDocumentBox(style, display, container, flowX, flowY)
 	insets := boxInsets(style)
 	contentWidth := plan.width - insets.Left - insets.Right
 	if contentWidth < 0 {
@@ -239,6 +328,17 @@ func (document *Document) layoutTextNode(ctx LayoutContext, node *DocumentNode, 
 		charWidth = defaultCharWidth
 	}
 	lines := node.wrapTextLinesCachedStyle(node.Text, contentWidth, font, charWidth, style)
+	if display != DisplayBlock {
+		inlineStyle := style
+		inlineStyle.SetWhiteSpace(WhiteSpaceNoWrap)
+		inlineWidth := textWidthWithFont(node.Text, font, charWidth)
+		if inlineWidth < 1 {
+			inlineWidth = 1
+		}
+		lines = node.wrapTextLinesCachedStyle(node.Text, inlineWidth, font, charWidth, inlineStyle)
+		contentWidth = maxLineWidth(lines, font, charWidth)
+		plan.width = insets.Left + contentWidth + insets.Right
+	}
 	contentHeight := len(lines) * lineHeight
 	height, heightSet := explicitOuterHeight(style)
 	if !heightSet {
@@ -274,7 +374,7 @@ func (document *Document) layoutTextNode(ctx LayoutContext, node *DocumentNode, 
 	}
 	fragment.PaintBounds = fragmentPaintBounds(fragment)
 	document.registerFragment(fragment)
-	return fragment, nextFlowY(plan, height, flowY)
+	return fragment
 }
 
 func releaseFragmentTree(fragment *Fragment) {
@@ -329,7 +429,7 @@ func shiftFragmentTree(fragment *Fragment, dx int, dy int) {
 	}
 }
 
-func planDocumentBox(style Style, container Rect, flowY int) documentBoxPlan {
+func planDocumentBox(style Style, display DisplayMode, container Rect, flowX int, flowY int) documentBoxPlan {
 	plan := documentBoxPlan{}
 	plan.margin, _ = resolveSpacingNormalized(style.margin)
 	if position, ok := resolvePosition(style.position); ok {
@@ -341,16 +441,21 @@ func planDocumentBox(style Style, container Rect, flowY int) documentBoxPlan {
 	plan.bottom, plan.bottomSet = resolveLength(style.bottom)
 	plan.width, plan.widthSet = explicitOuterWidth(style)
 	if !plan.widthSet {
-		plan.width = container.Width - plan.margin.Left - plan.margin.Right
+		availableWidth := container.Width - plan.margin.Left - plan.margin.Right
+		if display != DisplayBlock {
+			availableWidth -= flowX
+		}
+		plan.width = availableWidth
 		if plan.position == PositionAbsolute && plan.leftSet && plan.rightSet {
 			plan.width = container.Width - plan.left - plan.right - plan.margin.Left - plan.margin.Right
 		}
 	}
 	plan.width = clampWidthForStyle(style, plan.width)
-	plan.x = container.X + plan.margin.Left
+	plan.x = container.X + flowX + plan.margin.Left
 	plan.y = flowY + plan.margin.Top
 	if plan.position == PositionAbsolute {
 		plan.y = container.Y + plan.margin.Top
+		plan.x = container.X + plan.margin.Left
 	}
 	switch plan.position {
 	case PositionAbsolute:

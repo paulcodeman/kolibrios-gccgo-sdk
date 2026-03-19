@@ -1,5 +1,5 @@
-PROGRAM = webview
+PROGRAM = tagix_browser
 PACKAGE_DIRS = kos ui io strings dom
-ROOT = ../../..
+ROOT = ../..
 
 include $(ROOT)/tooling/kolibri-app.mk
