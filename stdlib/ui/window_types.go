@@ -71,6 +71,7 @@ type Window struct {
 	translateBlits          []translateBlitOp
 	propertyState           windowPropertyState
 	propertyStateValid      bool
+	displayState            windowDisplayState
 	frameState              windowFrameState
 	frameStateActive        bool
 	caretBlinkResetAt       uint32
@@ -84,6 +85,7 @@ type Window struct {
 	backgroundCacheRect     Rect
 	tinyglNodes             []*Element
 	hitGrid                 hitTestGrid
+	hitGridValid            bool
 	allNodes                []Node
 	nodeBounds              map[Node]Rect
 	renderIndex             map[Node]int

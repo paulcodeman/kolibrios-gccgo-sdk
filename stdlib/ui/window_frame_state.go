@@ -3,6 +3,8 @@ package ui
 type windowFrameState struct {
 	properties      windowPropertyState
 	propertiesValid bool
+	display         DisplayList
+	displayValid    bool
 	prepaint        windowPrepaintPlan
 	prepaintValid   bool
 }

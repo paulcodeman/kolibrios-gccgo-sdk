@@ -211,7 +211,7 @@ func (window *Window) noteScrollChanged() {
 	window.lastMouseValid = false
 	window.scrollRedraw = true
 	if window.renderListValid {
-		window.hitGrid.build(window.client, window.currentDisplayList())
+		window.invalidateHitGrid()
 	}
 	viewport := window.scrollViewportRect()
 	if viewport.Empty() {

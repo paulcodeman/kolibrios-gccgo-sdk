@@ -37,6 +37,7 @@ func (window *Window) invalidateWindowPropertyState() {
 	}
 	window.propertyState = windowPropertyState{}
 	window.propertyStateValid = false
+	window.invalidateWindowDisplayState()
 }
 
 func (window *Window) windowPropertyStateValue() windowPropertyState {

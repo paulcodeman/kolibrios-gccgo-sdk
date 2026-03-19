@@ -48,6 +48,7 @@ func (window *Window) buildRenderList() {
 	if window == nil {
 		return
 	}
+	window.invalidateWindowDisplayState()
 	window.renderList = window.renderList[:0]
 	window.allNodes = window.allNodes[:0]
 	window.tinyglNodes = window.tinyglNodes[:0]
@@ -71,7 +72,7 @@ func (window *Window) buildRenderList() {
 	}
 	window.appendRenderItems(window.nodes, clipState{}, gen, false, false)
 	window.updateScrollMetrics()
-	window.hitGrid.build(window.client, window.currentDisplayList())
+	window.invalidateHitGrid()
 	window.renderListValid = true
 }
 

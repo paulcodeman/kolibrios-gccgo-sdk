@@ -141,17 +141,6 @@ func (window *Window) scrollPaintOffset() int {
 	return window.currentFrameScrollPaintOffset()
 }
 
-func (window *Window) currentDisplayList() DisplayList {
-	if window == nil {
-		return DisplayList{}
-	}
-	return DisplayList{
-		items:        window.renderList,
-		rootClip:     window.rootClipState(),
-		scrollOffset: window.scrollPaintOffset(),
-	}
-}
-
 func (list DisplayList) Items() []renderItem {
 	return list.items
 }
