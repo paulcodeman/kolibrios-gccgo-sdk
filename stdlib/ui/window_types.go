@@ -92,6 +92,7 @@ type Window struct {
 	renderVisited           map[Node]struct{}
 	dirtyCandidates         map[Node]struct{}
 	dirtyList               []Node
+	dirtyPlanNodes          []Node
 	renderVisitGen          uint32
 	layoutVisitGen          uint32
 	dirtyQueueGen           uint32
