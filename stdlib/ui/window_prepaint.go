@@ -32,6 +32,7 @@ func (window *Window) buildPrepaintPlan() (windowPrepaintPlan, bool) {
 	if window == nil || window.canvas == nil || !window.dirtySet {
 		return windowPrepaintPlan{}, false
 	}
+	state := window.computeWindowPropertyState()
 	full := Rect{X: 0, Y: 0, Width: window.client.Width, Height: window.client.Height}
 	plan := windowPrepaintPlan{
 		mode:  windowPrepaintPartial,
@@ -41,18 +42,18 @@ func (window *Window) buildPrepaintPlan() (windowPrepaintPlan, bool) {
 		plan.mode = windowPrepaintFull
 		return plan, true
 	}
-	if color, ok := window.simpleBackgroundColor(); ok {
+	if state.effect.simpleBackground {
 		plan.clearMode = windowPrepaintClearSolid
-		plan.clearColor = color
-	} else if cache := window.ensureBackgroundCache(); cache != nil {
+		plan.clearColor = state.effect.backgroundColor
+	} else if state.effect.backgroundCache != nil {
 		plan.clearMode = windowPrepaintClearCache
-		plan.backgroundCache = cache
-	} else {
+		plan.backgroundCache = state.effect.backgroundCache
+	} else if state.effect.needsFullRedraw {
 		plan.mode = windowPrepaintFull
 		plan.dirty = full
 		return plan, true
 	}
-	if window.canUseScrollBlit(window.scrollViewportRect()) {
+	if state.scroll.enabled && window.canUseScrollBlit(state.scroll.viewport) {
 		plan.applyScrollBlit = true
 	}
 	if len(window.translateBlits) != 0 {

@@ -1,32 +1,10 @@
 package ui
 
 func (window *Window) rootClipState() clipState {
-	if window == nil || window.canvas == nil {
+	if window == nil {
 		return clipState{}
 	}
-	clipX, clipY := overflowClipAxes(window.Style)
-	if !clipY && window.scrollEnabled() {
-		clipY = true
-	}
-	if !clipX && !clipY {
-		return clipState{}
-	}
-	content := window.contentRect()
-	if content.Empty() {
-		return clipState{rect: Rect{}, set: true}
-	}
-	canvasBounds := Rect{X: 0, Y: 0, Width: window.canvas.Width(), Height: window.canvas.Height()}
-	base := canvasBounds
-	if clipX {
-		base.X = content.X
-		base.Width = content.Width
-	}
-	if clipY {
-		base.Y = content.Y
-		base.Height = content.Height
-	}
-	base = IntersectRect(base, canvasBounds)
-	return clipState{rect: base, set: true}
+	return window.computeClipPropertyState(window.contentRect()).root
 }
 
 func (window *Window) drawRenderList(full bool, dirty Rect, stats *FrameStats) {
