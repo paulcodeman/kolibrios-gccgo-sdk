@@ -58,6 +58,27 @@ func (window *Window) currentFrameClipPropertyState() windowClipPropertyState {
 	return window.computeClipPropertyState(window.contentRect())
 }
 
+func (window *Window) currentFrameEffectPropertyState() windowEffectPropertyState {
+	if window == nil {
+		return windowEffectPropertyState{}
+	}
+	if window.frameStateActive && window.frameState.propertiesValid {
+		return window.frameState.properties.effect
+	}
+	return window.computeEffectPropertyState()
+}
+
+func (window *Window) currentFrameScrollPaintOffset() int {
+	if window == nil {
+		return 0
+	}
+	state := window.currentFrameScrollPropertyState()
+	if !state.enabled || state.offsetY == 0 {
+		return 0
+	}
+	return -state.offsetY
+}
+
 func (window *Window) currentFramePrepaintPlan() (windowPrepaintPlan, bool) {
 	if window == nil {
 		return windowPrepaintPlan{}, false

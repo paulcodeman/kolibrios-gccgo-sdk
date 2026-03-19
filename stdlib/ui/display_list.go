@@ -138,10 +138,7 @@ func (window *Window) scrollPaintOffset() int {
 	if window == nil {
 		return 0
 	}
-	if window.scrollEnabled() && window.scrollY != 0 {
-		return -window.scrollY
-	}
-	return 0
+	return window.currentFrameScrollPaintOffset()
 }
 
 func (window *Window) currentDisplayList() DisplayList {

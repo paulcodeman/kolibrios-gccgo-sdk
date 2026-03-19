@@ -178,11 +178,12 @@ func (window *Window) drawBackgroundFull() {
 	if rect.Empty() {
 		return
 	}
-	if color, ok := window.simpleBackgroundColor(); ok {
-		window.canvas.Clear(color)
+	effect := window.currentFrameEffectPropertyState()
+	if effect.simpleBackground {
+		window.canvas.Clear(effect.backgroundColor)
 		return
 	}
-	if cache := window.ensureBackgroundCache(); cache != nil {
-		window.canvas.BlitFrom(cache, rect, rect.X, rect.Y)
+	if effect.backgroundCache != nil {
+		window.canvas.BlitFrom(effect.backgroundCache, rect, rect.X, rect.Y)
 	}
 }
