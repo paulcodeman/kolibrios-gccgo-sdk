@@ -28,11 +28,10 @@ type windowPrepaintPlan struct {
 	applyTranslateBlit bool
 }
 
-func (window *Window) buildPrepaintPlan() (windowPrepaintPlan, bool) {
+func (window *Window) buildPrepaintPlanWithState(state windowPropertyState) (windowPrepaintPlan, bool) {
 	if window == nil || window.canvas == nil || !window.dirtySet {
 		return windowPrepaintPlan{}, false
 	}
-	state := window.windowPropertyStateValue()
 	full := Rect{X: 0, Y: 0, Width: window.client.Width, Height: window.client.Height}
 	plan := windowPrepaintPlan{
 		mode:  windowPrepaintPartial,
@@ -60,6 +59,13 @@ func (window *Window) buildPrepaintPlan() (windowPrepaintPlan, bool) {
 		plan.applyTranslateBlit = true
 	}
 	return plan, true
+}
+
+func (window *Window) buildPrepaintPlan() (windowPrepaintPlan, bool) {
+	if window == nil {
+		return windowPrepaintPlan{}, false
+	}
+	return window.buildPrepaintPlanWithState(window.currentFramePropertyState())
 }
 
 func (window *Window) applyPrepaintPlan(plan windowPrepaintPlan) {

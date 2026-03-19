@@ -92,14 +92,14 @@ func (window *Window) scrollViewportRect() Rect {
 	if window == nil {
 		return Rect{}
 	}
-	return window.windowPropertyStateValue().scroll.viewport
+	return window.currentFrameScrollPropertyState().viewport
 }
 
 func (window *Window) pendingScrollDelta() int {
 	if window == nil {
 		return 0
 	}
-	return window.windowPropertyStateValue().scroll.deltaY
+	return window.currentFrameScrollPropertyState().deltaY
 }
 
 func (window *Window) canUseScrollBlit(viewport Rect) bool {

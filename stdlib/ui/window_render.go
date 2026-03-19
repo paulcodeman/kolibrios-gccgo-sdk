@@ -7,6 +7,7 @@ func (window *Window) Redraw() {
 		return
 	}
 	window.invalidateWindowPropertyState()
+	window.beginWindowFrameState()
 	window.syncWindowInfo()
 	window.ensureCanvas()
 
@@ -21,6 +22,7 @@ func (window *Window) Redraw() {
 	window.clearPresentRect()
 	window.syncScrollDrawState()
 	window.noteCaretBlinkDrawn()
+	window.endWindowFrameState()
 }
 
 func (window *Window) RedrawContent() {
@@ -28,11 +30,13 @@ func (window *Window) RedrawContent() {
 		return
 	}
 	window.invalidateWindowPropertyState()
+	window.beginWindowFrameState()
 	if window.client.Empty() || window.canvas == nil {
 		window.syncWindowInfo()
 	}
 	window.ensureCanvas()
 	if !window.collectDirty() {
+		window.endWindowFrameState()
 		return
 	}
 	window.drawDirty()
@@ -41,6 +45,7 @@ func (window *Window) RedrawContent() {
 		window.drawTinyGL(false, window.dirty)
 	}
 	window.noteCaretBlinkDrawn()
+	window.endWindowFrameState()
 }
 
 func (window *Window) RedrawContentStats(stats *FrameStats) {
@@ -48,8 +53,10 @@ func (window *Window) RedrawContentStats(stats *FrameStats) {
 		return
 	}
 	window.invalidateWindowPropertyState()
+	window.beginWindowFrameState()
 	if stats == nil {
 		window.RedrawContent()
+		window.endWindowFrameState()
 		return
 	}
 	*stats = FrameStats{}
@@ -62,6 +69,7 @@ func (window *Window) RedrawContentStats(stats *FrameStats) {
 		stats.TotalNs = 0
 		stats.DrawNs = 0
 		stats.BlitNs = 0
+		window.endWindowFrameState()
 		return
 	}
 	window.drawDirtyStats(stats)
@@ -74,6 +82,7 @@ func (window *Window) RedrawContentStats(stats *FrameStats) {
 	stats.BlitNs = end - afterDraw
 	stats.TotalNs = end - start
 	window.noteCaretBlinkDrawn()
+	window.endWindowFrameState()
 }
 
 // RenderStats performs a headless render pass into the offscreen canvas without
@@ -83,7 +92,9 @@ func (window *Window) RenderStats(stats *FrameStats) {
 		return
 	}
 	window.invalidateWindowPropertyState()
+	window.beginWindowFrameState()
 	if stats == nil {
+		window.endWindowFrameState()
 		return
 	}
 	*stats = FrameStats{}
@@ -93,6 +104,7 @@ func (window *Window) RenderStats(stats *FrameStats) {
 		stats.TotalNs = 0
 		stats.DrawNs = 0
 		stats.BlitNs = 0
+		window.endWindowFrameState()
 		return
 	}
 	window.drawDirtyStats(stats)
@@ -102,6 +114,7 @@ func (window *Window) RenderStats(stats *FrameStats) {
 	window.dirtySet = false
 	window.clearPresentRect()
 	window.syncScrollDrawState()
+	window.endWindowFrameState()
 }
 
 // RenderListStats draws the current render list without layout or render-list rebuilds.
@@ -111,6 +124,7 @@ func (window *Window) RenderListStats(stats *FrameStats) {
 		return
 	}
 	window.invalidateWindowPropertyState()
+	window.beginWindowFrameState()
 	*stats = FrameStats{}
 	window.ensureCanvas()
 	// Ensure we have a render list at least once.
@@ -125,6 +139,7 @@ func (window *Window) RenderListStats(stats *FrameStats) {
 	window.dirtySet = false
 	window.clearPresentRect()
 	window.syncScrollDrawState()
+	window.endWindowFrameState()
 }
 
 // RenderStatsFull performs a full render pass (layout + full redraw) for headless runs.
@@ -134,7 +149,9 @@ func (window *Window) RenderStatsFull(stats *FrameStats) {
 		return
 	}
 	window.invalidateWindowPropertyState()
+	window.beginWindowFrameState()
 	if stats == nil {
+		window.endWindowFrameState()
 		return
 	}
 	*stats = FrameStats{}
@@ -145,6 +162,7 @@ func (window *Window) RenderStatsFull(stats *FrameStats) {
 	stats.TotalNs = end - start
 	window.clearPresentRect()
 	window.syncScrollDrawState()
+	window.endWindowFrameState()
 }
 
 func (window *Window) drawFrame() {
@@ -192,7 +210,7 @@ func (window *Window) drawFrameStats(stats *FrameStats) {
 }
 
 func (window *Window) drawDirty() {
-	plan, ok := window.buildPrepaintPlan()
+	plan, ok := window.currentFramePrepaintPlan()
 	if !ok {
 		return
 	}
@@ -214,7 +232,7 @@ func (window *Window) drawDirtyStats(stats *FrameStats) {
 	if stats == nil {
 		return
 	}
-	plan, ok := window.buildPrepaintPlan()
+	plan, ok := window.currentFramePrepaintPlan()
 	if !ok {
 		return
 	}

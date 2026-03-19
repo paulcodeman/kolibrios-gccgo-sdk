@@ -71,6 +71,8 @@ type Window struct {
 	translateBlits          []translateBlitOp
 	propertyState           windowPropertyState
 	propertyStateValid      bool
+	frameState              windowFrameState
+	frameStateActive        bool
 	caretBlinkResetAt       uint32
 	caretBlinkVisibleSet    bool
 	caretBlinkVisibleCached bool

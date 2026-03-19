@@ -4,7 +4,7 @@ func (window *Window) rootClipState() clipState {
 	if window == nil {
 		return clipState{}
 	}
-	return window.windowPropertyStateValue().clip.root
+	return window.currentFrameClipPropertyState().root
 }
 
 func (window *Window) drawRenderList(full bool, dirty Rect, stats *FrameStats) {
