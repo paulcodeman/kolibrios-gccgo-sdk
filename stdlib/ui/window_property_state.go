@@ -77,7 +77,7 @@ func (window *Window) invalidateWindowScrollPropertyState() {
 		return
 	}
 	window.invalidateWindowScrollMetricsState()
-	window.invalidateWindowDisplayState()
+	window.invalidateWindowDisplayScrollState()
 }
 
 func (window *Window) invalidateWindowScrollMetricsState() {
@@ -104,7 +104,7 @@ func (window *Window) invalidateWindowClipPropertyState() {
 		window.frameState.properties.clip = windowClipPropertyState{}
 		window.frameState.properties.clipValid = false
 	}
-	window.invalidateWindowDisplayState()
+	window.invalidateWindowDisplayClipState()
 }
 
 func (window *Window) invalidateWindowEffectPropertyState() {
