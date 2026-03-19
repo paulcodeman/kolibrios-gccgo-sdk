@@ -3,6 +3,8 @@ package ui
 type windowFrameState struct {
 	properties      windowPropertyState
 	propertiesValid bool
+	dirty           windowDirtyPlan
+	dirtyValid      bool
 	display         DisplayList
 	displayValid    bool
 	prepaint        windowPrepaintPlan
@@ -81,6 +83,26 @@ func (window *Window) currentFrameScrollPaintOffset() int {
 	return -state.offsetY
 }
 
+func (window *Window) noteFrameDirtyPlan(plan windowDirtyPlan) {
+	if window == nil || !window.frameStateActive {
+		return
+	}
+	window.frameState.dirty = plan
+	window.frameState.dirtyValid = true
+	window.frameState.prepaint = windowPrepaintPlan{}
+	window.frameState.prepaintValid = false
+}
+
+func (window *Window) currentFrameDirtyPlan() (windowDirtyPlan, bool) {
+	if window == nil {
+		return windowDirtyPlan{}, false
+	}
+	if window.frameStateActive && window.frameState.dirtyValid {
+		return window.frameState.dirty, true
+	}
+	return windowDirtyPlan{}, false
+}
+
 func (window *Window) currentFramePrepaintPlan() (windowPrepaintPlan, bool) {
 	if window == nil {
 		return windowPrepaintPlan{}, false
@@ -88,7 +110,11 @@ func (window *Window) currentFramePrepaintPlan() (windowPrepaintPlan, bool) {
 	if window.frameStateActive && window.frameState.prepaintValid {
 		return window.frameState.prepaint, true
 	}
-	plan, ok := window.buildPrepaintPlanWithState(window.currentFramePropertyState())
+	dirtyPlan, ok := window.currentFrameDirtyPlan()
+	if !ok {
+		return windowPrepaintPlan{}, false
+	}
+	plan, ok := window.buildPrepaintPlanWithState(window.currentFramePropertyState(), dirtyPlan)
 	if ok && window.frameStateActive {
 		window.frameState.prepaint = plan
 		window.frameState.prepaintValid = true

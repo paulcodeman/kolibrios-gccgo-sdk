@@ -28,17 +28,39 @@ type windowPrepaintPlan struct {
 	applyTranslateBlit bool
 }
 
-func (window *Window) buildPrepaintPlanWithState(state windowPropertyState) (windowPrepaintPlan, bool) {
-	if window == nil || window.canvas == nil || !window.dirtySet {
+func (window *Window) scrollDirtyRectWithState(state windowPropertyState) Rect {
+	if window == nil {
+		return Rect{}
+	}
+	viewport := state.scroll.viewport
+	if viewport.Empty() {
+		return Rect{X: 0, Y: 0, Width: window.client.Width, Height: window.client.Height}
+	}
+	dirty := viewport
+	if window.canUseScrollBlit(viewport) {
+		exposed := scrollExposeRect(viewport, state.scroll.deltaY)
+		if !exposed.Empty() {
+			dirty = exposed
+		}
+	}
+	if track, _, _, ok := window.windowScrollbarLayout(); ok {
+		dirty = UnionRect(dirty, track)
+	}
+	return dirty
+}
+
+func (window *Window) buildPrepaintPlanWithState(state windowPropertyState, dirtyPlan windowDirtyPlan) (windowPrepaintPlan, bool) {
+	if window == nil || window.canvas == nil || !window.dirtySet || !dirtyPlan.dirtySet {
 		return windowPrepaintPlan{}, false
 	}
 	full := Rect{X: 0, Y: 0, Width: window.client.Width, Height: window.client.Height}
 	plan := windowPrepaintPlan{
 		mode:  windowPrepaintPartial,
-		dirty: window.dirty,
+		dirty: dirtyPlan.dirty,
 	}
-	if plan.dirty == full {
+	if dirtyPlan.hasDamage(windowDirtyDamageFull) || plan.dirty == full {
 		plan.mode = windowPrepaintFull
+		plan.dirty = full
 		return plan, true
 	}
 	if state.effect.simpleBackground {
@@ -52,10 +74,14 @@ func (window *Window) buildPrepaintPlanWithState(state windowPropertyState) (win
 		plan.dirty = full
 		return plan, true
 	}
-	if state.scroll.enabled && window.canUseScrollBlit(state.scroll.viewport) {
+	if dirtyPlan.mode == windowDirtyPlanNone &&
+		dirtyPlan.hasDamage(windowDirtyDamageScroll) &&
+		state.scroll.enabled &&
+		window.canUseScrollBlit(state.scroll.viewport) &&
+		dirtyPlan.dirty == window.scrollDirtyRectWithState(state) {
 		plan.applyScrollBlit = true
 	}
-	if len(window.translateBlits) != 0 {
+	if dirtyPlan.hasDamage(windowDirtyDamageTranslate) && !dirtyPlan.hasDamage(windowDirtyDamageScroll) {
 		plan.applyTranslateBlit = true
 	}
 	return plan, true
@@ -65,7 +91,11 @@ func (window *Window) buildPrepaintPlan() (windowPrepaintPlan, bool) {
 	if window == nil {
 		return windowPrepaintPlan{}, false
 	}
-	return window.buildPrepaintPlanWithState(window.currentFramePropertyState())
+	dirtyPlan, ok := window.currentFrameDirtyPlan()
+	if !ok {
+		return windowPrepaintPlan{}, false
+	}
+	return window.buildPrepaintPlanWithState(window.currentFramePropertyState(), dirtyPlan)
 }
 
 func (window *Window) applyPrepaintPlan(plan windowPrepaintPlan) {

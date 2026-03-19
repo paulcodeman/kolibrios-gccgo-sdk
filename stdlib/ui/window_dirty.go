@@ -121,7 +121,10 @@ func (window *Window) collectDirty() bool {
 	if window == nil || window.canvas == nil {
 		return false
 	}
-	return window.applyDirtyPlan(window.buildDirtyPlan())
+	plan := window.buildDirtyPlan()
+	dirty := window.applyDirtyPlan(&plan)
+	window.noteFrameDirtyPlan(plan)
+	return dirty
 }
 
 func (window *Window) copyNodeBounds() map[Node]Rect {

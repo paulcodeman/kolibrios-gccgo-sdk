@@ -9,13 +9,30 @@ const (
 	windowDirtyPlanNodeUpdate
 )
 
+type windowDirtyDamage uint8
+
+const (
+	windowDirtyDamageInvalidate windowDirtyDamage = 1 << iota
+	windowDirtyDamageScroll
+	windowDirtyDamageLayout
+	windowDirtyDamageRebuild
+	windowDirtyDamageNodeUpdate
+	windowDirtyDamageTranslate
+	windowDirtyDamageFull
+)
+
 type windowDirtyPlan struct {
 	mode         windowDirtyPlanMode
+	damage       windowDirtyDamage
 	dirty        Rect
 	dirtySet     bool
 	full         Rect
 	scrollOffset int
 	dirtyNodes   []Node
+}
+
+func (plan windowDirtyPlan) hasDamage(flag windowDirtyDamage) bool {
+	return plan.damage&flag != 0
 }
 
 func (window *Window) initialDirtyPlan() windowDirtyPlan {
@@ -27,6 +44,14 @@ func (window *Window) initialDirtyPlan() windowDirtyPlan {
 	plan.dirtySet = window.dirtySet
 	plan.full = Rect{X: 0, Y: 0, Width: window.client.Width, Height: window.client.Height}
 	plan.scrollOffset = window.currentFrameScrollPaintOffset()
+	if window.scrollRedraw && window.pendingScrollDelta() != 0 {
+		plan.damage |= windowDirtyDamageScroll
+	} else if plan.dirtySet {
+		plan.damage |= windowDirtyDamageInvalidate
+	}
+	if plan.dirtySet && plan.dirty == plan.full {
+		plan.damage |= windowDirtyDamageFull
+	}
 	return plan
 }
 
@@ -72,16 +97,20 @@ func (window *Window) buildDirtyPlan() windowDirtyPlan {
 		window.lastBackground = window.Background
 		plan.dirty = plan.full
 		plan.dirtySet = true
+		plan.damage |= windowDirtyDamageInvalidate | windowDirtyDamageFull
 	}
 	if plan.dirtySet && plan.dirty == plan.full {
+		plan.damage |= windowDirtyDamageFull
 		return plan
 	}
 	if window.layoutDirty {
 		plan.mode = windowDirtyPlanLayout
+		plan.damage |= windowDirtyDamageLayout
 		return plan
 	}
 	if !window.renderListValid || window.nodeBounds == nil {
 		plan.mode = windowDirtyPlanRebuild
+		plan.damage |= windowDirtyDamageRebuild
 		return plan
 	}
 	if len(window.allNodes) == 0 {
@@ -107,14 +136,19 @@ func (window *Window) buildDirtyPlan() windowDirtyPlan {
 	window.resetDirtyQueue()
 	if window.dirtyNodesNeedLayout(plan.dirtyNodes) {
 		plan.mode = windowDirtyPlanLayout
+		plan.damage |= windowDirtyDamageLayout
 		return plan
 	}
 	plan.mode = windowDirtyPlanNodeUpdate
+	plan.damage |= windowDirtyDamageNodeUpdate
 	return plan
 }
 
-func (window *Window) applyDirtyPlan(plan windowDirtyPlan) bool {
+func (window *Window) applyDirtyPlan(plan *windowDirtyPlan) bool {
 	if window == nil {
+		return false
+	}
+	if plan == nil {
 		return false
 	}
 	dirty := plan.dirty
@@ -147,6 +181,7 @@ func (window *Window) applyDirtyPlan(plan windowDirtyPlan) bool {
 			rawUpdated := UnionRect(oldBounds, newBounds)
 			updated := rawUpdated
 			if exposed, ok := window.tryTranslateBlit(node, oldBounds, newBounds, nil, plan.scrollOffset); ok {
+				plan.damage |= windowDirtyDamageTranslate
 				updated = exposed
 			} else if plan.scrollOffset != 0 && !updated.Empty() {
 				updated.Y += plan.scrollOffset
@@ -173,5 +208,10 @@ func (window *Window) applyDirtyPlan(plan windowDirtyPlan) bool {
 	}
 	window.dirty = dirty
 	window.dirtySet = dirtySet
+	plan.dirty = dirty
+	plan.dirtySet = dirtySet
+	if dirtySet && dirty == plan.full {
+		plan.damage |= windowDirtyDamageFull
+	}
 	return dirtySet
 }
