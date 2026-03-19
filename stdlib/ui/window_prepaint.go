@@ -20,6 +20,8 @@ const (
 
 type windowPrepaintPlan struct {
 	mode               windowPrepaintMode
+	drawContent        bool
+	drawScrollbar      bool
 	visualOnly         bool
 	dirty              Rect
 	contentDirty       Rect
@@ -32,23 +34,23 @@ type windowPrepaintPlan struct {
 	applyTranslateBlit bool
 }
 
-func (window *Window) splitVisualScrollbarDirty(dirty Rect) (Rect, Rect, bool) {
+func (window *Window) splitScrollbarDirty(dirty Rect) (Rect, Rect) {
 	if window == nil || dirty.Empty() {
-		return dirty, Rect{}, false
+		return dirty, Rect{}
 	}
 	track, _, _, ok := window.windowScrollbarLayout()
 	if !ok {
-		return dirty, Rect{}, false
+		return dirty, Rect{}
 	}
 	scrollbarDirty := IntersectRect(dirty, track)
 	if scrollbarDirty.Empty() {
-		return dirty, Rect{}, false
+		return dirty, Rect{}
 	}
 	contentDirty := dirty
 	if rectContainsRect(track, dirty) {
 		contentDirty = Rect{}
 	}
-	return contentDirty, scrollbarDirty, true
+	return contentDirty, scrollbarDirty
 }
 
 func (window *Window) scrollDirtyRectWithState(state windowPropertyState) Rect {
@@ -78,13 +80,17 @@ func (window *Window) buildPrepaintPlanWithState(state windowPropertyState, dirt
 	}
 	full := Rect{X: 0, Y: 0, Width: window.client.Width, Height: window.client.Height}
 	plan := windowPrepaintPlan{
-		mode:         windowPrepaintPartial,
-		visualOnly:   dirtyPlan.hasDamage(windowDirtyDamageVisual),
-		dirty:        dirtyPlan.dirty,
-		contentDirty: dirtyPlan.dirty,
+		mode:          windowPrepaintPartial,
+		drawContent:   true,
+		drawScrollbar: true,
+		visualOnly:    dirtyPlan.hasDamage(windowDirtyDamageVisual),
+		dirty:         dirtyPlan.dirty,
+		contentDirty:  dirtyPlan.dirty,
 	}
 	if dirtyPlan.hasDamage(windowDirtyDamageFull) || plan.dirty == full {
 		plan.mode = windowPrepaintFull
+		plan.drawContent = true
+		plan.drawScrollbar = true
 		plan.dirty = full
 		plan.contentDirty = full
 		plan.scrollbarDirty = full
@@ -98,11 +104,16 @@ func (window *Window) buildPrepaintPlanWithState(state windowPropertyState, dirt
 		plan.backgroundCache = state.effect.backgroundCache
 	} else if state.effect.needsFullRedraw {
 		plan.mode = windowPrepaintFull
+		plan.drawContent = true
+		plan.drawScrollbar = true
 		plan.dirty = full
 		return plan, true
 	}
-	if plan.visualOnly {
-		plan.contentDirty, plan.scrollbarDirty, plan.scrollbarDirtySet = window.splitVisualScrollbarDirty(plan.dirty)
+	if dirtyPlan.mode == windowDirtyPlanNone && !dirtyPlan.hasDamage(windowDirtyDamageScroll) {
+		plan.contentDirty, plan.scrollbarDirty = window.splitScrollbarDirty(plan.dirty)
+		plan.scrollbarDirtySet = !plan.scrollbarDirty.Empty()
+		plan.drawContent = !plan.contentDirty.Empty()
+		plan.drawScrollbar = plan.scrollbarDirtySet
 	}
 	if dirtyPlan.mode == windowDirtyPlanNone &&
 		dirtyPlan.hasDamage(windowDirtyDamageScroll) &&
@@ -118,6 +129,8 @@ func (window *Window) buildPrepaintPlanWithState(state windowPropertyState, dirt
 			plan.scrollbarDirty = track
 			plan.scrollbarDirtySet = true
 		}
+		plan.drawContent = !plan.contentDirty.Empty()
+		plan.drawScrollbar = plan.scrollbarDirtySet
 	}
 	if dirtyPlan.hasDamage(windowDirtyDamageTranslate) && !dirtyPlan.hasDamage(windowDirtyDamageScroll) {
 		plan.applyTranslateBlit = true

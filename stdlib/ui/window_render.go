@@ -228,11 +228,11 @@ func (window *Window) drawDirty() {
 		return
 	}
 	window.applyPrepaintPlan(plan)
-	if !plan.contentDirty.Empty() {
+	if plan.drawContent && !plan.contentDirty.Empty() {
 		window.ensureRenderList()
 		window.drawRenderList(false, plan.contentDirty, nil)
 	}
-	if plan.scrollbarDirtySet || !plan.visualOnly {
+	if plan.drawScrollbar {
 		scrollbarDirty := plan.dirty
 		if plan.scrollbarDirtySet {
 			scrollbarDirty = plan.scrollbarDirty
@@ -261,13 +261,13 @@ func (window *Window) drawDirtyStats(stats *FrameStats) {
 	window.applyPrepaintPlan(plan)
 	afterClear := kos.UptimeNanoseconds()
 	stats.ClearNs = afterClear - start
-	if !plan.contentDirty.Empty() {
+	if plan.drawContent && !plan.contentDirty.Empty() {
 		startList := kos.UptimeNanoseconds()
 		window.ensureRenderList()
 		stats.RenderListNs = kos.UptimeNanoseconds() - startList
 		window.drawRenderList(false, plan.contentDirty, stats)
 	}
-	if plan.scrollbarDirtySet || !plan.visualOnly {
+	if plan.drawScrollbar {
 		scrollbarDirty := plan.dirty
 		if plan.scrollbarDirtySet {
 			scrollbarDirty = plan.scrollbarDirty
