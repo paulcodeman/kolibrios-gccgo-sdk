@@ -9,6 +9,7 @@ func (window *Window) UpdateStyle(update func(style *Style)) bool {
 	oldOverflow := window.overflowModeY()
 	oldVisual := visualKeyFor(oldStyle)
 	update(&window.Style)
+	window.invalidateWindowPropertyState()
 	changed := window.applyStyleBounds()
 	if window.styleLayoutChanged(oldStyle, window.Style) {
 		window.layoutDirty = true

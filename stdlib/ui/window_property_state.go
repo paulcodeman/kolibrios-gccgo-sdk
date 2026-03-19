@@ -31,6 +31,27 @@ type windowPropertyState struct {
 	effect  windowEffectPropertyState
 }
 
+func (window *Window) invalidateWindowPropertyState() {
+	if window == nil {
+		return
+	}
+	window.propertyState = windowPropertyState{}
+	window.propertyStateValid = false
+}
+
+func (window *Window) windowPropertyStateValue() windowPropertyState {
+	if window == nil {
+		return windowPropertyState{}
+	}
+	if window.propertyStateValid {
+		return window.propertyState
+	}
+	state := window.computeWindowPropertyState()
+	window.propertyState = state
+	window.propertyStateValid = true
+	return state
+}
+
 func (window *Window) computeScrollPropertyState(content Rect) windowScrollPropertyState {
 	state := windowScrollPropertyState{
 		enabled: window != nil && window.scrollEnabled(),
