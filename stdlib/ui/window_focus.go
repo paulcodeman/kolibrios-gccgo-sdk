@@ -270,39 +270,6 @@ func (window *Window) appendFocusableFromRenderNode(node Node) {
 	window.focusables = append(window.focusables, node)
 }
 
-func (window *Window) rebuildFocusablesFromRenderList() {
-	if window == nil {
-		return
-	}
-	window.focusables = window.focusables[:0]
-	if window.focusIndex == nil {
-		window.focusIndex = make(map[Node]int)
-	} else {
-		clearRenderIndex(window.focusIndex)
-	}
-	for _, item := range window.renderList {
-		node := item.node
-		if node == nil {
-			continue
-		}
-		switch current := node.(type) {
-		case *Element:
-			if current == nil || !current.isFocusable() {
-				continue
-			}
-		case FocusAware:
-			// kept
-		default:
-			continue
-		}
-		if _, ok := window.focusIndex[node]; ok {
-			continue
-		}
-		window.focusIndex[node] = len(window.focusables)
-		window.focusables = append(window.focusables, node)
-	}
-}
-
 func (window *Window) collectFocusables(nodes []Node, out *[]Node, inheritedHidden bool) {
 	if window == nil {
 		return

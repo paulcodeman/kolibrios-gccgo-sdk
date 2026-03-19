@@ -22,13 +22,6 @@ func (window *Window) shouldUseHitGrid(display DisplayList) bool {
 	return len(display.Items()) > 0
 }
 
-func (window *Window) ensureHitGrid() {
-	if window == nil {
-		return
-	}
-	window.ensureHitGridWithDisplay(window.currentDisplayList())
-}
-
 func (window *Window) ensureHitGridWithDisplay(display DisplayList) bool {
 	if window == nil {
 		return false
