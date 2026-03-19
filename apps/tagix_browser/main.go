@@ -3,6 +3,7 @@ package main
 import (
 	"dom"
 	"kos"
+	"os"
 	"strings"
 	"ui"
 )
@@ -10,11 +11,23 @@ import (
 const (
 	defaultWindowWidth  = 780
 	defaultWindowHeight = 560
-	defaultShellHeight  = 172
-	defaultPageHeight   = 328
+	defaultShellHeight  = 86
+	defaultPageHeight   = 420
+	rootInset           = 0
+	shellGap            = 0
+	minPageHeight       = 180
 	maxContent          = 512 * 1024
-	defaultURL          = "https://example.com"
+	defaultURL          = "about:tagix"
+	aboutFormsURL       = "about:forms"
+	aboutHomeAsset      = "assets/about_tagix.html"
+	aboutFormsAsset     = "assets/about_forms.html"
 )
+
+const defaultAboutHomeHTML = `<html><head><title>Tagix Browser</title></head><body><h1>Tagix Browser</h1><p>This built-in page is rendered through the same HTML5 parser and DocumentView pipeline as remote content.</p><p><a href="about:forms">Open the built-in forms demo</a> or visit <a href="https://example.com">example.com</a>.</p><h2>What to test</h2><ul><li>Inline links inside paragraphs</li><li>Preformatted code blocks</li><li>Lists and headings</li><li>Document focus, hover and scroll</li></ul><pre><code>&lt;html&gt; -&gt; dom.Parse -&gt; ui.DocumentNode -&gt; DocumentView</code></pre></body></html>`
+
+const defaultAboutFormsHTML = `<html><head><title>Tagix Forms</title></head><body><h1>Tagix Forms</h1><p>This page exists to test browser-side HTML controls that are currently mapped onto the shared UI pipeline.</p><p><a href="about:tagix">Back to the built-in home page</a></p><h2>Text controls</h2><p><input type="text" value="https://kolibrios.org" placeholder="Type a URL"></p><p><input type="search" placeholder="Search demo"></p><textarea rows="4">Textarea fallback content.
+Second line.
+Third line.</textarea><h2>Choice controls</h2><p><input type="checkbox" checked value="Remember this choice"></p><p><input type="checkbox" value="Enable compact mode"></p><p><input type="radio" name="theme" checked value="Ocean theme"></p><p><input type="radio" name="theme" value="Sunset theme"></p><p><select><option selected>First option</option><option>Second option</option><option>Third option</option></select></p><h2>Range and progress</h2><p><input type="range" min="0" max="10" step="2" value="4"></p><p><progress value="42" max="100"></progress></p><h2>Buttons</h2><p><button>Plain button</button></p><p><input type="submit" value="Submit button"></p></body></html>`
 
 type App struct {
 	window *ui.Window
@@ -65,11 +78,7 @@ func (app *App) buildUI() {
 		style.SetWidth(defaultWindowWidth)
 		style.SetHeight(defaultWindowHeight)
 		style.SetOverflow(ui.OverflowAuto)
-		style.SetGradient(ui.Gradient{
-			From:      ui.White,
-			To:        ui.Silver,
-			Direction: ui.GradientVertical,
-		})
+		style.SetBackground(0xE7EBF0)
 	})
 	window.CenterOnScreen()
 	app.window = window
@@ -77,19 +86,20 @@ func (app *App) buildUI() {
 	root := ui.CreateBox()
 	root.UpdateStyle(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
-		style.SetPadding(12)
+		style.SetPadding(rootInset)
+		style.SetBackground(0xF1F3F4)
 	})
 
-	app.shellDocument = ui.NewDocument(buildShellDocument(app))
+	app.shellDocument = ui.NewDocument(renderShellRoot(app))
 	app.shellView = ui.CreateDocumentView(app.shellDocument)
 	app.shellView.Style = styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
 		style.SetHeight(defaultShellHeight)
-		style.SetMargin(0, 0, 10, 0)
-		style.SetPadding(10)
-		style.SetBorder(1, ui.Silver)
-		style.SetBorderRadius(14)
-		style.SetBackground(ui.White)
+		style.SetMargin(0, 0, shellGap, 0)
+		style.SetPadding(8, 12)
+		style.SetBorder(0, 0xF1F3F4)
+		style.SetBorderBottom(1, 0xD2D7DD)
+		style.SetBackground(0xF1F3F4)
 		style.SetOverflow(ui.OverflowHidden)
 		style.SetContain(ui.ContainPaint)
 	})
@@ -99,28 +109,29 @@ func (app *App) buildUI() {
 	app.pageView.Style = styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
 		style.SetHeight(defaultPageHeight)
-		style.SetPadding(10)
-		style.SetBorder(1, ui.Silver)
-		style.SetBorderRadius(12)
+		style.SetPadding(0)
+		style.SetBorder(0, ui.White)
+		style.SetBorderRadius(0)
 		style.SetBackground(ui.White)
 		style.SetOverflow(ui.OverflowAuto)
 		style.SetScrollbarWidth(8)
-		style.SetScrollbarTrack(ui.Silver)
-		style.SetScrollbarThumb(ui.Gray)
+		style.SetScrollbarTrack(0xEDF0F2)
+		style.SetScrollbarThumb(0xAAB2BC)
 		style.SetScrollbarRadius(4)
 		style.SetScrollbarPadding(1)
 		style.SetContain(ui.ContainPaint)
 		style.SetWillChange(ui.WillChangeScrollPosition)
 	})
 	app.pageView.StyleFocus = styled(func(style *ui.Style) {
-		style.SetBorderColor(ui.Blue)
-		style.SetOutline(2, ui.Blue)
+		style.SetOutline(2, 0x1A73E8)
 		style.SetOutlineOffset(1)
 	})
 
 	root.Append(app.shellView)
 	root.Append(app.pageView)
 	window.Append(root)
+	window.OnResize = app.handleResize
+	app.handleResize(ui.Rect{Height: defaultWindowHeight})
 }
 
 func (app *App) Run() {
@@ -210,6 +221,9 @@ func (app *App) loadURL(url string) {
 	if app == nil {
 		return
 	}
+	if app.loadBuiltinPage(url) {
+		return
+	}
 	if !app.http.Ready() {
 		app.pageTitle = "HTTP unavailable"
 		app.statusBase = "Missing /sys/lib/http.obj"
@@ -260,6 +274,49 @@ func (app *App) loadURL(url string) {
 	app.updateContent(header, body)
 }
 
+func (app *App) loadBuiltinPage(url string) bool {
+	if app == nil {
+		return false
+	}
+	pageTitle, status, html, ok := builtinPageSource(url)
+	if !ok {
+		return false
+	}
+	doc := dom.Parse(html)
+	if parsedTitle := documentTitle(doc); parsedTitle != "" {
+		pageTitle = parsedTitle
+	}
+	app.pageTitle = pageTitle
+	app.pageDocument.SetRoot(buildRenderedDocument(app.pageTitle, app.currentURL, doc, func(target string) {
+		app.openURL(target, true)
+	}, func() {
+		app.pageDocument.MarkLayoutDirty()
+	}, func() {
+		app.pageDocument.MarkDirty()
+	}))
+	app.statusBase = status
+	return true
+}
+
+func builtinPageSource(url string) (string, string, string, bool) {
+	switch strings.ToLower(strings.TrimSpace(url)) {
+	case "about:tagix":
+		return "Tagix Browser", "Built-in page", loadBuiltinAsset(aboutHomeAsset, defaultAboutHomeHTML), true
+	case strings.ToLower(aboutFormsURL):
+		return "Tagix Forms", "Built-in page", loadBuiltinAsset(aboutFormsAsset, defaultAboutFormsHTML), true
+	default:
+		return "", "", "", false
+	}
+}
+
+func loadBuiltinAsset(path string, fallback string) string {
+	data, err := os.ReadFile(path)
+	if err != nil || len(data) == 0 {
+		return fallback
+	}
+	return string(data)
+}
+
 func (app *App) updateContent(header string, body []byte) {
 	if app == nil {
 		return
@@ -281,6 +338,10 @@ func (app *App) updateContent(header string, body []byte) {
 	app.pageTitle = documentTitle(doc)
 	app.pageDocument.SetRoot(buildRenderedDocument(app.pageTitle, app.currentURL, doc, func(target string) {
 		app.openURL(target, true)
+	}, func() {
+		app.pageDocument.MarkLayoutDirty()
+	}, func() {
+		app.pageDocument.MarkDirty()
 	}))
 	if truncated {
 		app.statusBase = "Loaded (truncated)"
@@ -313,10 +374,33 @@ func (app *App) syncShell() {
 	}
 	syncShellDocument(app, title, status)
 	windowTitle := "Tagix Browser"
-	if app.pageTitle != "" {
+	if app.pageTitle != "" && app.pageTitle != "Tagix Browser" {
 		windowTitle += " - " + app.pageTitle
 	}
 	app.window.SetTitle(windowTitle)
+}
+
+func (app *App) handleResize(client ui.Rect) {
+	if app == nil || app.pageView == nil || app.shellView == nil {
+		return
+	}
+	pageHeight := client.Height - rootInset*2 - defaultShellHeight - shellGap
+	if pageHeight < minPageHeight {
+		pageHeight = minPageHeight
+	}
+	changed := false
+	if current, ok := app.pageView.Style.GetHeight(); !ok || current != pageHeight {
+		app.pageView.Style.SetHeight(pageHeight)
+		changed = true
+	}
+	if current, ok := app.shellView.Style.GetHeight(); !ok || current != defaultShellHeight {
+		app.shellView.Style.SetHeight(defaultShellHeight)
+		changed = true
+	}
+	if changed {
+		app.shellView.MarkLayoutDirty()
+		app.pageView.MarkLayoutDirty()
+	}
 }
 
 func formatUint(value uint32) string {

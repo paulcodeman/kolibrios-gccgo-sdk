@@ -3,6 +3,7 @@ package main
 import (
 	"dom"
 	"os"
+	"strconv"
 	"strings"
 	"ui"
 )
@@ -18,6 +19,20 @@ var (
 	cachedShellTemplateRead bool
 )
 
+type renderContext struct {
+	baseURL       string
+	openURL       func(string)
+	requestPaint  func()
+	requestLayout func()
+	radioGroups   map[string][]*radioControlState
+}
+
+type radioControlState struct {
+	node      *ui.DocumentNode
+	indicator *ui.DocumentNode
+	checked   bool
+}
+
 func styled(update func(*ui.Style)) ui.Style {
 	value := ui.Style{}
 	if update != nil {
@@ -27,54 +42,68 @@ func styled(update func(*ui.Style)) ui.Style {
 }
 
 func buildShellDocument(app *App) *ui.DocumentNode {
-	title := "Tagix Browser"
-	status := "Ready"
 	currentURL := defaultURL
 	canBack := false
 	canForward := false
 	if app != nil {
-		if value := strings.TrimSpace(app.pageTitle); value != "" {
-			title = value
-		}
-		if value := strings.TrimSpace(app.statusBase); value != "" {
-			status = value
-		}
 		if value := strings.TrimSpace(app.addressText); value != "" {
 			currentURL = value
 		}
 		canBack = app.historyIndex > 0
 		canForward = app.historyIndex+1 < len(app.history)
 	}
-	doc := dom.Parse(shellTemplateHTML(title, status, currentURL, canBack, canForward))
-	if doc != nil && doc.Root != nil {
-		if root := buildShellTemplateRoot(app, doc.Root); root != nil {
-			return root
-		}
-	}
-	return ui.NewDocumentElement("browser-shell", styled(func(style *ui.Style) {
+	root := ui.NewDocumentElement("browser-shell", styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
-		style.SetPadding(2)
+		style.SetPadding(0)
 		style.SetFontPath(webSansFontPath)
 		style.SetFontSize(13)
 		style.SetLineHeight(18)
 		style.SetForeground(ui.Black)
 		style.SetContain(ui.ContainPaint)
-	}), messageCard("Tagix Browser shell", "Failed to build the shell document template."))
+	}))
+
+	actions := ui.NewDocumentElement("browser-shell-actions", styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 4, 0)
+	}),
+		shellButtonNode(app, "Back", "back", canBack),
+		shellButtonNode(app, "Forward", "forward", canForward),
+		shellButtonNode(app, "Reload", "reload", true),
+		shellButtonNode(app, "Home", "home", true),
+	)
+
+	address := shellAddressNode(app, currentURL)
+	address.Style.SetMargin(0, 0, 0, 0)
+	root.Append(actions)
+	root.Append(address)
+	return root
 }
 
-func shellTemplateHTML(title string, status string, currentURL string, canBack bool, canForward bool) string {
-	if strings.TrimSpace(title) == "" {
-		title = "Tagix Browser"
+func renderShellRoot(app *App) *ui.DocumentNode {
+	currentURL := defaultURL
+	canBack := false
+	canForward := false
+	if app != nil {
+		if value := strings.TrimSpace(app.addressText); value != "" {
+			currentURL = value
+		}
+		canBack = app.historyIndex > 0
+		canForward = app.historyIndex+1 < len(app.history)
 	}
-	if strings.TrimSpace(status) == "" {
-		status = "Ready"
+	doc := dom.Parse(shellTemplateHTML(currentURL, canBack, canForward))
+	if doc != nil && doc.Root != nil {
+		if root := buildShellTemplateRoot(app, doc.Root); root != nil {
+			return root
+		}
 	}
+	return buildShellDocument(app)
+}
+
+func shellTemplateHTML(currentURL string, canBack bool, canForward bool) string {
 	if strings.TrimSpace(currentURL) == "" {
 		currentURL = defaultURL
 	}
 	replacer := strings.NewReplacer(
-		"<<title>>", escapeHTMLText(title),
-		"<<status>>", escapeHTMLText(status),
 		"<<current_url>>", escapeHTMLText(currentURL),
 		"<<back_enabled>>", boolAttr(canBack),
 		"<<forward_enabled>>", boolAttr(canForward),
@@ -120,75 +149,26 @@ func buildShellTemplateNode(app *App, node *dom.Node) *ui.DocumentNode {
 	case "shell-root":
 		return ui.NewDocumentElement("browser-shell", styled(func(style *ui.Style) {
 			style.SetDisplay(ui.DisplayBlock)
-			style.SetPadding(2)
+			style.SetPadding(0)
 			style.SetFontPath(webSansFontPath)
 			style.SetFontSize(13)
 			style.SetLineHeight(18)
 			style.SetForeground(ui.Black)
 			style.SetContain(ui.ContainPaint)
 		}), buildShellChildren(app, node)...)
-	case "hero":
-		return ui.NewDocumentElement("browser-shell-hero", styled(func(style *ui.Style) {
-			style.SetDisplay(ui.DisplayBlock)
-			style.SetMargin(0, 0, 8, 0)
-			style.SetPadding(10, 12)
-			style.SetBorderRadius(12)
-			style.SetGradient(ui.Gradient{
-				From:      ui.Navy,
-				To:        ui.Blue,
-				Direction: ui.GradientHorizontal,
-			})
-			style.SetContain(ui.ContainPaint)
-		}), buildShellChildren(app, node)...)
-	case "title":
-		text := ui.NewDocumentText(collectNodeText(node, false), styled(func(style *ui.Style) {
-			style.SetDisplay(ui.DisplayBlock)
-			style.SetMargin(0, 0, 4, 0)
-			style.SetForeground(ui.White)
-			style.SetFontSize(18)
-			style.SetLineHeight(22)
-		}))
-		if app != nil {
-			app.shellTitleNode = text
-		}
-		return text
-	case "status":
-		text := ui.NewDocumentText(collectNodeText(node, false), styled(func(style *ui.Style) {
-			style.SetDisplay(ui.DisplayBlock)
-			style.SetForeground(ui.Silver)
-			style.SetFontSize(11)
-			style.SetLineHeight(15)
-		}))
-		if app != nil {
-			app.shellStatusNode = text
-		}
-		return text
-	case "toolbar":
-		return ui.NewDocumentElement("browser-shell-toolbar", styled(func(style *ui.Style) {
-			style.SetDisplay(ui.DisplayBlock)
-			style.SetPadding(10)
-			style.SetBorderRadius(12)
-			style.SetBackground(ui.White)
-			style.SetBorder(1, ui.Silver)
-			style.SetContain(ui.ContainPaint)
-		}), buildShellChildren(app, node)...)
-	case "actions":
+	case "meta", "hero", "title", "status":
+		return nil
+	case "nav-row", "toolbar", "actions":
 		return ui.NewDocumentElement("browser-shell-actions", styled(func(style *ui.Style) {
 			style.SetDisplay(ui.DisplayBlock)
-			style.SetMargin(0, 0, 8, 0)
+			style.SetMargin(0, 0, 4, 0)
 		}), buildShellChildren(app, node)...)
 	case "button":
 		return shellButtonNode(app, collectNodeText(node, false), strings.TrimSpace(node.Attrs["data-action"]), attrIsTrue(node.Attrs["data-enabled"]))
 	case "address":
 		return shellAddressNode(app, strings.TrimSpace(node.Attrs["value"]))
 	case "hint":
-		return ui.NewDocumentText(collectNodeText(node, false), styled(func(style *ui.Style) {
-			style.SetDisplay(ui.DisplayBlock)
-			style.SetMargin(8, 0, 0, 0)
-			style.SetForeground(ui.Gray)
-			style.SetFontSize(11)
-			style.SetLineHeight(16)
-		}))
+		return nil
 	default:
 		children := buildShellChildren(app, node)
 		if len(children) == 1 {
@@ -224,29 +204,29 @@ func shellButtonNode(app *App, label string, action string, enabled bool) *ui.Do
 	}
 	button := ui.NewDocumentElement("shell-button-"+action, styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayInlineBlock)
-		style.SetMargin(0, 8, 0, 0)
-		style.SetPadding(6, 10)
+		style.SetMargin(0, 6, 0, 0)
+		style.SetPadding(5, 10)
 		style.SetBorderRadius(8)
-		style.SetBorder(1, ui.Silver)
-		style.SetBackground(ui.Silver)
+		style.SetBorder(1, 0xC3CAD2)
+		style.SetBackground(0xE5E9EE)
 		style.SetContain(ui.ContainPaint)
 	}), ui.NewDocumentText(label, styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayInline)
-		style.SetForeground(ui.Black)
+		style.SetForeground(0x202124)
 		style.SetFontSize(12)
 		style.SetLineHeight(16)
 	})))
 	button.StyleHover = styled(func(style *ui.Style) {
-		style.SetBorderColor(ui.Teal)
-		style.SetBackground(ui.Aqua)
+		style.SetBorderColor(0x96A6B8)
+		style.SetBackground(0xD7E1ED)
 	})
 	button.StyleActive = styled(func(style *ui.Style) {
-		style.SetBorderColor(ui.Navy)
-		style.SetBackground(ui.Silver)
+		style.SetBorderColor(0x7E90A5)
+		style.SetBackground(0xC7D2DE)
 	})
 	button.StyleFocus = styled(func(style *ui.Style) {
-		style.SetBorderColor(ui.Blue)
-		style.SetOutline(2, ui.Blue)
+		style.SetBorderColor(0x1A73E8)
+		style.SetOutline(2, 0x1A73E8)
 		style.SetOutlineOffset(1)
 	})
 	switch action {
@@ -297,23 +277,23 @@ func applyShellButtonState(node *ui.DocumentNode, enabled bool) {
 	}
 	node.Focusable = enabled
 	if enabled {
-		node.Style.SetBackground(ui.Silver)
-		node.Style.SetBorderColor(ui.Silver)
-		node.Style.SetForeground(ui.Black)
+		node.Style.SetBackground(0xE5E9EE)
+		node.Style.SetBorderColor(0xC3CAD2)
+		node.Style.SetForeground(0x202124)
 		node.Style.SetOpacity(255)
 	} else {
-		node.Style.SetBackground(ui.White)
-		node.Style.SetBorderColor(ui.Silver)
-		node.Style.SetForeground(ui.Gray)
-		node.Style.SetOpacity(190)
+		node.Style.SetBackground(0xEEF1F4)
+		node.Style.SetBorderColor(0xD8DDE3)
+		node.Style.SetForeground(0x8B9299)
+		node.Style.SetOpacity(220)
 	}
 	if len(node.Children) > 0 && node.Children[0] != nil {
 		if enabled {
-			node.Children[0].Style.SetForeground(ui.Black)
+			node.Children[0].Style.SetForeground(0x202124)
 			node.Children[0].Style.SetOpacity(255)
 		} else {
-			node.Children[0].Style.SetForeground(ui.Gray)
-			node.Children[0].Style.SetOpacity(190)
+			node.Children[0].Style.SetForeground(0x8B9299)
+			node.Children[0].Style.SetOpacity(220)
 		}
 	}
 }
@@ -321,9 +301,9 @@ func applyShellButtonState(node *ui.DocumentNode, enabled bool) {
 func shellAddressNode(app *App, value string) *ui.DocumentNode {
 	input := ui.NewDocumentElement("shell-address", styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
-		style.SetPadding(7, 10)
+		style.SetPadding(7, 12)
 		style.SetBorderRadius(10)
-		style.SetBorder(1, ui.Silver)
+		style.SetBorder(1, 0x808A96)
 		style.SetBackground(ui.White)
 		style.SetContain(ui.ContainPaint)
 		style.SetOverflow(ui.OverflowHidden)
@@ -337,11 +317,10 @@ func shellAddressNode(app *App, value string) *ui.DocumentNode {
 	input.Value = value
 	input.Placeholder = "Type URL here"
 	input.StyleHover = styled(func(style *ui.Style) {
-		style.SetBorderColor(ui.Teal)
+		style.SetBorderColor(0x7E8B98)
 	})
 	input.StyleFocus = styled(func(style *ui.Style) {
-		style.SetBorderColor(ui.Blue)
-		style.SetOutline(2, ui.Blue)
+		style.SetOutline(2, 0x1A73E8)
 		style.SetOutlineOffset(1)
 	})
 	if app != nil {
@@ -413,11 +392,6 @@ func boolAttr(value bool) string {
 
 const defaultShellTemplateHTML = `<body>
 <section data-role="shell-root">
-<header data-role="hero">
-<h1 data-role="title"><<title>></h1>
-<p data-role="status"><<status>></p>
-</header>
-<div data-role="toolbar">
 <div data-role="actions">
 <button data-role="button" data-action="back" data-enabled="<<back_enabled>>">Back</button>
 <button data-role="button" data-action="forward" data-enabled="<<forward_enabled>>">Forward</button>
@@ -425,8 +399,6 @@ const defaultShellTemplateHTML = `<body>
 <button data-role="button" data-action="home" data-enabled="true">Home</button>
 </div>
 <input data-role="address" value="<<current_url>>">
-</div>
-<p data-role="hint">The browser shell now comes from the HTML template, including the address field. The page area still lives in its own embedded frame host.</p>
 </section>
 </body>`
 
@@ -443,62 +415,31 @@ func escapeHTMLText(value string) string {
 	return replacer.Replace(value)
 }
 
-func buildRenderedDocument(title string, currentURL string, doc *dom.Document, openURL func(string)) *ui.DocumentNode {
+func buildRenderedDocument(title string, currentURL string, doc *dom.Document, openURL func(string), requestLayout func(), requestPaint func()) *ui.DocumentNode {
+	ctx := &renderContext{
+		baseURL:       currentURL,
+		openURL:       openURL,
+		requestLayout: requestLayout,
+		requestPaint:  requestPaint,
+		radioGroups:   map[string][]*radioControlState{},
+	}
 	children := make([]*ui.DocumentNode, 0, 24)
 
-	titleText := title
-	if titleText == "" {
-		titleText = displayURL(currentURL)
-		if titleText == "" {
-			titleText = "Rendered page"
-		}
-	}
-	children = append(children, ui.NewDocumentElement("hero", styled(func(style *ui.Style) {
-		style.SetDisplay(ui.DisplayBlock)
-		style.SetMargin(0, 0, 10, 0)
-		style.SetPadding(10, 12)
-		style.SetBorderRadius(10)
-		style.SetGradient(ui.Gradient{
-			From:      ui.Aqua,
-			To:        ui.White,
-			Direction: ui.GradientHorizontal,
-		})
-		style.SetContain(ui.ContainPaint)
-	}), ui.NewDocumentText(titleText, styled(func(style *ui.Style) {
-		style.SetForeground(ui.Navy)
-		style.SetFontSize(18)
-		style.SetMargin(0, 0, 4, 0)
-	})), ui.NewDocumentText(currentURL, styled(func(style *ui.Style) {
-		style.SetForeground(ui.Gray)
-		style.SetFontSize(11)
-	}))))
-
-	contentNodes := buildDocumentNodes(doc, currentURL, openURL)
+	contentNodes := buildDocumentNodes(doc, ctx)
 	if len(contentNodes) == 0 {
 		children = append(children, messageCard("No renderable content", "The HTML5 parser returned a tree, but the current browser-host adapter did not find readable nodes yet."))
 	} else {
 		content := ui.NewDocumentElement("content", styled(func(style *ui.Style) {
 			style.SetDisplay(ui.DisplayBlock)
-			style.SetMargin(0, 0, 10, 0)
+			style.SetMargin(0)
 			style.SetContain(ui.ContainPaint)
 		}), contentNodes...)
 		children = append(children, content)
 	}
 
-	children = append(children, ui.NewDocumentElement("note", styled(func(style *ui.Style) {
-		style.SetDisplay(ui.DisplayBlock)
-		style.SetMargin(6, 0, 0, 0)
-		style.SetPadding(8, 10)
-		style.SetBorderRadius(10)
-		style.SetBackground(ui.Silver)
-	}), ui.NewDocumentText("This page content is rendered in a separate document host below the browser shell. The next stage can improve inline and CSS-like semantics on top of the same pipeline.", styled(func(style *ui.Style) {
-		style.SetForeground(ui.Gray)
-		style.SetFontSize(11)
-	}))))
-
 	return ui.NewDocumentElement("page", styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
-		style.SetPadding(2)
+		style.SetPadding(16)
 		style.SetContain(ui.ContainPaint)
 		style.SetFontPath(webSansFontPath)
 		style.SetFontSize(13)
@@ -507,16 +448,16 @@ func buildRenderedDocument(title string, currentURL string, doc *dom.Document, o
 	}), children...)
 }
 
-func buildDocumentNodes(doc *dom.Document, baseURL string, openURL func(string)) []*ui.DocumentNode {
+func buildDocumentNodes(doc *dom.Document, ctx *renderContext) []*ui.DocumentNode {
 	if doc == nil || doc.Root == nil {
 		return nil
 	}
 	nodes := make([]*ui.DocumentNode, 0, 16)
-	appendDocumentNodes(&nodes, doc.Root, baseURL, openURL)
+	appendDocumentNodes(&nodes, doc.Root, ctx)
 	return nodes
 }
 
-func appendDocumentNodes(out *[]*ui.DocumentNode, node *dom.Node, baseURL string, openURL func(string)) {
+func appendDocumentNodes(out *[]*ui.DocumentNode, node *dom.Node, ctx *renderContext) {
 	if out == nil || node == nil {
 		return
 	}
@@ -532,7 +473,7 @@ func appendDocumentNodes(out *[]*ui.DocumentNode, node *dom.Node, baseURL string
 		return
 	case dom.DocumentNode:
 		for _, child := range node.Children {
-			appendDocumentNodes(out, child, baseURL, openURL)
+			appendDocumentNodes(out, child, ctx)
 		}
 		return
 	case dom.ElementNode:
@@ -543,9 +484,9 @@ func appendDocumentNodes(out *[]*ui.DocumentNode, node *dom.Node, baseURL string
 	switch node.Tag {
 	case "script", "style", "head", "title", "meta", "link":
 		return
-	case "html", "body", "main", "section", "article", "aside", "nav", "header", "footer", "div", "form", "table", "tbody", "thead", "tfoot", "tr", "td", "th":
+	case "html", "body", "main", "section", "article", "aside", "nav", "header", "footer", "div", "form", "table", "tbody", "thead", "tfoot", "tr", "td", "th", "fieldset", "label":
 		for _, child := range node.Children {
-			appendDocumentNodes(out, child, baseURL, openURL)
+			appendDocumentNodes(out, child, ctx)
 		}
 		return
 	case "hr":
@@ -554,12 +495,12 @@ func appendDocumentNodes(out *[]*ui.DocumentNode, node *dom.Node, baseURL string
 	case "br":
 		return
 	case "h1", "h2", "h3", "h4", "h5", "h6":
-		if heading := headingBlockNode(node, baseURL, openURL); heading != nil {
+		if heading := headingBlockNode(node, ctx); heading != nil {
 			*out = append(*out, heading)
 		}
 		return
 	case "p", "blockquote":
-		if paragraph := paragraphBlockNode(node, baseURL, openURL); paragraph != nil {
+		if paragraph := paragraphBlockNode(node, ctx); paragraph != nil {
 			*out = append(*out, paragraph)
 		}
 		return
@@ -570,17 +511,44 @@ func appendDocumentNodes(out *[]*ui.DocumentNode, node *dom.Node, baseURL string
 		}
 		return
 	case "ul", "ol":
-		appendListNodes(out, node, baseURL, openURL)
+		appendListNodes(out, node, ctx)
 		return
 	case "li":
-		if item := listItemBlockNode(node, baseURL, openURL); item != nil {
+		if item := listItemBlockNode(node, ctx); item != nil {
 			*out = append(*out, item)
 		}
 		return
 	case "a":
-		if link := standaloneLinkNode(node, baseURL, openURL); link != nil {
+		if link := standaloneLinkNode(node, ctx); link != nil {
 			*out = append(*out, link)
 		}
+		return
+	case "button":
+		if button := htmlButtonNode(node, ctx); button != nil {
+			*out = append(*out, button)
+		}
+		return
+	case "input":
+		if input := htmlInputNode(node, ctx); input != nil {
+			*out = append(*out, input)
+		}
+		return
+	case "textarea":
+		if area := htmlTextareaNode(node); area != nil {
+			*out = append(*out, area)
+		}
+		return
+	case "select":
+		if selectNode := htmlSelectNode(node, ctx); selectNode != nil {
+			*out = append(*out, selectNode)
+		}
+		return
+	case "progress":
+		if progress := htmlProgressNode(node); progress != nil {
+			*out = append(*out, progress)
+		}
+		return
+	case "option":
 		return
 	case "img":
 		if image := imageFallbackNode(node); image != nil {
@@ -593,14 +561,14 @@ func appendDocumentNodes(out *[]*ui.DocumentNode, node *dom.Node, baseURL string
 			*out = append(*out, paragraphNode(text))
 		} else {
 			for _, child := range node.Children {
-				appendDocumentNodes(out, child, baseURL, openURL)
+				appendDocumentNodes(out, child, ctx)
 			}
 		}
-		appendNestedDocumentLinks(out, node, baseURL, openURL)
+		appendNestedDocumentLinks(out, node, ctx)
 	}
 }
 
-func appendListNodes(out *[]*ui.DocumentNode, node *dom.Node, baseURL string, openURL func(string)) {
+func appendListNodes(out *[]*ui.DocumentNode, node *dom.Node, ctx *renderContext) {
 	if out == nil || node == nil {
 		return
 	}
@@ -609,34 +577,34 @@ func appendListNodes(out *[]*ui.DocumentNode, node *dom.Node, baseURL string, op
 			continue
 		}
 		if child.Type == dom.ElementNode && child.Tag == "li" {
-			appendDocumentNodes(out, child, baseURL, openURL)
+			appendDocumentNodes(out, child, ctx)
 			continue
 		}
-		appendDocumentNodes(out, child, baseURL, openURL)
+		appendDocumentNodes(out, child, ctx)
 	}
 }
 
-func appendNestedDocumentLinks(out *[]*ui.DocumentNode, node *dom.Node, baseURL string, openURL func(string)) {
+func appendNestedDocumentLinks(out *[]*ui.DocumentNode, node *dom.Node, ctx *renderContext) {
 	if out == nil || node == nil {
 		return
 	}
 	for _, child := range node.Children {
-		appendDirectAnchorNodes(out, child, baseURL, openURL)
+		appendDirectAnchorNodes(out, child, ctx)
 	}
 }
 
-func appendDirectAnchorNodes(out *[]*ui.DocumentNode, node *dom.Node, baseURL string, openURL func(string)) {
+func appendDirectAnchorNodes(out *[]*ui.DocumentNode, node *dom.Node, ctx *renderContext) {
 	if out == nil || node == nil {
 		return
 	}
 	if node.Type == dom.ElementNode && node.Tag == "a" {
-		if link := documentLinkNodeFromAnchor(node, baseURL, openURL); link != nil {
+		if link := documentLinkNodeFromAnchor(node, ctx); link != nil {
 			*out = append(*out, link)
 		}
 		return
 	}
 	for _, child := range node.Children {
-		appendDirectAnchorNodes(out, child, baseURL, openURL)
+		appendDirectAnchorNodes(out, child, ctx)
 	}
 }
 
@@ -747,7 +715,7 @@ func paragraphNode(text string) *ui.DocumentNode {
 	}))
 }
 
-func headingBlockNode(node *dom.Node, baseURL string, openURL func(string)) *ui.DocumentNode {
+func headingBlockNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
 	if node == nil {
 		return nil
 	}
@@ -763,7 +731,7 @@ func headingBlockNode(node *dom.Node, baseURL string, openURL func(string)) *ui.
 	case "h3":
 		size = 16
 	}
-	children := buildInlineNodes(node, baseURL, openURL, styled(func(style *ui.Style) {
+	children := buildInlineNodes(node, ctx, styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayInline)
 		style.SetForeground(ui.Navy)
 		style.SetFontSize(size)
@@ -782,11 +750,11 @@ func headingBlockNode(node *dom.Node, baseURL string, openURL func(string)) *ui.
 	}), children...)
 }
 
-func paragraphBlockNode(node *dom.Node, baseURL string, openURL func(string)) *ui.DocumentNode {
+func paragraphBlockNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
 	if node == nil {
 		return nil
 	}
-	children := buildInlineNodes(node, baseURL, openURL, styled(func(style *ui.Style) {
+	children := buildInlineNodes(node, ctx, styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayInline)
 		style.SetForeground(ui.Black)
 		style.SetFontSize(13)
@@ -809,9 +777,9 @@ func paragraphBlockNode(node *dom.Node, baseURL string, openURL func(string)) *u
 		blockStyle = styled(func(style *ui.Style) {
 			style.SetDisplay(ui.DisplayBlock)
 			style.SetMargin(0, 0, 10, 0)
-			style.SetPadding(6, 10)
-			style.SetBorder(1, ui.Silver)
-			style.SetBorderRadius(8)
+			style.SetPadding(2, 0, 2, 12)
+			style.SetBorder(0, ui.White)
+			style.SetBorderLeft(3, 0xC0C6CC)
 			style.SetForeground(ui.Black)
 			style.SetFontSize(13)
 			style.SetLineHeight(18)
@@ -821,11 +789,11 @@ func paragraphBlockNode(node *dom.Node, baseURL string, openURL func(string)) *u
 	return ui.NewDocumentElement(name, blockStyle, children...)
 }
 
-func listItemBlockNode(node *dom.Node, baseURL string, openURL func(string)) *ui.DocumentNode {
+func listItemBlockNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
 	if node == nil {
 		return nil
 	}
-	children := buildInlineNodes(node, baseURL, openURL, styled(func(style *ui.Style) {
+	children := buildInlineNodes(node, ctx, styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayInline)
 		style.SetForeground(ui.Black)
 		style.SetFontSize(13)
@@ -852,8 +820,8 @@ func listItemBlockNode(node *dom.Node, baseURL string, openURL func(string)) *ui
 	}), itemChildren...)
 }
 
-func standaloneLinkNode(node *dom.Node, baseURL string, openURL func(string)) *ui.DocumentNode {
-	link := inlineLinkNodeFromAnchor(node, baseURL, openURL)
+func standaloneLinkNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
+	link := inlineLinkNodeFromAnchor(node, ctx)
 	if link == nil {
 		return nil
 	}
@@ -867,15 +835,15 @@ func standaloneLinkNode(node *dom.Node, baseURL string, openURL func(string)) *u
 	}), link)
 }
 
-func buildInlineNodes(node *dom.Node, baseURL string, openURL func(string), baseStyle ui.Style) []*ui.DocumentNode {
+func buildInlineNodes(node *dom.Node, ctx *renderContext, baseStyle ui.Style) []*ui.DocumentNode {
 	builder := inlinePieceBuilder{}
 	for _, child := range node.Children {
-		collectInlinePieces(&builder, child, baseURL)
+		collectInlinePieces(&builder, child, ctx)
 	}
-	return inlineNodesFromPieces(builder.pieces, baseStyle, openURL)
+	return inlineNodesFromPieces(builder.pieces, baseStyle, ctx)
 }
 
-func collectInlinePieces(builder *inlinePieceBuilder, node *dom.Node, baseURL string) {
+func collectInlinePieces(builder *inlinePieceBuilder, node *dom.Node, ctx *renderContext) {
 	if builder == nil || node == nil {
 		return
 	}
@@ -887,7 +855,7 @@ func collectInlinePieces(builder *inlinePieceBuilder, node *dom.Node, baseURL st
 		return
 	case dom.DocumentNode:
 		for _, child := range node.Children {
-			collectInlinePieces(builder, child, baseURL)
+			collectInlinePieces(builder, child, ctx)
 		}
 		return
 	case dom.ElementNode:
@@ -902,6 +870,10 @@ func collectInlinePieces(builder *inlinePieceBuilder, node *dom.Node, baseURL st
 		builder.appendBreak()
 		return
 	case "a":
+		baseURL := ""
+		if ctx != nil {
+			baseURL = ctx.baseURL
+		}
 		builder.appendLink(collectNodeText(node, false), resolveURL(baseURL, node.Attrs["href"]))
 		return
 	case "code":
@@ -916,7 +888,7 @@ func collectInlinePieces(builder *inlinePieceBuilder, node *dom.Node, baseURL st
 		return
 	default:
 		for _, child := range node.Children {
-			collectInlinePieces(builder, child, baseURL)
+			collectInlinePieces(builder, child, ctx)
 		}
 	}
 }
@@ -1000,7 +972,7 @@ func (builder *inlinePieceBuilder) appendBreak() {
 	builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceBreak})
 }
 
-func inlineNodesFromPieces(pieces []inlinePiece, baseStyle ui.Style, openURL func(string)) []*ui.DocumentNode {
+func inlineNodesFromPieces(pieces []inlinePiece, baseStyle ui.Style, ctx *renderContext) []*ui.DocumentNode {
 	if len(pieces) == 0 {
 		return nil
 	}
@@ -1010,7 +982,7 @@ func inlineNodesFromPieces(pieces []inlinePiece, baseStyle ui.Style, openURL fun
 		case inlinePieceText:
 			nodes = append(nodes, inlineTextNode(piece.text, baseStyle))
 		case inlinePieceLink:
-			if link := inlineLinkNode(piece.text, piece.href, baseStyle, openURL); link != nil {
+			if link := inlineLinkNode(piece.text, piece.href, baseStyle, ctx); link != nil {
 				nodes = append(nodes, link)
 			}
 		case inlinePieceCode:
@@ -1060,9 +1032,13 @@ func inlineTextTokens(text string, baseStyle ui.Style) []*ui.DocumentNode {
 	return nodes
 }
 
-func inlineLinkNodeFromAnchor(node *dom.Node, baseURL string, openURL func(string)) *ui.DocumentNode {
+func inlineLinkNodeFromAnchor(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
 	if node == nil || node.Attrs == nil {
 		return nil
+	}
+	baseURL := ""
+	if ctx != nil {
+		baseURL = ctx.baseURL
 	}
 	href := resolveURL(baseURL, node.Attrs["href"])
 	if href == "" {
@@ -1077,10 +1053,10 @@ func inlineLinkNodeFromAnchor(node *dom.Node, baseURL string, openURL func(strin
 		style.SetForeground(ui.Black)
 		style.SetFontSize(13)
 		style.SetLineHeight(18)
-	}), openURL)
+	}), ctx)
 }
 
-func inlineLinkNode(label string, href string, baseStyle ui.Style, openURL func(string)) *ui.DocumentNode {
+func inlineLinkNode(label string, href string, baseStyle ui.Style, ctx *renderContext) *ui.DocumentNode {
 	label = normalizeBlockText(label)
 	if label == "" {
 		label = displayURL(href)
@@ -1107,9 +1083,9 @@ func inlineLinkNode(label string, href string, baseStyle ui.Style, openURL func(
 		style.SetOutline(1, ui.Blue)
 		style.SetOutlineOffset(1)
 	})
-	if openURL != nil && href != "" {
+	if ctx != nil && ctx.openURL != nil && href != "" {
 		link.OnClick = func() {
-			openURL(href)
+			ctx.openURL(href)
 		}
 	}
 	return link
@@ -1165,8 +1141,8 @@ func preformattedNode(text string) *ui.DocumentNode {
 		style.SetMargin(0, 0, 8, 0)
 		style.SetPadding(8, 10)
 		style.SetBorderRadius(8)
-		style.SetBackground(ui.White)
-		style.SetBorder(1, ui.Silver)
+		style.SetBackground(0xF6F8FA)
+		style.SetBorder(1, 0xD8DEE4)
 		style.SetContain(ui.ContainPaint)
 	}), ui.NewDocumentText(text, styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
@@ -1214,23 +1190,556 @@ func imageFallbackNode(node *dom.Node) *ui.DocumentNode {
 		style.SetMargin(0, 0, 8, 0)
 		style.SetPadding(8, 10)
 		style.SetBorderRadius(8)
-		style.SetBackground(ui.Silver)
-		style.SetBorder(1, ui.Silver)
+		style.SetBackground(0xF6F8FA)
+		style.SetBorder(1, 0xD8DEE4)
 	}), ui.NewDocumentText("[image] "+label, styled(func(style *ui.Style) {
 		style.SetForeground(ui.Gray)
 		style.SetFontSize(12)
 	})))
 }
 
-func buildMessageDocument(title string, detail string) *ui.DocumentNode {
-	return ui.NewDocumentElement("message-page", styled(func(style *ui.Style) {
+func hasAttr(node *dom.Node, name string) bool {
+	if node == nil || node.Attrs == nil {
+		return false
+	}
+	_, ok := node.Attrs[name]
+	return ok
+}
+
+func attrValue(node *dom.Node, name string) string {
+	if node == nil || node.Attrs == nil {
+		return ""
+	}
+	return strings.TrimSpace(node.Attrs[name])
+}
+
+func attrInt(node *dom.Node, name string, fallback int) int {
+	value := attrValue(node, name)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func htmlInputType(node *dom.Node) string {
+	value := strings.ToLower(attrValue(node, "type"))
+	if value == "" {
+		return "text"
+	}
+	return value
+}
+
+func htmlControlLabel(node *dom.Node, fallback string) string {
+	label := collectNodeText(node, false)
+	if label == "" {
+		label = attrValue(node, "value")
+	}
+	if label == "" {
+		label = attrValue(node, "aria-label")
+	}
+	if label == "" {
+		label = attrValue(node, "name")
+	}
+	if label == "" {
+		label = fallback
+	}
+	return normalizeBlockText(label)
+}
+
+func requestRenderedPagePaint(ctx *renderContext) {
+	if ctx == nil {
+		return
+	}
+	if ctx.requestPaint != nil {
+		ctx.requestPaint()
+		return
+	}
+	if ctx.requestLayout != nil {
+		ctx.requestLayout()
+	}
+}
+
+func requestRenderedPageLayout(ctx *renderContext) {
+	if ctx == nil || ctx.requestLayout == nil {
+		requestRenderedPagePaint(ctx)
+		return
+	}
+	ctx.requestLayout()
+}
+
+func htmlControlStyle() ui.Style {
+	return styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
-		style.SetPadding(2)
+		style.SetMargin(0, 0, 8, 0)
+		style.SetPadding(8, 10)
+		style.SetBorderRadius(8)
+		style.SetBorder(1, 0xC9CFD5)
+		style.SetBackground(ui.White)
+		style.SetContain(ui.ContainPaint)
 		style.SetFontPath(webSansFontPath)
 		style.SetFontSize(13)
 		style.SetLineHeight(18)
 		style.SetForeground(ui.Black)
-	}), messageCard(title, detail))
+	})
+}
+
+func htmlControlTextStyle() ui.Style {
+	return styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayInline)
+		style.SetForeground(ui.Black)
+		style.SetFontPath(webSansFontPath)
+		style.SetFontSize(13)
+		style.SetLineHeight(18)
+	})
+}
+
+func htmlControlHintStyle() ui.Style {
+	return styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(4, 0, 0, 0)
+		style.SetForeground(ui.Gray)
+		style.SetFontSize(11)
+		style.SetLineHeight(15)
+	})
+}
+
+func htmlControlIndicatorStyle() ui.Style {
+	return styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayInline)
+		style.SetForeground(ui.Navy)
+		style.SetFontPath(webMonoFontPath)
+		style.SetFontSize(13)
+		style.SetLineHeight(18)
+	})
+}
+
+func applyInteractiveControlStyles(node *ui.DocumentNode) {
+	if node == nil {
+		return
+	}
+	node.StyleHover = styled(func(style *ui.Style) {
+		style.SetBorderColor(0x9AA8B8)
+		style.SetBackground(0xF7F9FB)
+	})
+	node.StyleActive = styled(func(style *ui.Style) {
+		style.SetBorderColor(0x7D8FA6)
+		style.SetBackground(0xE9EEF4)
+	})
+	node.StyleFocus = styled(func(style *ui.Style) {
+		style.SetBorderColor(0x1A73E8)
+		style.SetOutline(2, 0x1A73E8)
+		style.SetOutlineOffset(1)
+	})
+}
+
+func applyDisabledControlState(node *ui.DocumentNode) {
+	if node == nil {
+		return
+	}
+	node.Focusable = false
+	node.Editable = false
+	node.Style.SetForeground(ui.Gray)
+	node.Style.SetBorderColor(ui.Silver)
+	node.Style.SetBackground(ui.White)
+	node.Style.SetOpacity(190)
+}
+
+func htmlButtonNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
+	label := htmlControlLabel(node, "Button")
+	if label == "" {
+		label = "Button"
+	}
+	button := ui.NewDocumentElement("html-button", htmlControlStyle(),
+		ui.NewDocumentText(label, htmlControlTextStyle()),
+	)
+	button.Focusable = true
+	applyInteractiveControlStyles(button)
+	if hasAttr(node, "disabled") {
+		applyDisabledControlState(button)
+	}
+	return button
+}
+
+func htmlInputNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
+	switch htmlInputType(node) {
+	case "hidden":
+		return nil
+	case "submit", "button", "reset":
+		return htmlButtonNode(node, ctx)
+	case "checkbox":
+		return htmlCheckboxNode(node, ctx)
+	case "radio":
+		return htmlRadioNode(node, ctx)
+	case "range":
+		return htmlRangeNode(node, ctx)
+	default:
+		return htmlTextInputNode(node)
+	}
+}
+
+func htmlTextInputNode(node *dom.Node) *ui.DocumentNode {
+	input := ui.NewDocumentElement("html-input", htmlControlStyle(), nil)
+	input.Editable = true
+	input.Focusable = true
+	input.Value = attrValue(node, "value")
+	input.Placeholder = attrValue(node, "placeholder")
+	input.Style.SetOverflow(ui.OverflowHidden)
+	input.Style.SetWhiteSpace(ui.WhiteSpaceNoWrap)
+	if size := attrInt(node, "size", 0); size > 0 {
+		width := size * 12
+		if width < 120 {
+			width = 120
+		}
+		if width > 520 {
+			width = 520
+		}
+		input.Style.SetWidth(width)
+	}
+	input.StyleHover = styled(func(style *ui.Style) {
+		style.SetBorderColor(ui.Teal)
+	})
+	input.StyleFocus = styled(func(style *ui.Style) {
+		style.SetBorderColor(ui.Blue)
+		style.SetOutline(2, ui.Blue)
+		style.SetOutlineOffset(1)
+	})
+	if hasAttr(node, "disabled") {
+		applyDisabledControlState(input)
+	}
+	return input
+}
+
+func htmlCheckboxNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
+	checked := hasAttr(node, "checked")
+	indicator := ui.NewDocumentText("[ ]", htmlControlIndicatorStyle())
+	if checked {
+		indicator.Text = "[x]"
+	}
+	label := htmlControlLabel(node, "Checkbox")
+	control := ui.NewDocumentElement("html-checkbox", htmlControlStyle(),
+		indicator,
+		ui.NewDocumentText(" "+label, htmlControlTextStyle()),
+	)
+	control.Focusable = true
+	applyInteractiveControlStyles(control)
+	if hasAttr(node, "disabled") {
+		applyDisabledControlState(control)
+		return control
+	}
+	toggle := func() {
+		checked = !checked
+		if checked {
+			indicator.Text = "[x]"
+		} else {
+			indicator.Text = "[ ]"
+		}
+		requestRenderedPageLayout(ctx)
+	}
+	control.OnClick = func() {
+		toggle()
+	}
+	control.OnKeyDown = func(_ *ui.DocumentNode, event *ui.DocumentEvent) {
+		if event == nil {
+			return
+		}
+		if event.Key.Code == 13 || event.Key.Code == 32 {
+			toggle()
+			event.PreventDefault()
+			event.StopPropagation()
+		}
+	}
+	return control
+}
+
+func htmlRadioNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
+	checked := hasAttr(node, "checked")
+	indicator := ui.NewDocumentText("( )", htmlControlIndicatorStyle())
+	if checked {
+		indicator.Text = "(o)"
+	}
+	label := htmlControlLabel(node, "Radio")
+	control := ui.NewDocumentElement("html-radio", htmlControlStyle(),
+		indicator,
+		ui.NewDocumentText(" "+label, htmlControlTextStyle()),
+	)
+	control.Focusable = true
+	applyInteractiveControlStyles(control)
+	if hasAttr(node, "disabled") {
+		applyDisabledControlState(control)
+		return control
+	}
+	group := attrValue(node, "name")
+	if group == "" {
+		group = "radio:" + strconv.Itoa(node.ID)
+	}
+	state := &radioControlState{
+		node:      control,
+		indicator: indicator,
+		checked:   checked,
+	}
+	if ctx != nil {
+		ctx.radioGroups[group] = append(ctx.radioGroups[group], state)
+	}
+	selectRadio := func() {
+		changed := false
+		if ctx != nil {
+			for _, candidate := range ctx.radioGroups[group] {
+				if candidate == nil {
+					continue
+				}
+				if candidate == state {
+					if !candidate.checked {
+						candidate.checked = true
+						candidate.indicator.Text = "(o)"
+						changed = true
+					}
+					continue
+				}
+				if candidate.checked {
+					candidate.checked = false
+					candidate.indicator.Text = "( )"
+					changed = true
+				}
+			}
+		} else if !state.checked {
+			state.checked = true
+			state.indicator.Text = "(o)"
+			changed = true
+		}
+		if changed {
+			requestRenderedPageLayout(ctx)
+		}
+	}
+	control.OnClick = func() {
+		selectRadio()
+	}
+	control.OnKeyDown = func(_ *ui.DocumentNode, event *ui.DocumentEvent) {
+		if event == nil {
+			return
+		}
+		if event.Key.Code == 13 || event.Key.Code == 32 {
+			selectRadio()
+			event.PreventDefault()
+			event.StopPropagation()
+		}
+	}
+	return control
+}
+
+func htmlRangeNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
+	minValue := attrInt(node, "min", 0)
+	maxValue := attrInt(node, "max", 100)
+	if maxValue <= minValue {
+		maxValue = minValue + 100
+	}
+	stepValue := attrInt(node, "step", 1)
+	if stepValue <= 0 {
+		stepValue = 1
+	}
+	value := attrInt(node, "value", minValue)
+	if value < minValue {
+		value = minValue
+	}
+	if value > maxValue {
+		value = maxValue
+	}
+	label := htmlControlLabel(node, "Range")
+	valueText := ui.NewDocumentText("", htmlControlTextStyle())
+	hintText := ui.NewDocumentText("", htmlControlHintStyle())
+	update := func() {
+		valueText.Text = label
+		hintText.Text = "Value " + strconv.Itoa(value) + " of " + strconv.Itoa(maxValue)
+	}
+	update()
+	control := ui.NewDocumentElement("html-range", htmlControlStyle(), valueText, hintText)
+	control.Focusable = true
+	applyInteractiveControlStyles(control)
+	if hasAttr(node, "disabled") {
+		applyDisabledControlState(control)
+		return control
+	}
+	setValue := func(next int) {
+		if next < minValue {
+			next = minValue
+		}
+		if next > maxValue {
+			next = maxValue
+		}
+		if next == value {
+			return
+		}
+		value = next
+		update()
+		requestRenderedPageLayout(ctx)
+	}
+	control.OnClick = func() {
+		next := value + stepValue
+		if next > maxValue {
+			next = minValue
+		}
+		setValue(next)
+	}
+	control.OnKeyDown = func(_ *ui.DocumentNode, event *ui.DocumentEvent) {
+		if event == nil {
+			return
+		}
+		switch {
+		case event.Key.ScanCode == 0x4B:
+			setValue(value - stepValue)
+		case event.Key.ScanCode == 0x4D:
+			setValue(value + stepValue)
+		case event.Key.ScanCode == 0x47:
+			setValue(minValue)
+		case event.Key.ScanCode == 0x4F:
+			setValue(maxValue)
+		default:
+			return
+		}
+		event.PreventDefault()
+		event.StopPropagation()
+	}
+	return control
+}
+
+func htmlTextareaNode(node *dom.Node) *ui.DocumentNode {
+	text := collectNodeTextPreserve(node, false)
+	if text == "" {
+		text = attrValue(node, "placeholder")
+	}
+	if text == "" {
+		text = "Textarea"
+	}
+	area := ui.NewDocumentElement("html-textarea", htmlControlStyle(),
+		ui.NewDocumentText(text, styled(func(style *ui.Style) {
+			style.SetDisplay(ui.DisplayBlock)
+			style.SetForeground(ui.Black)
+			style.SetFontPath(webMonoFontPath)
+			style.SetFontSize(12)
+			style.SetLineHeight(17)
+			style.SetWhiteSpace(ui.WhiteSpacePreWrap)
+		})),
+	)
+	if rows := attrInt(node, "rows", 0); rows > 0 {
+		height := rows*18 + 18
+		if height < 56 {
+			height = 56
+		}
+		area.Style.SetHeight(height)
+	}
+	return area
+}
+
+func htmlSelectNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
+	type optionState struct {
+		label string
+	}
+	options := make([]optionState, 0, len(node.Children))
+	selected := 0
+	for _, child := range node.Children {
+		if child == nil || child.Type != dom.ElementNode || child.Tag != "option" {
+			continue
+		}
+		label := htmlControlLabel(child, attrValue(child, "value"))
+		if label == "" {
+			label = "Option"
+		}
+		options = append(options, optionState{label: label})
+		if hasAttr(child, "selected") {
+			selected = len(options) - 1
+		}
+	}
+	if len(options) == 0 {
+		options = append(options, optionState{label: "Select option"})
+	}
+	if selected < 0 || selected >= len(options) {
+		selected = 0
+	}
+	valueText := ui.NewDocumentText(options[selected].label, htmlControlTextStyle())
+	control := ui.NewDocumentElement("html-select", htmlControlStyle(), valueText)
+	control.Focusable = true
+	applyInteractiveControlStyles(control)
+	if hasAttr(node, "disabled") {
+		applyDisabledControlState(control)
+		return control
+	}
+	cycle := func(step int) {
+		if len(options) == 0 {
+			return
+		}
+		selected += step
+		for selected < 0 {
+			selected += len(options)
+		}
+		for selected >= len(options) {
+			selected -= len(options)
+		}
+		valueText.Text = options[selected].label
+		requestRenderedPageLayout(ctx)
+	}
+	control.OnClick = func() {
+		cycle(1)
+	}
+	control.OnKeyDown = func(_ *ui.DocumentNode, event *ui.DocumentEvent) {
+		if event == nil {
+			return
+		}
+		switch {
+		case event.Key.ScanCode == 0x48 || event.Key.ScanCode == 0x4B:
+			cycle(-1)
+		case event.Key.ScanCode == 0x50 || event.Key.ScanCode == 0x4D || event.Key.Code == 32 || event.Key.Code == 13:
+			cycle(1)
+		default:
+			return
+		}
+		event.PreventDefault()
+		event.StopPropagation()
+	}
+	return control
+}
+
+func htmlProgressNode(node *dom.Node) *ui.DocumentNode {
+	maxValue := attrInt(node, "max", 1)
+	if maxValue <= 0 {
+		maxValue = 1
+	}
+	value := attrInt(node, "value", 0)
+	if value < 0 {
+		value = 0
+	}
+	if value > maxValue {
+		value = maxValue
+	}
+	percent := (value * 100) / maxValue
+	return ui.NewDocumentElement("html-progress", htmlControlStyle(),
+		ui.NewDocumentText("Progress", htmlControlTextStyle()),
+		ui.NewDocumentText(strconv.Itoa(percent)+"% complete", htmlControlHintStyle()),
+	)
+}
+
+func buildMessageDocument(title string, detail string) *ui.DocumentNode {
+	return ui.NewDocumentElement("message-page", styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetPadding(18, 16)
+		style.SetFontPath(webSansFontPath)
+		style.SetFontSize(13)
+		style.SetLineHeight(18)
+		style.SetForeground(ui.Black)
+	}), ui.NewDocumentText(title, styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetForeground(0x202124)
+		style.SetFontSize(20)
+		style.SetLineHeight(24)
+		style.SetMargin(0, 0, 8, 0)
+	})), ui.NewDocumentText(detail, styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetForeground(0x3C4043)
+		style.SetFontSize(13)
+		style.SetLineHeight(18)
+	})))
 }
 
 func messageCard(title string, detail string) *ui.DocumentNode {
@@ -1251,9 +1760,13 @@ func messageCard(title string, detail string) *ui.DocumentNode {
 	})))
 }
 
-func documentLinkNodeFromAnchor(node *dom.Node, baseURL string, openURL func(string)) *ui.DocumentNode {
+func documentLinkNodeFromAnchor(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
 	if node == nil || node.Attrs == nil {
 		return nil
+	}
+	baseURL := ""
+	if ctx != nil {
+		baseURL = ctx.baseURL
 	}
 	href := resolveURL(baseURL, node.Attrs["href"])
 	if href == "" {
@@ -1263,10 +1776,10 @@ func documentLinkNodeFromAnchor(node *dom.Node, baseURL string, openURL func(str
 	if label == "" {
 		label = displayURL(href)
 	}
-	return documentLinkCard(label, href, openURL)
+	return documentLinkCard(label, href, ctx)
 }
 
-func documentLinkCard(label string, href string, openURL func(string)) *ui.DocumentNode {
+func documentLinkCard(label string, href string, ctx *renderContext) *ui.DocumentNode {
 	title := label
 	if title == "" {
 		title = displayURL(href)
@@ -1274,36 +1787,33 @@ func documentLinkCard(label string, href string, openURL func(string)) *ui.Docum
 	card := ui.NewDocumentElement("link", styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
 		style.SetMargin(0, 0, 6, 0)
-		style.SetPadding(8, 10)
-		style.SetBorderRadius(10)
-		style.SetBorder(1, ui.Silver)
+		style.SetPadding(0)
+		style.SetBorder(0, ui.White)
 		style.SetBackground(ui.White)
 		style.SetContain(ui.ContainPaint)
 	}), ui.NewDocumentText(title, styled(func(style *ui.Style) {
 		style.SetForeground(ui.Blue)
 		style.SetFontSize(13)
-		style.SetMargin(0, 0, 3, 0)
+		style.SetTextDecoration(ui.TextDecorationUnderline)
+		style.SetMargin(0, 0, 2, 0)
 	})), ui.NewDocumentText(href, styled(func(style *ui.Style) {
-		style.SetForeground(ui.Gray)
+		style.SetForeground(0x5F6368)
 		style.SetFontSize(11)
 	})))
 	card.Focusable = true
 	card.StyleHover = styled(func(style *ui.Style) {
-		style.SetBorderColor(ui.Teal)
-		style.SetBackground(ui.Aqua)
+		style.SetForeground(ui.Teal)
 	})
 	card.StyleActive = styled(func(style *ui.Style) {
-		style.SetBorderColor(ui.Navy)
-		style.SetBackground(ui.Silver)
+		style.SetForeground(ui.Navy)
 	})
 	card.StyleFocus = styled(func(style *ui.Style) {
-		style.SetBorderColor(ui.Blue)
 		style.SetOutline(2, ui.Blue)
 		style.SetOutlineOffset(1)
 	})
-	if openURL != nil && href != "" {
+	if ctx != nil && ctx.openURL != nil && href != "" {
 		card.OnClick = func() {
-			openURL(href)
+			ctx.openURL(href)
 		}
 	}
 	return card

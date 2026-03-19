@@ -3,6 +3,11 @@ package main
 import "strings"
 
 func normalizeURL(value string) string {
+	value = strings.TrimSpace(value)
+	lower := strings.ToLower(value)
+	if strings.HasPrefix(lower, "about:") {
+		return lower
+	}
 	if strings.Contains(value, "://") {
 		return value
 	}
