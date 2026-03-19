@@ -5,14 +5,13 @@ import (
 	"kos"
 	"strings"
 	"ui"
-	"ui/elements"
 )
 
 const (
 	defaultWindowWidth  = 780
 	defaultWindowHeight = 560
-	defaultShellHeight  = 108
-	defaultPageHeight   = 392
+	defaultShellHeight  = 172
+	defaultPageHeight   = 328
 	maxContent          = 512 * 1024
 	defaultURL          = "https://example.com"
 )
@@ -25,12 +24,14 @@ type App struct {
 	shellView     *ui.DocumentView
 	pageDocument  *ui.Document
 	pageView      *ui.DocumentView
-	addressInput  *ui.Element
-	backButton    *ui.Element
-	forwardButton *ui.Element
-	reloadButton  *ui.Element
-	homeButton    *ui.Element
-	goButton      *ui.Element
+
+	shellTitleNode    *ui.DocumentNode
+	shellStatusNode   *ui.DocumentNode
+	shellBackNode     *ui.DocumentNode
+	shellForwardNode  *ui.DocumentNode
+	shellReloadNode   *ui.DocumentNode
+	shellHomeNode     *ui.DocumentNode
+	shellAddressState shellAddressInputState
 
 	currentURL   string
 	addressText  string
@@ -51,7 +52,7 @@ func NewApp() *App {
 	app.buildUI()
 	app.showMessageDocument(
 		"Tagix Browser",
-		"Browser shell now renders in its own DocumentView, and the page below is hosted in a separate frame-like DocumentView. The toolbar below uses native UI controls, including an inline address field.",
+		"Browser shell now renders in its own DocumentView, and the page below is hosted in a separate frame-like DocumentView. The shell toolbar itself now comes from HTML, including the editable address field.",
 	)
 	app.syncShell()
 	return app
@@ -79,12 +80,12 @@ func (app *App) buildUI() {
 		style.SetPadding(12)
 	})
 
-	app.shellDocument = ui.NewDocument(nil)
+	app.shellDocument = ui.NewDocument(buildShellDocument(app))
 	app.shellView = ui.CreateDocumentView(app.shellDocument)
 	app.shellView.Style = styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
 		style.SetHeight(defaultShellHeight)
-		style.SetMargin(0, 0, 8, 0)
+		style.SetMargin(0, 0, 10, 0)
 		style.SetPadding(10)
 		style.SetBorder(1, ui.Silver)
 		style.SetBorderRadius(14)
@@ -92,62 +93,6 @@ func (app *App) buildUI() {
 		style.SetOverflow(ui.OverflowHidden)
 		style.SetContain(ui.ContainPaint)
 	})
-
-	toolbar := ui.CreateBox()
-	toolbar.UpdateStyle(func(style *ui.Style) {
-		style.SetDisplay(ui.DisplayBlock)
-		style.SetMargin(0, 0, 10, 0)
-		style.SetPadding(10)
-		style.SetBorder(1, ui.Silver)
-		style.SetBorderRadius(12)
-		style.SetBackground(ui.White)
-		style.SetContain(ui.ContainPaint)
-	})
-	app.backButton = app.toolbarButton("Back", func() {
-		app.goBack()
-	})
-	app.forwardButton = app.toolbarButton("Forward", func() {
-		app.goForward()
-	})
-	app.reloadButton = app.toolbarButton("Reload", func() {
-		app.reloadCurrent()
-	})
-	app.homeButton = app.toolbarButton("Home", func() {
-		app.goHome()
-	})
-	app.addressInput = elements.Input(defaultURL)
-	app.addressInput.UpdateStyle(func(style *ui.Style) {
-		style.SetDisplay(ui.DisplayInlineBlock)
-		style.SetWidth(430)
-		style.SetMargin(0, 8, 0, 0)
-		style.SetPadding(6, 10)
-		style.SetBorderRadius(10)
-		style.SetFontPath(webSansFontPath)
-		style.SetFontSize(13)
-	})
-	app.addressInput.UpdateFocusStyle(func(style *ui.Style) {
-		style.SetBorderColor(ui.Blue)
-		style.SetOutline(2, ui.Blue)
-		style.SetOutlineOffset(1)
-	})
-	app.addressInput.OnInput = func(value string) {
-		app.addressText = strings.TrimSpace(value)
-	}
-	app.addressInput.OnKeyDown = func(_ *ui.Element, event *ui.Event) {
-		if event != nil && event.Key.Code == 13 {
-			event.PreventDefault()
-			app.submitAddress()
-		}
-	}
-	app.goButton = app.toolbarButton("Go", func() {
-		app.submitAddress()
-	})
-	toolbar.Append(app.backButton)
-	toolbar.Append(app.forwardButton)
-	toolbar.Append(app.reloadButton)
-	toolbar.Append(app.homeButton)
-	toolbar.Append(app.addressInput)
-	toolbar.Append(app.goButton)
 
 	app.pageDocument = ui.NewDocument(nil)
 	app.pageView = ui.CreateDocumentView(app.pageDocument)
@@ -174,7 +119,6 @@ func (app *App) buildUI() {
 	})
 
 	root.Append(app.shellView)
-	root.Append(toolbar)
 	root.Append(app.pageView)
 	window.Append(root)
 }
@@ -184,30 +128,11 @@ func (app *App) Run() {
 	app.window.Start()
 }
 
-func (app *App) toolbarButton(label string, onClick func()) *ui.Element {
-	button := elements.Button(label)
-	button.UpdateStyle(func(style *ui.Style) {
-		style.SetDisplay(ui.DisplayInlineBlock)
-		style.SetMargin(0, 8, 0, 0)
-		style.SetPadding(5, 10)
-		style.SetBorderRadius(9)
-		style.SetFontPath(webSansFontPath)
-		style.SetFontSize(12)
-	})
-	if onClick != nil {
-		button.OnClick = onClick
-	}
-	return button
-}
-
 func (app *App) submitAddress() {
 	if app == nil {
 		return
 	}
 	value := strings.TrimSpace(app.addressText)
-	if value == "" && app.addressInput != nil {
-		value = strings.TrimSpace(app.addressInput.Text)
-	}
 	if value == "" {
 		value = defaultURL
 	}
@@ -377,72 +302,12 @@ func (app *App) syncShell() {
 	if status == "" {
 		status = "Ready"
 	}
-	app.shellDocument.SetRoot(buildShellDocument(title, status))
-	app.syncToolbar()
+	syncShellDocument(app, title, status)
 	windowTitle := "Tagix Browser"
 	if app.pageTitle != "" {
 		windowTitle += " - " + app.pageTitle
 	}
 	app.window.SetTitle(windowTitle)
-}
-
-func (app *App) syncToolbar() {
-	if app == nil {
-		return
-	}
-	address := strings.TrimSpace(app.addressText)
-	if address == "" {
-		address = defaultURL
-	}
-	if app.addressInput != nil && app.addressInput.Text != address {
-		app.addressInput.SetText(app.window, address)
-	}
-	app.syncToolbarButton(app.backButton, app.historyIndex > 0)
-	app.syncToolbarButton(app.forwardButton, app.historyIndex+1 < len(app.history))
-	app.syncToolbarButton(app.reloadButton, true)
-	app.syncToolbarButton(app.homeButton, true)
-	app.syncToolbarButton(app.goButton, strings.TrimSpace(address) != "")
-}
-
-func (app *App) syncToolbarButton(button *ui.Element, enabled bool) {
-	if button == nil {
-		return
-	}
-	button.UpdateStyle(func(style *ui.Style) {
-		if enabled {
-			style.SetBackground(ui.Silver)
-			style.SetBorderColor(ui.Silver)
-			style.SetForeground(ui.Black)
-			style.SetOpacity(255)
-		} else {
-			style.SetBackground(ui.White)
-			style.SetBorderColor(ui.Silver)
-			style.SetForeground(ui.Gray)
-			style.SetOpacity(190)
-		}
-	})
-	button.UpdateHoverStyle(func(style *ui.Style) {
-		if enabled {
-			style.SetBackground(ui.Aqua)
-			style.SetBorderColor(ui.Teal)
-		} else {
-			style.SetBackground(ui.White)
-			style.SetBorderColor(ui.Silver)
-			style.SetForeground(ui.Gray)
-			style.SetOpacity(190)
-		}
-	})
-	button.UpdateActiveStyle(func(style *ui.Style) {
-		if enabled {
-			style.SetBackground(ui.Silver)
-			style.SetBorderColor(ui.Navy)
-		} else {
-			style.SetBackground(ui.White)
-			style.SetBorderColor(ui.Silver)
-			style.SetForeground(ui.Gray)
-			style.SetOpacity(190)
-		}
-	})
 }
 
 func formatUint(value uint32) string {

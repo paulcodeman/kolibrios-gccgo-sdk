@@ -18,6 +18,13 @@ var (
 	cachedShellTemplateRead bool
 )
 
+type shellAddressInputState struct {
+	node    *ui.DocumentNode
+	value   string
+	caret   int
+	focused bool
+}
+
 func styled(update func(*ui.Style)) ui.Style {
 	value := ui.Style{}
 	if update != nil {
@@ -26,10 +33,28 @@ func styled(update func(*ui.Style)) ui.Style {
 	return value
 }
 
-func buildShellDocument(title string, status string) *ui.DocumentNode {
-	doc := dom.Parse(shellTemplateHTML(title, status))
+func buildShellDocument(app *App) *ui.DocumentNode {
+	title := "Tagix Browser"
+	status := "Ready"
+	currentURL := defaultURL
+	canBack := false
+	canForward := false
+	if app != nil {
+		if value := strings.TrimSpace(app.pageTitle); value != "" {
+			title = value
+		}
+		if value := strings.TrimSpace(app.statusBase); value != "" {
+			status = value
+		}
+		if value := strings.TrimSpace(app.addressText); value != "" {
+			currentURL = value
+		}
+		canBack = app.historyIndex > 0
+		canForward = app.historyIndex+1 < len(app.history)
+	}
+	doc := dom.Parse(shellTemplateHTML(title, status, currentURL, canBack, canForward))
 	if doc != nil && doc.Root != nil {
-		if root := buildShellTemplateRoot(doc.Root); root != nil {
+		if root := buildShellTemplateRoot(app, doc.Root); root != nil {
 			return root
 		}
 	}
@@ -44,16 +69,22 @@ func buildShellDocument(title string, status string) *ui.DocumentNode {
 	}), messageCard("Tagix Browser shell", "Failed to build the shell document template."))
 }
 
-func shellTemplateHTML(title string, status string) string {
+func shellTemplateHTML(title string, status string, currentURL string, canBack bool, canForward bool) string {
 	if strings.TrimSpace(title) == "" {
 		title = "Tagix Browser"
 	}
 	if strings.TrimSpace(status) == "" {
 		status = "Ready"
 	}
+	if strings.TrimSpace(currentURL) == "" {
+		currentURL = defaultURL
+	}
 	replacer := strings.NewReplacer(
 		"<<title>>", escapeHTMLText(title),
 		"<<status>>", escapeHTMLText(status),
+		"<<current_url>>", escapeHTMLText(currentURL),
+		"<<back_enabled>>", boolAttr(canBack),
+		"<<forward_enabled>>", boolAttr(canForward),
 	)
 	return replacer.Replace(loadShellTemplateSource())
 }
@@ -72,22 +103,22 @@ func loadShellTemplateSource() string {
 	return cachedShellTemplate
 }
 
-func buildShellTemplateRoot(node *dom.Node) *ui.DocumentNode {
+func buildShellTemplateRoot(app *App, node *dom.Node) *ui.DocumentNode {
 	if node == nil {
 		return nil
 	}
-	if built := buildShellTemplateNode(node); built != nil {
+	if built := buildShellTemplateNode(app, node); built != nil {
 		return built
 	}
 	for _, child := range node.Children {
-		if built := buildShellTemplateRoot(child); built != nil {
+		if built := buildShellTemplateRoot(app, child); built != nil {
 			return built
 		}
 	}
 	return nil
 }
 
-func buildShellTemplateNode(node *dom.Node) *ui.DocumentNode {
+func buildShellTemplateNode(app *App, node *dom.Node) *ui.DocumentNode {
 	if node == nil || node.Type != dom.ElementNode {
 		return nil
 	}
@@ -102,11 +133,11 @@ func buildShellTemplateNode(node *dom.Node) *ui.DocumentNode {
 			style.SetLineHeight(18)
 			style.SetForeground(ui.Black)
 			style.SetContain(ui.ContainPaint)
-		}), buildShellChildren(node)...)
+		}), buildShellChildren(app, node)...)
 	case "hero":
 		return ui.NewDocumentElement("browser-shell-hero", styled(func(style *ui.Style) {
 			style.SetDisplay(ui.DisplayBlock)
-			style.SetMargin(0, 0, 10, 0)
+			style.SetMargin(0, 0, 8, 0)
 			style.SetPadding(10, 12)
 			style.SetBorderRadius(12)
 			style.SetGradient(ui.Gradient{
@@ -115,32 +146,58 @@ func buildShellTemplateNode(node *dom.Node) *ui.DocumentNode {
 				Direction: ui.GradientHorizontal,
 			})
 			style.SetContain(ui.ContainPaint)
-		}), buildShellChildren(node)...)
+		}), buildShellChildren(app, node)...)
 	case "title":
-		return ui.NewDocumentText(collectNodeText(node, false), styled(func(style *ui.Style) {
+		text := ui.NewDocumentText(collectNodeText(node, false), styled(func(style *ui.Style) {
 			style.SetDisplay(ui.DisplayBlock)
 			style.SetMargin(0, 0, 4, 0)
 			style.SetForeground(ui.White)
 			style.SetFontSize(18)
 			style.SetLineHeight(22)
 		}))
+		if app != nil {
+			app.shellTitleNode = text
+		}
+		return text
 	case "status":
-		return ui.NewDocumentText(collectNodeText(node, false), styled(func(style *ui.Style) {
+		text := ui.NewDocumentText(collectNodeText(node, false), styled(func(style *ui.Style) {
 			style.SetDisplay(ui.DisplayBlock)
 			style.SetForeground(ui.Silver)
 			style.SetFontSize(11)
 			style.SetLineHeight(15)
 		}))
+		if app != nil {
+			app.shellStatusNode = text
+		}
+		return text
+	case "toolbar":
+		return ui.NewDocumentElement("browser-shell-toolbar", styled(func(style *ui.Style) {
+			style.SetDisplay(ui.DisplayBlock)
+			style.SetPadding(10)
+			style.SetBorderRadius(12)
+			style.SetBackground(ui.White)
+			style.SetBorder(1, ui.Silver)
+			style.SetContain(ui.ContainPaint)
+		}), buildShellChildren(app, node)...)
+	case "actions":
+		return ui.NewDocumentElement("browser-shell-actions", styled(func(style *ui.Style) {
+			style.SetDisplay(ui.DisplayBlock)
+			style.SetMargin(0, 0, 8, 0)
+		}), buildShellChildren(app, node)...)
+	case "button":
+		return shellButtonNode(app, collectNodeText(node, false), strings.TrimSpace(node.Attrs["data-action"]), attrIsTrue(node.Attrs["data-enabled"]))
+	case "address":
+		return shellAddressNode(app, strings.TrimSpace(node.Attrs["value"]))
 	case "hint":
 		return ui.NewDocumentText(collectNodeText(node, false), styled(func(style *ui.Style) {
 			style.SetDisplay(ui.DisplayBlock)
-			style.SetMargin(2, 0, 0, 0)
+			style.SetMargin(8, 0, 0, 0)
 			style.SetForeground(ui.Gray)
 			style.SetFontSize(11)
 			style.SetLineHeight(16)
 		}))
 	default:
-		children := buildShellChildren(node)
+		children := buildShellChildren(app, node)
 		if len(children) == 1 {
 			return children[0]
 		}
@@ -153,18 +210,342 @@ func buildShellTemplateNode(node *dom.Node) *ui.DocumentNode {
 	}
 }
 
-func buildShellChildren(node *dom.Node) []*ui.DocumentNode {
+func buildShellChildren(app *App, node *dom.Node) []*ui.DocumentNode {
 	if node == nil {
 		return nil
 	}
 	children := make([]*ui.DocumentNode, 0, len(node.Children))
 	for _, child := range node.Children {
-		built := buildShellTemplateNode(child)
+		built := buildShellTemplateNode(app, child)
 		if built != nil {
 			children = append(children, built)
 		}
 	}
 	return children
+}
+
+func shellButtonNode(app *App, label string, action string, enabled bool) *ui.DocumentNode {
+	label = normalizeBlockText(label)
+	if label == "" {
+		label = "Action"
+	}
+	button := ui.NewDocumentElement("shell-button-"+action, styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayInlineBlock)
+		style.SetMargin(0, 8, 0, 0)
+		style.SetPadding(6, 10)
+		style.SetBorderRadius(8)
+		style.SetBorder(1, ui.Silver)
+		style.SetBackground(ui.Silver)
+		style.SetContain(ui.ContainPaint)
+	}), ui.NewDocumentText(label, styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayInline)
+		style.SetForeground(ui.Black)
+		style.SetFontSize(12)
+		style.SetLineHeight(16)
+	})))
+	button.StyleHover = styled(func(style *ui.Style) {
+		style.SetBorderColor(ui.Teal)
+		style.SetBackground(ui.Aqua)
+	})
+	button.StyleActive = styled(func(style *ui.Style) {
+		style.SetBorderColor(ui.Navy)
+		style.SetBackground(ui.Silver)
+	})
+	button.StyleFocus = styled(func(style *ui.Style) {
+		style.SetBorderColor(ui.Blue)
+		style.SetOutline(2, ui.Blue)
+		style.SetOutlineOffset(1)
+	})
+	switch action {
+	case "back":
+		if app != nil {
+			app.shellBackNode = button
+		}
+		button.OnClick = func() {
+			if app != nil {
+				app.goBack()
+			}
+		}
+	case "forward":
+		if app != nil {
+			app.shellForwardNode = button
+		}
+		button.OnClick = func() {
+			if app != nil {
+				app.goForward()
+			}
+		}
+	case "reload":
+		if app != nil {
+			app.shellReloadNode = button
+		}
+		button.OnClick = func() {
+			if app != nil {
+				app.reloadCurrent()
+			}
+		}
+	case "home":
+		if app != nil {
+			app.shellHomeNode = button
+		}
+		button.OnClick = func() {
+			if app != nil {
+				app.goHome()
+			}
+		}
+	}
+	applyShellButtonState(button, enabled)
+	return button
+}
+
+func applyShellButtonState(node *ui.DocumentNode, enabled bool) {
+	if node == nil {
+		return
+	}
+	node.Focusable = enabled
+	if enabled {
+		node.Style.SetBackground(ui.Silver)
+		node.Style.SetBorderColor(ui.Silver)
+		node.Style.SetForeground(ui.Black)
+		node.Style.SetOpacity(255)
+	} else {
+		node.Style.SetBackground(ui.White)
+		node.Style.SetBorderColor(ui.Silver)
+		node.Style.SetForeground(ui.Gray)
+		node.Style.SetOpacity(190)
+	}
+	if len(node.Children) > 0 && node.Children[0] != nil {
+		if enabled {
+			node.Children[0].Style.SetForeground(ui.Black)
+			node.Children[0].Style.SetOpacity(255)
+		} else {
+			node.Children[0].Style.SetForeground(ui.Gray)
+			node.Children[0].Style.SetOpacity(190)
+		}
+	}
+}
+
+func shellAddressNode(app *App, value string) *ui.DocumentNode {
+	input := ui.NewDocumentElement("shell-address", styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetPadding(7, 10)
+		style.SetBorderRadius(10)
+		style.SetBorder(1, ui.Silver)
+		style.SetBackground(ui.White)
+		style.SetContain(ui.ContainPaint)
+		style.SetOverflow(ui.OverflowHidden)
+		style.SetWhiteSpace(ui.WhiteSpaceNoWrap)
+		style.SetFontPath(webSansFontPath)
+		style.SetFontSize(13)
+		style.SetLineHeight(18)
+	}), nil)
+	input.Focusable = true
+	input.StyleHover = styled(func(style *ui.Style) {
+		style.SetBorderColor(ui.Teal)
+	})
+	input.StyleFocus = styled(func(style *ui.Style) {
+		style.SetBorderColor(ui.Blue)
+		style.SetOutline(2, ui.Blue)
+		style.SetOutlineOffset(1)
+	})
+	if app != nil {
+		app.shellAddressState = shellAddressInputState{
+			node:  input,
+			value: value,
+			caret: len(value),
+		}
+	}
+	input.OnClick = func() {
+		if app != nil {
+			app.shellAddressState.caret = len(app.shellAddressState.value)
+			app.refreshShellAddressNode(true)
+		}
+	}
+	input.OnFocus = func() {
+		if app != nil {
+			app.shellAddressState.focused = true
+			app.shellAddressState.caret = clampShellInputIndex(app.shellAddressState.value, app.shellAddressState.caret)
+			app.refreshShellAddressNode(true)
+		}
+	}
+	input.OnBlur = func() {
+		if app != nil {
+			app.shellAddressState.focused = false
+			app.addressText = app.shellAddressState.value
+			app.refreshShellAddressNode(true)
+		}
+	}
+	input.OnKeyDown = func(_ *ui.DocumentNode, event *ui.DocumentEvent) {
+		if app != nil {
+			app.handleShellAddressKey(event)
+		}
+	}
+	if app != nil {
+		app.refreshShellAddressNode(false)
+	}
+	return input
+}
+
+func (app *App) refreshShellAddressNode(markLayout bool) {
+	if app == nil || app.shellAddressState.node == nil {
+		return
+	}
+	node := app.shellAddressState.node
+	value := app.shellAddressState.value
+	node.ClearChildren()
+	textStyle := styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayInline)
+		style.SetForeground(ui.Black)
+		style.SetFontPath(webSansFontPath)
+		style.SetFontSize(13)
+		style.SetLineHeight(18)
+		style.SetWhiteSpace(ui.WhiteSpaceNoWrap)
+	})
+	if value == "" {
+		placeholderStyle := textStyle
+		placeholderStyle.SetForeground(ui.Gray)
+		node.Append(ui.NewDocumentText("Type URL here", placeholderStyle))
+	} else if !app.shellAddressState.focused {
+		node.Append(ui.NewDocumentText(value, textStyle))
+	} else {
+		caret := clampShellInputIndex(value, app.shellAddressState.caret)
+		before := value[:caret]
+		after := value[caret:]
+		if before != "" {
+			node.Append(ui.NewDocumentText(before, textStyle))
+		}
+		node.Append(ui.NewDocumentElement("shell-address-caret", styled(func(style *ui.Style) {
+			style.SetDisplay(ui.DisplayInlineBlock)
+			style.SetWidth(1)
+			style.SetHeight(16)
+			style.SetMargin(1, 0, 1, 0)
+			style.SetBackground(ui.Blue)
+			style.SetContain(ui.ContainPaint)
+		})))
+		if after != "" {
+			node.Append(ui.NewDocumentText(after, textStyle))
+		}
+	}
+	if app.shellDocument != nil {
+		if markLayout {
+			app.shellDocument.MarkLayoutDirty()
+		} else {
+			app.shellDocument.MarkDirty()
+		}
+	}
+}
+
+func (app *App) handleShellAddressKey(event *ui.DocumentEvent) {
+	if app == nil || event == nil {
+		return
+	}
+	state := &app.shellAddressState
+	value := state.value
+	caret := clampShellInputIndex(value, state.caret)
+	handled := false
+	changed := false
+	switch {
+	case event.Key.Code == 13:
+		handled = true
+		app.addressText = value
+		app.submitAddress()
+	case event.Key.Code == 8:
+		handled = true
+		if caret > 0 {
+			prev := prevShellInputIndex(value, caret)
+			value = value[:prev] + value[caret:]
+			caret = prev
+			changed = true
+		}
+	case event.Key.Code == 127 || event.Key.ScanCode == 0x53:
+		handled = true
+		if caret < len(value) {
+			next := nextShellInputIndex(value, caret)
+			value = value[:caret] + value[next:]
+			changed = true
+		}
+	case event.Key.ScanCode == 0x4B:
+		handled = true
+		caret = prevShellInputIndex(value, caret)
+	case event.Key.ScanCode == 0x4D:
+		handled = true
+		caret = nextShellInputIndex(value, caret)
+	case event.Key.ScanCode == 0x47:
+		handled = true
+		caret = 0
+	case event.Key.ScanCode == 0x4F:
+		handled = true
+		caret = len(value)
+	default:
+		if inserted := shellInputKeyString(event.Key.Code); inserted != "" {
+			handled = true
+			value = value[:caret] + inserted + value[caret:]
+			caret += len(inserted)
+			changed = true
+		}
+	}
+	if !handled {
+		return
+	}
+	event.PreventDefault()
+	state.value = value
+	state.caret = caret
+	app.addressText = value
+	if changed {
+		app.refreshShellAddressNode(true)
+	} else {
+		app.refreshShellAddressNode(false)
+	}
+}
+
+func syncShellDocument(app *App, title string, status string) {
+	if app == nil || app.shellDocument == nil {
+		return
+	}
+	layoutDirty := false
+	if app.shellTitleNode != nil && app.shellTitleNode.Text != title {
+		app.shellTitleNode.Text = title
+		layoutDirty = true
+	}
+	if app.shellStatusNode != nil && app.shellStatusNode.Text != status {
+		app.shellStatusNode.Text = status
+		layoutDirty = true
+	}
+	applyShellButtonState(app.shellBackNode, app.historyIndex > 0)
+	applyShellButtonState(app.shellForwardNode, app.historyIndex+1 < len(app.history))
+	applyShellButtonState(app.shellReloadNode, true)
+	applyShellButtonState(app.shellHomeNode, true)
+	address := strings.TrimSpace(app.addressText)
+	if address == "" {
+		address = defaultURL
+	}
+	if app.shellAddressState.value != address {
+		app.shellAddressState.value = address
+		app.shellAddressState.caret = len(address)
+		app.refreshShellAddressNode(true)
+		layoutDirty = false
+	}
+	if layoutDirty {
+		app.shellDocument.MarkLayoutDirty()
+	} else {
+		app.shellDocument.MarkDirty()
+	}
+}
+
+func attrIsTrue(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func boolAttr(value bool) string {
+	if value {
+		return "true"
+	}
+	return "false"
 }
 
 const defaultShellTemplateHTML = `<body>
@@ -173,7 +554,16 @@ const defaultShellTemplateHTML = `<body>
 <h1 data-role="title"><<title>></h1>
 <p data-role="status"><<status>></p>
 </header>
-<p data-role="hint">The browser shell renders from an HTML template, while the toolbar below uses native UI controls so the address field is editable inline. The page area still lives in its own embedded frame host.</p>
+<div data-role="toolbar">
+<div data-role="actions">
+<button data-role="button" data-action="back" data-enabled="<<back_enabled>>">Back</button>
+<button data-role="button" data-action="forward" data-enabled="<<forward_enabled>>">Forward</button>
+<button data-role="button" data-action="reload" data-enabled="true">Reload</button>
+<button data-role="button" data-action="home" data-enabled="true">Home</button>
+</div>
+<input data-role="address" value="<<current_url>>">
+</div>
+<p data-role="hint">The browser shell now comes from the HTML template, including the address field. The page area still lives in its own embedded frame host.</p>
 </section>
 </body>`
 
