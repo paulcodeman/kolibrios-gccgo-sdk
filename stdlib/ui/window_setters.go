@@ -132,7 +132,8 @@ func (window *Window) setSize(width int, height int) bool {
 	updated := windowClientRect(width, height)
 	if updated != window.client {
 		window.client = updated
-		window.invalidateWindowPropertyState()
+		window.invalidateWindowContentPropertyState()
+		window.invalidateWindowEffectPropertyState()
 		window.layoutDirty = true
 		window.renderListValid = false
 		window.hoverDirty = true

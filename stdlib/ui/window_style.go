@@ -7,11 +7,25 @@ func (window *Window) UpdateStyle(update func(style *Style)) bool {
 	}
 	oldStyle := window.Style
 	oldVisual := visualKeyFor(oldStyle)
+	oldInsets := boxInsets(oldStyle)
+	oldClipX, oldClipY := window.styleClipAxes(oldStyle)
+	oldOverflow := window.overflowModeYForStyle(oldStyle)
 	update(&window.Style)
-	displayStateChanged := window.styleDisplayStateChanged(oldStyle, window.Style)
-	if displayStateChanged {
-		window.invalidateWindowPropertyState()
-	} else if !styleVisualKeyEqual(oldVisual, visualKeyFor(window.Style)) {
+	newVisual := visualKeyFor(window.Style)
+	newInsets := boxInsets(window.Style)
+	newClipX, newClipY := window.styleClipAxes(window.Style)
+	newOverflow := window.overflowModeY()
+	if oldInsets != newInsets {
+		window.invalidateWindowContentPropertyState()
+	} else {
+		if oldClipX != newClipX || oldClipY != newClipY {
+			window.invalidateWindowClipPropertyState()
+		}
+		if oldOverflow != newOverflow {
+			window.invalidateWindowScrollPropertyState()
+		}
+	}
+	if !styleVisualKeyEqual(oldVisual, newVisual) {
 		window.invalidateWindowEffectPropertyState()
 	}
 	changed := window.applyStyleBounds()
@@ -22,14 +36,12 @@ func (window *Window) UpdateStyle(update func(style *Style)) bool {
 		window.lastMouseValid = false
 		changed = true
 	}
-	if !styleVisualKeyEqual(oldVisual, visualKeyFor(window.Style)) {
+	if !styleVisualKeyEqual(oldVisual, newVisual) {
 		if window.client.Width > 0 && window.client.Height > 0 {
 			window.Invalidate(Rect{X: 0, Y: 0, Width: window.client.Width, Height: window.client.Height})
 		}
 		changed = true
 	}
-	oldOverflow := window.overflowModeYForStyle(oldStyle)
-	newOverflow := window.overflowModeY()
 	if oldOverflow != newOverflow {
 		window.updateScrollMetrics()
 		window.scrollRedraw = true

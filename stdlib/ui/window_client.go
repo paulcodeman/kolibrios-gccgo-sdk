@@ -26,7 +26,8 @@ func (window *Window) syncWindowInfo() {
 	updated := windowClientRect(window.Width, window.Height)
 	if updated != window.client {
 		window.client = updated
-		window.invalidateWindowPropertyState()
+		window.invalidateWindowContentPropertyState()
+		window.invalidateWindowEffectPropertyState()
 		window.layoutDirty = true
 		window.renderListValid = false
 		window.hoverDirty = true
@@ -47,14 +48,16 @@ func (window *Window) ensureCanvas() {
 	}
 	if window.canvas == nil {
 		window.canvas = NewCanvas(window.client.Width, window.client.Height)
-		window.invalidateWindowPropertyState()
+		window.invalidateWindowClipPropertyState()
+		window.invalidateWindowEffectPropertyState()
 		window.renderListValid = false
 		window.Invalidate(Rect{X: 0, Y: 0, Width: window.client.Width, Height: window.client.Height})
 		return
 	}
 	if window.canvas.Width() != window.client.Width || window.canvas.Height() != window.client.Height {
 		window.canvas.Resize(window.client.Width, window.client.Height)
-		window.invalidateWindowPropertyState()
+		window.invalidateWindowClipPropertyState()
+		window.invalidateWindowEffectPropertyState()
 		window.renderListValid = false
 		window.Invalidate(Rect{X: 0, Y: 0, Width: window.client.Width, Height: window.client.Height})
 	}
