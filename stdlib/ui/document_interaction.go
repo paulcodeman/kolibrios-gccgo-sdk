@@ -146,11 +146,10 @@ func (fragment *Fragment) effectiveStyle() Style {
 	if fragment == nil {
 		return Style{}
 	}
-	style := fragment.Style
-	if fragment.Node != nil {
-		style = mergeStyle(style, documentNodePaintStyle(fragment.Node))
+	if !fragment.PaintStyle.IsZero() {
+		return fragment.PaintStyle
 	}
-	return style
+	return fragment.Style
 }
 
 func dispatchDocumentNodeHandler(handler interface{}, node *DocumentNode, event DocumentEvent) bool {

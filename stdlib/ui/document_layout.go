@@ -30,6 +30,7 @@ func (document *Document) Layout(ctx LayoutContext) {
 	document.rootFragment = root
 	document.displayList = buildFragmentDisplayList(root, ctx.Viewport)
 	document.content = fragmentUnionBounds(root)
+	document.invalidateHitGrid()
 }
 
 func (document *Document) Paint(canvas *Canvas) {
@@ -64,6 +65,11 @@ func (document *Document) HitTest(x int, y int) *DocumentNode {
 	if document == nil {
 		return nil
 	}
+	if document.ensureHitGrid() {
+		if node, ok := document.hitGrid.find(x, y, document.displayList); ok {
+			return node
+		}
+	}
 	return document.displayList.Find(x, y)
 }
 
@@ -75,6 +81,7 @@ func (document *Document) clearLayout() {
 	document.rootFragment = nil
 	document.displayList = FragmentDisplayList{}
 	document.content = Rect{}
+	document.invalidateHitGrid()
 }
 
 func (document *Document) layoutNode(ctx LayoutContext, parentStyle Style, node *DocumentNode, container Rect, flowY int) (*Fragment, int) {
@@ -151,13 +158,18 @@ func (document *Document) layoutElementNode(ctx LayoutContext, node *DocumentNod
 		Width:  plan.width,
 		Height: height,
 	}
+	paintStyle := style
+	if node != nil {
+		paintStyle = mergeStyle(style, documentNodePaintStyle(node))
+	}
 	fragment := &Fragment{
-		Kind:     FragmentKindBlock,
-		Node:     node,
-		Style:    style,
-		Bounds:   bounds,
-		Content:  contentRectFor(bounds, style),
-		Children: children,
+		Kind:       FragmentKindBlock,
+		Node:       node,
+		Style:      style,
+		PaintStyle: paintStyle,
+		Bounds:     bounds,
+		Content:    contentRectFor(bounds, style),
+		Children:   children,
 	}
 	fragment.PaintBounds = fragmentPaintBounds(fragment)
 	return fragment, nextFlowY(plan, height, flowY)
@@ -179,7 +191,7 @@ func (document *Document) layoutTextNode(ctx LayoutContext, node *DocumentNode, 
 	if charWidth <= 0 {
 		charWidth = defaultCharWidth
 	}
-	lines := wrapTextForStyle(node.Text, contentWidth, font, charWidth, style)
+	lines := node.wrapTextLinesCachedStyle(node.Text, contentWidth, font, charWidth, style)
 	contentHeight := len(lines) * lineHeight
 	height, heightSet := explicitOuterHeight(style)
 	if !heightSet {
@@ -195,16 +207,23 @@ func (document *Document) layoutTextNode(ctx LayoutContext, node *DocumentNode, 
 		Width:  plan.width,
 		Height: height,
 	}
+	paintStyle := style
+	if node != nil {
+		paintStyle = mergeStyle(style, documentNodePaintStyle(node))
+	}
 	fragment := &Fragment{
-		Kind:    FragmentKindText,
-		Node:    node,
-		Style:   style,
-		Bounds:  bounds,
-		Content: contentRectFor(bounds, style),
-		Text:    node.Text,
-		font:    font,
-		metrics: metrics,
-		lines:   lines,
+		Kind:       FragmentKindText,
+		Node:       node,
+		Style:      style,
+		PaintStyle: paintStyle,
+		Bounds:     bounds,
+		Content:    contentRectFor(bounds, style),
+		Text:       node.Text,
+		font:       font,
+		metrics:    metrics,
+		lineHeight: lineHeight,
+		lines:      lines,
+		linesOwned: FastNoTextCache,
 	}
 	fragment.PaintBounds = fragmentPaintBounds(fragment)
 	return fragment, nextFlowY(plan, height, flowY)
@@ -217,10 +236,10 @@ func releaseFragmentTree(fragment *Fragment) {
 	for _, child := range fragment.Children {
 		releaseFragmentTree(child)
 	}
-	if fragment.lines != nil {
+	if fragment.linesOwned && fragment.lines != nil {
 		releaseTextLines(fragment.lines)
-		fragment.lines = nil
 	}
+	fragment.lines = nil
 	fragment.Children = nil
 }
 

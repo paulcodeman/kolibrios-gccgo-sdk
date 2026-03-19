@@ -64,7 +64,13 @@ func (element *Element) wrapTextLinesCachedStyle(text string, maxWidth int, font
 	if element == nil || FastNoTextCache {
 		return wrapTextForStyle(text, maxWidth, font, charWidth, style)
 	}
-	cache := &element.wrapCache
+	return wrapTextLinesCachedStyleWith(&element.wrapCache, text, maxWidth, font, charWidth, style)
+}
+
+func wrapTextLinesCachedStyleWith(cache *textWrapCache, text string, maxWidth int, font *ttfFont, charWidth int, style Style) []textLine {
+	if cache == nil || FastNoTextCache {
+		return wrapTextForStyle(text, maxWidth, font, charWidth, style)
+	}
 	hasFont := font != nil
 	key := fontKey{}
 	if hasFont {
@@ -93,6 +99,13 @@ func (element *Element) wrapTextLinesCachedStyle(text string, maxWidth int, font
 	cache.wordBreak = wordBreak
 	cache.lines = lines
 	return lines
+}
+
+func (node *DocumentNode) wrapTextLinesCachedStyle(text string, maxWidth int, font *ttfFont, charWidth int, style Style) []textLine {
+	if node == nil || FastNoTextCache {
+		return wrapTextForStyle(text, maxWidth, font, charWidth, style)
+	}
+	return wrapTextLinesCachedStyleWith(&node.wrapCache, text, maxWidth, font, charWidth, style)
 }
 
 func (element *Element) wrapTextPreserveCached(text string, maxWidth int, wrap bool, font *ttfFont, charWidth int) []textLine {

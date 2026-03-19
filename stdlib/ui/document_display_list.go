@@ -286,7 +286,10 @@ func (fragment *Fragment) paintTextOffset(canvas *Canvas, offsetX int, offsetY i
 	}
 	font := fragment.font
 	charWidth := fragment.metrics.width
-	lineHeight := lineHeightForStyle(style, fragment.metrics.height)
+	lineHeight := fragment.lineHeight
+	if lineHeight <= 0 {
+		lineHeight = lineHeightForStyle(style, fragment.metrics.height)
+	}
 	if charWidth <= 0 {
 		charWidth = defaultCharWidth
 	}

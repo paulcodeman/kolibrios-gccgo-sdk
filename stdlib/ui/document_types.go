@@ -36,24 +36,28 @@ type DocumentNode struct {
 	Parent       *DocumentNode
 	Children     []*DocumentNode
 
-	hovered bool
-	active  bool
-	focused bool
+	hovered   bool
+	active    bool
+	focused   bool
+	wrapCache textWrapCache
 }
 
 type Fragment struct {
 	Kind        FragmentKind
 	Node        *DocumentNode
 	Style       Style
+	PaintStyle  Style
 	Bounds      Rect
 	PaintBounds Rect
 	Content     Rect
 	Text        string
 	Children    []*Fragment
 
-	font    *ttfFont
-	metrics fontMetrics
-	lines   []textLine
+	font       *ttfFont
+	metrics    fontMetrics
+	lineHeight int
+	lines      []textLine
+	linesOwned bool
 }
 
 type FragmentDisplayItem struct {
@@ -76,6 +80,8 @@ type Document struct {
 	viewport     Rect
 	content      Rect
 	host         *DocumentView
+	hitGrid      fragmentHitTestGrid
+	hitGridValid bool
 }
 
 func NewDocument(root *DocumentNode) *Document {
@@ -121,6 +127,7 @@ func (node *DocumentNode) ClearChildren() {
 	}
 	for _, child := range node.Children {
 		if child != nil {
+			clearDocumentNodeCaches(child)
 			child.Parent = nil
 		}
 	}
@@ -132,6 +139,7 @@ func (document *Document) SetRoot(root *DocumentNode) {
 		return
 	}
 	document.clearLayout()
+	clearDocumentNodeCaches(document.Root)
 	document.Root = root
 	linkDocumentTree(nil, root)
 	if document.host != nil {
@@ -206,6 +214,24 @@ func linkDocumentTree(parent *DocumentNode, node *DocumentNode) {
 	node.Parent = parent
 	for _, child := range node.Children {
 		linkDocumentTree(node, child)
+	}
+}
+
+func (node *DocumentNode) clearTextCache() {
+	if node == nil {
+		return
+	}
+	releaseTextLines(node.wrapCache.lines)
+	node.wrapCache = textWrapCache{}
+}
+
+func clearDocumentNodeCaches(node *DocumentNode) {
+	if node == nil {
+		return
+	}
+	node.clearTextCache()
+	for _, child := range node.Children {
+		clearDocumentNodeCaches(child)
 	}
 }
 
