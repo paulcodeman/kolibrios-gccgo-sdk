@@ -235,19 +235,11 @@ func (element *Element) SetFocus(focus bool) bool {
 		element.invalidateRetainedLayerState()
 	}
 	if focus {
-		dispatchElementHandler(element.OnFocus, element, &Event{
-			Type:          EventFocus,
-			Phase:         EventPhaseTarget,
-			Target:        element,
-			CurrentTarget: element,
-		})
+		element.dispatchTargetOnlyEvent(EventFocus)
+		element.dispatchFocusTransitionEvent(EventFocusIn, true)
 	} else {
-		dispatchElementHandler(element.OnBlur, element, &Event{
-			Type:          EventBlur,
-			Phase:         EventPhaseTarget,
-			Target:        element,
-			CurrentTarget: element,
-		})
+		element.dispatchTargetOnlyEvent(EventBlur)
+		element.dispatchFocusTransitionEvent(EventFocusOut, true)
 	}
 	element.markDirty()
 	return true

@@ -304,7 +304,7 @@ func (view *DocumentView) setHoverNode(node *DocumentNode, event DocumentEvent) 
 		leave := event
 		leave.Type = EventMouseLeave
 		leave.Node = previous
-		if dispatchDocumentNodeHandler(previous.OnMouseLeave, previous, &leave) {
+		if dispatchDocumentEventOnCurrent(previous, &leave) {
 			changed = true
 		}
 	}
@@ -317,7 +317,7 @@ func (view *DocumentView) setHoverNode(node *DocumentNode, event DocumentEvent) 
 		enter := event
 		enter.Type = EventMouseEnter
 		enter.Node = node
-		if dispatchDocumentNodeHandler(node.OnMouseEnter, node, &enter) {
+		if dispatchDocumentEventOnCurrent(node, &enter) {
 			changed = true
 		}
 	}
@@ -367,7 +367,19 @@ func (view *DocumentView) setFocusNode(node *DocumentNode, event DocumentEvent) 
 		blur := event
 		blur.Type = EventBlur
 		blur.Node = previous
-		if dispatchDocumentNodeHandler(previous.OnBlur, previous, &blur) {
+		blur.Bubbles = false
+		if dispatchDocumentNodeEvent(&blur, documentEventPath(previous), func(current *DocumentNode) interface{} {
+			return documentHandlerForType(current, EventBlur)
+		}) {
+			changed = true
+		}
+		focusOut := event
+		focusOut.Type = EventFocusOut
+		focusOut.Node = previous
+		focusOut.Bubbles = true
+		if dispatchDocumentNodeEvent(&focusOut, documentEventPath(previous), func(current *DocumentNode) interface{} {
+			return documentHandlerForType(current, EventFocusOut)
+		}) {
 			changed = true
 		}
 	}
@@ -380,7 +392,19 @@ func (view *DocumentView) setFocusNode(node *DocumentNode, event DocumentEvent) 
 		focus := event
 		focus.Type = EventFocus
 		focus.Node = node
-		if dispatchDocumentNodeHandler(node.OnFocus, node, &focus) {
+		focus.Bubbles = false
+		if dispatchDocumentNodeEvent(&focus, documentEventPath(node), func(current *DocumentNode) interface{} {
+			return documentHandlerForType(current, EventFocus)
+		}) {
+			changed = true
+		}
+		focusIn := event
+		focusIn.Type = EventFocusIn
+		focusIn.Node = node
+		focusIn.Bubbles = true
+		if dispatchDocumentNodeEvent(&focusIn, documentEventPath(node), func(current *DocumentNode) interface{} {
+			return documentHandlerForType(current, EventFocusIn)
+		}) {
 			changed = true
 		}
 		if view.scrollDocumentNodeIntoView(node) {

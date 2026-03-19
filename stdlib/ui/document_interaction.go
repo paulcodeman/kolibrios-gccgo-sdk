@@ -210,11 +210,88 @@ func documentEventPath(node *DocumentNode) []*DocumentNode {
 	return path
 }
 
+func documentHandlerForType(node *DocumentNode, eventType EventType) interface{} {
+	if node == nil {
+		return nil
+	}
+	switch eventType {
+	case EventClick:
+		return node.OnClick
+	case EventMouseDown:
+		return node.OnMouseDown
+	case EventMouseUp:
+		return node.OnMouseUp
+	case EventMouseMove:
+		return node.OnMouseMove
+	case EventMouseEnter:
+		return node.OnMouseEnter
+	case EventMouseLeave:
+		return node.OnMouseLeave
+	case EventScroll:
+		return node.OnScroll
+	case EventFocus:
+		return node.OnFocus
+	case EventBlur:
+		return node.OnBlur
+	case EventFocusIn:
+		return node.OnFocusIn
+	case EventFocusOut:
+		return node.OnFocusOut
+	case EventKeyDown:
+		return node.OnKeyDown
+	case EventInput:
+		return node.OnInput
+	case EventChange:
+		return node.OnChange
+	default:
+		return nil
+	}
+}
+
+func dispatchDocumentCaptureEvent(event *DocumentEvent, path []*DocumentNode) bool {
+	if event == nil || len(path) < 2 {
+		return false
+	}
+	handled := false
+	for index := len(path) - 1; index >= 1; index-- {
+		current := path[index]
+		if current == nil {
+			continue
+		}
+		event.CurrentTarget = current
+		event.Phase = EventPhaseCapture
+		if dispatchDocumentNodeHandler(current.OnEventCapture, current, event) {
+			handled = true
+		}
+		if event.PropagationStopped() {
+			break
+		}
+	}
+	return handled
+}
+
+func dispatchDocumentEventOnCurrent(current *DocumentNode, event *DocumentEvent) bool {
+	if current == nil || event == nil {
+		return false
+	}
+	handled := false
+	if dispatchDocumentNodeHandler(documentHandlerForType(current, event.Type), current, event) {
+		handled = true
+	}
+	if dispatchDocumentNodeHandler(current.OnEvent, current, event) {
+		handled = true
+	}
+	return handled
+}
+
 func dispatchDocumentNodeEvent(event *DocumentEvent, path []*DocumentNode, handler func(*DocumentNode) interface{}) bool {
 	if event == nil || len(path) == 0 || handler == nil {
 		return false
 	}
-	handled := false
+	handled := dispatchDocumentCaptureEvent(event, path)
+	if event.PropagationStopped() {
+		return handled
+	}
 	for index, current := range path {
 		if current == nil {
 			continue
@@ -228,7 +305,7 @@ func dispatchDocumentNodeEvent(event *DocumentEvent, path []*DocumentNode, handl
 		} else {
 			event.Phase = EventPhaseBubble
 		}
-		if dispatchDocumentNodeHandler(handler(current), current, event) {
+		if dispatchDocumentEventOnCurrent(current, event) {
 			handled = true
 		}
 		if event.PropagationStopped() {

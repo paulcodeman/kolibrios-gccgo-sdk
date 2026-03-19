@@ -8,6 +8,8 @@ type Element struct {
 	ID                     kos.ButtonID
 	Text                   string
 	Label                  string
+	OnEvent                interface{}
+	OnEventCapture         interface{}
 	OnChange               interface{}
 	OnInput                interface{}
 	OnMouseDown            interface{}
@@ -18,6 +20,8 @@ type Element struct {
 	OnScroll               interface{}
 	OnFocus                interface{}
 	OnBlur                 interface{}
+	OnFocusIn              interface{}
+	OnFocusOut             interface{}
 	OnKeyDown              interface{}
 	Parent                 *Element
 	window                 *Window

@@ -104,11 +104,102 @@ func eventTargetElement(event *Event) *Element {
 	return target
 }
 
+func elementHandlerForType(current *Element, eventType EventType) interface{} {
+	if current == nil {
+		return nil
+	}
+	switch eventType {
+	case EventClick:
+		return current.OnClick
+	case EventMouseDown:
+		return current.OnMouseDown
+	case EventMouseUp:
+		return current.OnMouseUp
+	case EventMouseMove:
+		return current.OnMouseMove
+	case EventMouseEnter:
+		return current.OnMouseEnter
+	case EventMouseLeave:
+		return current.OnMouseLeave
+	case EventScroll:
+		return current.OnScroll
+	case EventFocus:
+		return current.OnFocus
+	case EventBlur:
+		return current.OnBlur
+	case EventFocusIn:
+		return current.OnFocusIn
+	case EventFocusOut:
+		return current.OnFocusOut
+	case EventKeyDown:
+		return current.OnKeyDown
+	case EventInput:
+		return current.OnInput
+	case EventChange:
+		return current.OnChange
+	default:
+		return nil
+	}
+}
+
+func dispatchElementCaptureEvent(event *Event, path []*Element) bool {
+	if event == nil || len(path) < 2 {
+		return false
+	}
+	handled := false
+	for index := len(path) - 1; index >= 1; index-- {
+		current := path[index]
+		if current == nil {
+			continue
+		}
+		event.CurrentTarget = current
+		event.Phase = EventPhaseCapture
+		if dispatchElementHandler(current.OnEventCapture, current, event) {
+			handled = true
+		}
+		if event.PropagationStopped() {
+			break
+		}
+	}
+	return handled
+}
+
+func dispatchElementEventOnCurrent(current *Element, event *Event) bool {
+	if current == nil || event == nil {
+		return false
+	}
+	handled := false
+	if dispatchElementHandler(elementHandlerForType(current, event.Type), current, event) {
+		handled = true
+	}
+	if dispatchElementHandler(current.OnEvent, current, event) {
+		handled = true
+	}
+	return handled
+}
+
+func dispatchElementValueEventOnCurrent(current *Element, target *Element, event *Event) bool {
+	if current == nil || event == nil {
+		return false
+	}
+	handled := false
+	if dispatchElementValueHandler(elementHandlerForType(current, event.Type), current, target, event) {
+		handled = true
+	}
+	if dispatchElementHandler(current.OnEvent, current, event) {
+		handled = true
+	}
+	return handled
+}
+
 func dispatchElementEvent(event *Event, path []*Element, handler func(*Element) interface{}) bool {
 	if event == nil || len(path) == 0 || handler == nil {
 		return false
 	}
-	handled := false
+	handled := dispatchElementCaptureEvent(event, path)
+	if event.PropagationStopped() {
+		return handled
+	}
 	for index, current := range path {
 		if current == nil {
 			continue
@@ -122,7 +213,7 @@ func dispatchElementEvent(event *Event, path []*Element, handler func(*Element) 
 		} else {
 			event.Phase = EventPhaseBubble
 		}
-		if dispatchElementHandler(handler(current), current, event) {
+		if dispatchElementEventOnCurrent(current, event) {
 			handled = true
 		}
 		if event.PropagationStopped() {
@@ -140,7 +231,10 @@ func dispatchElementValueEvent(event *Event, path []*Element, handler func(*Elem
 	if target == nil {
 		target = path[0]
 	}
-	handled := false
+	handled := dispatchElementCaptureEvent(event, path)
+	if event.PropagationStopped() {
+		return handled
+	}
 	for index, current := range path {
 		if current == nil {
 			continue
@@ -154,7 +248,7 @@ func dispatchElementValueEvent(event *Event, path []*Element, handler func(*Elem
 		} else {
 			event.Phase = EventPhaseBubble
 		}
-		if dispatchElementValueHandler(handler(current), current, target, event) {
+		if dispatchElementValueEventOnCurrent(current, target, event) {
 			handled = true
 		}
 		if event.PropagationStopped() {
@@ -194,6 +288,25 @@ func (element *Element) dispatchChangeEvent() bool {
 	})
 }
 
+func (element *Element) dispatchFocusTransitionEvent(eventType EventType, bubbles bool) bool {
+	if element == nil {
+		return false
+	}
+	event := &Event{
+		Type:       eventType,
+		Target:     element,
+		Bubbles:    bubbles,
+		Cancelable: false,
+	}
+	return dispatchElementEvent(event, elementEventPath(element), func(current *Element) interface{} {
+		return elementHandlerForType(current, eventType)
+	})
+}
+
+func (element *Element) dispatchTargetOnlyEvent(eventType EventType) bool {
+	return element.dispatchFocusTransitionEvent(eventType, false)
+}
+
 func (element *Element) dispatchMouseEnterEvent(x int, y int) bool {
 	if element == nil {
 		return false
@@ -207,7 +320,7 @@ func (element *Element) dispatchMouseEnterEvent(x int, y int) bool {
 		Y:             y,
 		Cancelable:    false,
 	}
-	return dispatchElementHandler(element.OnMouseEnter, element, event)
+	return dispatchElementEventOnCurrent(element, event)
 }
 
 func (element *Element) dispatchMouseLeaveEvent(x int, y int) bool {
@@ -223,7 +336,7 @@ func (element *Element) dispatchMouseLeaveEvent(x int, y int) bool {
 		Y:             y,
 		Cancelable:    false,
 	}
-	return dispatchElementHandler(element.OnMouseLeave, element, event)
+	return dispatchElementEventOnCurrent(element, event)
 }
 
 func (element *Element) HandleMouseMove(x int, y int) bool {

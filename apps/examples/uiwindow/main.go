@@ -386,6 +386,18 @@ func Run() {
 		style.SetFontSize(12)
 	})
 
+	eventCaptureSummary := elements.Label("capture: idle")
+	apply(eventCaptureSummary, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 6, 0)
+		style.SetPadding(6, 8)
+		style.SetBackground(ui.White)
+		style.SetBorder(1, ui.Silver)
+		style.SetBorderRadius(8)
+		style.SetFontPath(monoFontPath)
+		style.SetFontSize(12)
+	})
+
 	eventBubbleHost := elements.Box()
 	apply(eventBubbleHost, func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
@@ -677,6 +689,9 @@ func Run() {
 	setEvent := func(text string) {
 		eventSummary.SetText(window, "event: "+text)
 	}
+	setCapture := func(text string) {
+		eventCaptureSummary.SetText(window, "capture: "+text)
+	}
 	phaseName := func(phase ui.EventPhase) string {
 		switch phase {
 		case ui.EventPhaseTarget:
@@ -772,6 +787,11 @@ func Run() {
 	eventBubbleHost.OnClick = func(_ *ui.Element, event *ui.Event) {
 		setEvent("bubble target=" + nodeName(event.Target) + " current=" + nodeName(event.CurrentTarget) + " phase=" + phaseName(event.Phase))
 	}
+	eventBubbleHost.OnEventCapture = func(_ *ui.Element, event *ui.Event) {
+		if event.Type == ui.EventClick {
+			setCapture("target=" + nodeName(event.Target) + " current=" + nodeName(event.CurrentTarget) + " phase=" + phaseName(event.Phase))
+		}
+	}
 	preventCheckbox.OnClick = func(_ *ui.Element, event *ui.Event) {
 		event.PreventDefault()
 		setEvent("preventDefault on checkbox click")
@@ -804,6 +824,7 @@ func Run() {
 	card.Append(controlLabHint)
 	card.Append(controlSummary)
 	card.Append(eventSummary)
+	card.Append(eventCaptureSummary)
 	card.Append(eventBubbleHost)
 	card.Append(notifyCheckbox)
 	card.Append(denseCheckbox)

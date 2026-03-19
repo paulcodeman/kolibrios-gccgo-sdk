@@ -15,28 +15,32 @@ const (
 )
 
 type DocumentNode struct {
-	Kind         DocumentNodeKind
-	Name         string
-	Text         string
-	Style        Style
-	StyleHover   Style
-	StyleActive  Style
-	StyleFocus   Style
-	Focusable    bool
-	OnClick      interface{}
-	OnChange     interface{}
-	OnInput      interface{}
-	OnMouseDown  interface{}
-	OnMouseUp    interface{}
-	OnMouseMove  interface{}
-	OnMouseEnter interface{}
-	OnMouseLeave interface{}
-	OnFocus      interface{}
-	OnBlur       interface{}
-	OnScroll     interface{}
-	OnKeyDown    interface{}
-	Parent       *DocumentNode
-	Children     []*DocumentNode
+	Kind           DocumentNodeKind
+	Name           string
+	Text           string
+	Style          Style
+	StyleHover     Style
+	StyleActive    Style
+	StyleFocus     Style
+	Focusable      bool
+	OnEvent        interface{}
+	OnEventCapture interface{}
+	OnClick        interface{}
+	OnChange       interface{}
+	OnInput        interface{}
+	OnMouseDown    interface{}
+	OnMouseUp      interface{}
+	OnMouseMove    interface{}
+	OnMouseEnter   interface{}
+	OnMouseLeave   interface{}
+	OnFocus        interface{}
+	OnBlur         interface{}
+	OnScroll       interface{}
+	OnKeyDown      interface{}
+	OnFocusIn      interface{}
+	OnFocusOut     interface{}
+	Parent         *DocumentNode
+	Children       []*DocumentNode
 
 	hovered   bool
 	active    bool

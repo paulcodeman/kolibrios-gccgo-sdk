@@ -6,7 +6,7 @@ type EventType int
 type EventPhase uint8
 
 const (
-	EventClick EventType = 1
+	EventClick EventType = iota + 1
 	EventMouseDown
 	EventMouseUp
 	EventMouseMove
@@ -15,6 +15,8 @@ const (
 	EventScroll
 	EventFocus
 	EventBlur
+	EventFocusIn
+	EventFocusOut
 	EventKeyDown
 	EventInput
 	EventChange
@@ -22,6 +24,7 @@ const (
 
 const (
 	EventPhaseNone EventPhase = iota
+	EventPhaseCapture
 	EventPhaseTarget
 	EventPhaseBubble
 )

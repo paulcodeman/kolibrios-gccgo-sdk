@@ -208,7 +208,9 @@ func (element *Element) hasEventHandlers() bool {
 	if element == nil {
 		return false
 	}
-	return element.OnClick != nil ||
+	return element.OnEvent != nil ||
+		element.OnEventCapture != nil ||
+		element.OnClick != nil ||
 		element.OnChange != nil ||
 		element.OnInput != nil ||
 		element.OnMouseDown != nil ||
@@ -219,6 +221,8 @@ func (element *Element) hasEventHandlers() bool {
 		element.OnScroll != nil ||
 		element.OnFocus != nil ||
 		element.OnBlur != nil ||
+		element.OnFocusIn != nil ||
+		element.OnFocusOut != nil ||
 		element.OnKeyDown != nil
 }
 
