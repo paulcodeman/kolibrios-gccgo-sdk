@@ -75,16 +75,17 @@ type FragmentDisplayList struct {
 type Document struct {
 	Root *DocumentNode
 
-	rootFragment   *Fragment
-	displayList    FragmentDisplayList
-	viewport       Rect
-	content        Rect
-	host           *DocumentView
-	fragmentByNode map[*DocumentNode]*Fragment
-	hitGrid        fragmentHitTestGrid
-	hitGridValid   bool
-	displayVersion uint32
-	hitGridVersion uint32
+	rootFragment    *Fragment
+	displayList     FragmentDisplayList
+	viewport        Rect
+	content         Rect
+	host            *DocumentView
+	fragmentByNode  map[*DocumentNode]*Fragment
+	hitGrid         fragmentHitTestGrid
+	hitGridValid    bool
+	displayVersion  uint32
+	geometryVersion uint32
+	hitGridVersion  uint32
 }
 
 func NewDocument(root *DocumentNode) *Document {

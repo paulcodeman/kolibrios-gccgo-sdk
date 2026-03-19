@@ -179,7 +179,7 @@ func (window *Window) applyDirtyPlan(plan *windowDirtyPlan) bool {
 		window.resetDirtyQueue()
 	case windowDirtyPlanNodeUpdate:
 		boundsChanged := false
-		displayChanged := false
+		geometryChanged := false
 		for _, node := range plan.dirtyNodes {
 			oldBounds := window.nodeBounds[node]
 			oldPaint := oldBounds
@@ -210,7 +210,7 @@ func (window *Window) applyDirtyPlan(plan *windowDirtyPlan) bool {
 				item.paint = paint
 				window.renderList[idx] = item
 				if item.bounds != oldBounds || paint != oldItemPaint {
-					displayChanged = true
+					geometryChanged = true
 				}
 				newPaint = paint
 			}
@@ -230,8 +230,9 @@ func (window *Window) applyDirtyPlan(plan *windowDirtyPlan) bool {
 		if boundsChanged {
 			window.noteScrollMetricsBoundsChanged()
 		}
-		if displayChanged {
+		if geometryChanged {
 			window.bumpWindowDisplayVersion()
+			window.bumpWindowDisplayGeometryVersion()
 		}
 	}
 	window.dirty = dirty

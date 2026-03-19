@@ -56,6 +56,13 @@ func (document *Document) bumpDisplayVersion() {
 	document.displayVersion = nextDocumentDisplayVersion(document.displayVersion)
 }
 
+func (document *Document) bumpGeometryVersion() {
+	if document == nil {
+		return
+	}
+	document.geometryVersion = nextDocumentDisplayVersion(document.geometryVersion)
+}
+
 func (document *Document) shouldUseHitGrid() bool {
 	if document == nil {
 		return false
@@ -89,7 +96,7 @@ func (document *Document) ensureHitGrid() bool {
 		document.invalidateHitGrid()
 		return false
 	}
-	if document.hitGridValid && document.hitGridVersion == document.displayVersion {
+	if document.hitGridValid && document.hitGridVersion == document.geometryVersion {
 		return true
 	}
 	bounds := document.hitGridBounds()
@@ -102,7 +109,7 @@ func (document *Document) ensureHitGrid() bool {
 		return false
 	}
 	document.hitGridValid = true
-	document.hitGridVersion = document.displayVersion
+	document.hitGridVersion = document.geometryVersion
 	return true
 }
 

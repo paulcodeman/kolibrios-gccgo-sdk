@@ -94,7 +94,8 @@ type Window struct {
 	hitGrid                 hitTestGrid
 	hitGridValid            bool
 	displayVersion          uint32
-	hitGridDisplayVersion   uint32
+	displayGeometryVersion  uint32
+	hitGridGeometryVersion  uint32
 	allNodes                []Node
 	nodeBounds              map[Node]Rect
 	renderIndex             map[Node]int

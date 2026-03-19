@@ -34,6 +34,18 @@ func nextNodeGeneration(gen *uint32) uint32 {
 	return *gen
 }
 
+func sameRenderListHitGeometry(a []renderItem, b []renderItem) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].node != b[i].node || a[i].paint != b[i].paint {
+			return false
+		}
+	}
+	return true
+}
+
 func (window *Window) ensureRenderList() {
 	if window == nil || window.canvas == nil {
 		return
@@ -48,6 +60,7 @@ func (window *Window) buildRenderList() {
 	if window == nil {
 		return
 	}
+	oldRenderList := append([]renderItem(nil), window.renderList...)
 	window.invalidateWindowDisplayItemsState()
 	window.renderList = window.renderList[:0]
 	window.allNodes = window.allNodes[:0]
@@ -79,7 +92,10 @@ func (window *Window) buildRenderList() {
 	window.appendRenderItems(window.nodes, clipState{}, gen, false, false)
 	window.noteScrollMetricsBoundsChanged()
 	window.updateScrollMetrics()
-	window.invalidateHitGrid()
+	if !sameRenderListHitGeometry(oldRenderList, window.renderList) {
+		window.bumpWindowDisplayGeometryVersion()
+		window.invalidateHitGrid()
+	}
 	window.renderListValid = true
 }
 

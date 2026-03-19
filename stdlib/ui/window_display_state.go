@@ -24,11 +24,19 @@ func (window *Window) bumpWindowDisplayVersion() {
 	window.displayVersion = nextWindowDisplayVersion(window.displayVersion)
 }
 
+func (window *Window) bumpWindowDisplayGeometryVersion() {
+	if window == nil {
+		return
+	}
+	window.displayGeometryVersion = nextWindowDisplayVersion(window.displayGeometryVersion)
+}
+
 func (window *Window) invalidateWindowDisplayState() {
 	if window == nil {
 		return
 	}
 	window.bumpWindowDisplayVersion()
+	window.bumpWindowDisplayGeometryVersion()
 	window.displayState = windowDisplayState{}
 	if window.frameStateActive {
 		window.frameState.display = DisplayList{}
@@ -54,6 +62,7 @@ func (window *Window) invalidateWindowDisplayClipState() {
 		return
 	}
 	window.bumpWindowDisplayVersion()
+	window.bumpWindowDisplayGeometryVersion()
 	window.displayState.rootClip = clipState{}
 	window.displayState.rootClipValid = false
 	if window.frameStateActive {
@@ -67,6 +76,7 @@ func (window *Window) invalidateWindowDisplayScrollState() {
 		return
 	}
 	window.bumpWindowDisplayVersion()
+	window.bumpWindowDisplayGeometryVersion()
 	window.displayState.scrollOffset = 0
 	window.displayState.scrollOffsetValid = false
 	if window.frameStateActive {

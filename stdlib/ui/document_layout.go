@@ -32,6 +32,7 @@ func (document *Document) Layout(ctx LayoutContext) {
 	document.displayList = buildFragmentDisplayList(root, ctx.Viewport)
 	document.content = fragmentUnionBounds(root)
 	document.bumpDisplayVersion()
+	document.bumpGeometryVersion()
 	document.invalidateHitGrid()
 }
 
@@ -85,6 +86,7 @@ func (document *Document) clearLayout() {
 	document.content = Rect{}
 	document.fragmentByNode = nil
 	document.bumpDisplayVersion()
+	document.bumpGeometryVersion()
 	document.invalidateHitGrid()
 }
 
