@@ -256,6 +256,14 @@ func (style Style) GetOverflowY() (OverflowMode, bool) {
 	return resolveOverflow(style.overflowY)
 }
 
+func (style Style) GetContain() (ContainMode, bool) {
+	return resolveContain(style.contain)
+}
+
+func (style Style) GetWillChange() (WillChangeHints, bool) {
+	return resolveWillChange(style.willChange)
+}
+
 func (style Style) GetScrollbarWidth() (int, bool) {
 	return resolveScrollbarWidth(style.scrollbarWidth)
 }

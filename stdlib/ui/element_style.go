@@ -1,7 +1,9 @@
 package ui
 
 func retainedLayerStyleChanged(oldStyle Style, newStyle Style) bool {
-	return !equalBackgroundAttachmentPtr(oldStyle.backgroundAttachment, newStyle.backgroundAttachment)
+	return !equalBackgroundAttachmentPtr(oldStyle.backgroundAttachment, newStyle.backgroundAttachment) ||
+		!equalContainPtr(oldStyle.contain, newStyle.contain) ||
+		!equalWillChangePtr(oldStyle.willChange, newStyle.willChange)
 }
 
 func (element *Element) styleTransitionNeedsDirtyNode(oldStyle Style, newStyle Style) bool {

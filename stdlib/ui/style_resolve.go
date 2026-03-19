@@ -143,6 +143,20 @@ func resolveOverflow(value *OverflowMode) (OverflowMode, bool) {
 	return *value, true
 }
 
+func resolveContain(value *ContainMode) (ContainMode, bool) {
+	if value == nil {
+		return 0, false
+	}
+	return *value, true
+}
+
+func resolveWillChange(value *WillChangeHints) (WillChangeHints, bool) {
+	if value == nil {
+		return 0, false
+	}
+	return *value, true
+}
+
 func resolveBackgroundAttachment(value *BackgroundAttachment) (BackgroundAttachment, bool) {
 	if value == nil {
 		return 0, false

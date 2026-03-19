@@ -349,7 +349,7 @@ func Run() {
 		style.SetFontSize(14)
 	})
 
-	styleHint := elements.Label("Compare border-box vs content-box, check underline + line-height, Tab to the outline button, and note that the hidden chip still keeps layout space.")
+	styleHint := elements.Label("Compare border-box vs content-box, check underline + line-height, Tab to the outline button, note that the hidden chip still keeps layout space, and the static hint box below now opts into contain/will-change layer hints.")
 	apply(styleHint, func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
 		style.SetMargin(0, 0, 8, 0)
@@ -419,6 +419,43 @@ func Run() {
 		style.SetFontSize(11)
 		style.SetLineHeight(15)
 	})
+
+	hintBox := ui.CreateBox()
+	apply(hintBox, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetWidth(220)
+		style.SetMargin(0, 0, 8, 0)
+		style.SetPadding(8, 10)
+		style.SetBorder(1, ui.Silver)
+		style.SetBorderRadius(10)
+		style.SetBackground(ui.White)
+		style.SetContainString("content")
+		style.SetWillChangeString("opacity, transform")
+	})
+	hintTitle := elements.Label("Contain + will-change")
+	apply(hintTitle, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetForeground(ui.Navy)
+		style.SetMargin(0, 0, 4, 0)
+		style.SetFontSize(12)
+	})
+	hintText := elements.Label("This static box uses CSS-like hints to bias retained-layer promotion without changing its visual behavior.")
+	apply(hintText, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetForeground(ui.Gray)
+		style.SetFontSize(11)
+		style.SetLineHeight(15)
+	})
+	hintSub := elements.Label("Current runtime only uses these hints conservatively for safe box-layer caching.")
+	apply(hintSub, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetForeground(ui.Gray)
+		style.SetFontSize(11)
+		style.SetLineHeight(15)
+	})
+	hintBox.Append(hintTitle)
+	hintBox.Append(hintText)
+	hintBox.Append(hintSub)
 
 	visibilityRow := ui.CreateBox()
 	apply(visibilityRow, func(style *ui.Style) {
@@ -511,6 +548,7 @@ func Run() {
 	card.Append(boxRow)
 	card.Append(textDemo)
 	card.Append(textFlowHint)
+	card.Append(hintBox)
 	card.Append(visibilityRow)
 	card.Append(outlineDemo)
 

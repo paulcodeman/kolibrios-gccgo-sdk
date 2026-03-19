@@ -230,6 +230,45 @@ func (value WordBreakMode) String() string {
 	}
 }
 
+type ContainMode int
+
+const (
+	ContainNone   ContainMode = 0
+	ContainLayout ContainMode = 1 << iota
+	ContainPaint
+)
+
+const ContainContent = ContainLayout | ContainPaint
+
+func (value ContainMode) String() string {
+	switch value {
+	case ContainNone:
+		return "none"
+	case ContainLayout:
+		return "layout"
+	case ContainPaint:
+		return "paint"
+	case ContainContent:
+		return "content"
+	default:
+		return ""
+	}
+}
+
+type WillChangeHints int
+
+const (
+	WillChangeAuto     WillChangeHints = 0
+	WillChangeContents WillChangeHints = 1 << iota
+	WillChangeScrollPosition
+	WillChangeTransform
+	WillChangeOpacity
+)
+
+func (value WillChangeHints) String() string {
+	return willChangeString(value)
+}
+
 type GradientDirection int
 
 const (
@@ -339,6 +378,8 @@ type Style struct {
 	overflow             *OverflowMode
 	overflowX            *OverflowMode
 	overflowY            *OverflowMode
+	contain              *ContainMode
+	willChange           *WillChangeHints
 	scrollbarWidth       *int
 	scrollbarTrack       *kos.Color
 	scrollbarThumb       *kos.Color
@@ -396,6 +437,8 @@ func (style Style) IsZero() bool {
 		style.overflow == nil &&
 		style.overflowX == nil &&
 		style.overflowY == nil &&
+		style.contain == nil &&
+		style.willChange == nil &&
 		style.scrollbarWidth == nil &&
 		style.scrollbarTrack == nil &&
 		style.scrollbarThumb == nil &&
@@ -545,6 +588,16 @@ func OverflowWrapPtr(value OverflowWrapMode) *OverflowWrapMode {
 }
 
 func WordBreakPtr(value WordBreakMode) *WordBreakMode {
+	v := value
+	return &v
+}
+
+func ContainPtr(value ContainMode) *ContainMode {
+	v := value
+	return &v
+}
+
+func WillChangePtr(value WillChangeHints) *WillChangeHints {
 	v := value
 	return &v
 }

@@ -420,6 +420,20 @@ func (style *Style) SetOverflowY(value OverflowMode) {
 	style.overflowY = OverflowPtr(value)
 }
 
+func (style *Style) SetContain(value ContainMode) {
+	if style == nil {
+		return
+	}
+	style.contain = ContainPtr(value)
+}
+
+func (style *Style) SetWillChange(value WillChangeHints) {
+	if style == nil {
+		return
+	}
+	style.willChange = WillChangePtr(value)
+}
+
 func (style *Style) SetScrollbarWidth(value int) {
 	if style == nil {
 		return

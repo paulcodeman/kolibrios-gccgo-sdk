@@ -2,12 +2,15 @@ package ui
 
 // ElementRetainedLayers enables retained subtree layers for large static box
 // containers so redraw falls back to a single blit instead of replaying every
-// descendant item.
+// descendant item. CSS-like contain/will-change hints can opt large static
+// boxes into the same path with lower thresholds.
 var ElementRetainedLayers = true
 
 const (
 	elementRetainedLayerMinDescendants = 4
 	elementRetainedLayerMinArea        = 16384
+	elementContainLayerMinArea         = 4096
+	elementWillChangeLayerMinArea      = 8192
 	elementRetainedLayerMaxDirtyRects  = 4
 )
 
@@ -109,14 +112,33 @@ func (element *Element) useRetainedSubtreeLayer(style Style) bool {
 	if visual.Empty() || visual.Width <= 0 || visual.Height <= 0 {
 		return false
 	}
-	if visual.Width*visual.Height < elementRetainedLayerMinArea {
+	minDescendants, minArea := retainedLayerHintThresholds(style)
+	if visual.Width*visual.Height < minArea {
 		return false
 	}
 	descendants, ok := element.retainedSubtreeDescendants()
-	if !ok || descendants < elementRetainedLayerMinDescendants {
+	if !ok || descendants < minDescendants {
 		return false
 	}
 	return true
+}
+
+func retainedLayerHintThresholds(style Style) (int, int) {
+	minDescendants := elementRetainedLayerMinDescendants
+	minArea := elementRetainedLayerMinArea
+	if styleContainsPaint(style) {
+		minDescendants = 1
+		if minArea > elementContainLayerMinArea {
+			minArea = elementContainLayerMinArea
+		}
+	}
+	if styleWillChangePromotesRetainedLayer(style) {
+		minDescendants = 1
+		if minArea > elementWillChangeLayerMinArea {
+			minArea = elementWillChangeLayerMinArea
+		}
+	}
+	return minDescendants, minArea
 }
 
 func useRetainedSubtreeLayerTiles(visual Rect) bool {

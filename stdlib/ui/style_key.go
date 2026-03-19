@@ -39,6 +39,8 @@ type styleVisualKey struct {
 	overflow             *OverflowMode
 	overflowX            *OverflowMode
 	overflowY            *OverflowMode
+	contain              *ContainMode
+	willChange           *WillChangeHints
 	scrollbarWidth       *int
 	scrollbarTrack       *kos.Color
 	scrollbarThumb       *kos.Color
@@ -202,6 +204,14 @@ func visualKeyFor(style Style) styleVisualKey {
 		v := value
 		key.overflowY = &v
 	}
+	if value, ok := resolveContain(style.contain); ok {
+		v := value
+		key.contain = &v
+	}
+	if value, ok := resolveWillChange(style.willChange); ok {
+		v := value
+		key.willChange = &v
+	}
 	if value, ok := resolveScrollbarWidth(style.scrollbarWidth); ok {
 		v := value
 		key.scrollbarWidth = &v
@@ -264,6 +274,8 @@ func styleVisualKeyEqual(a styleVisualKey, b styleVisualKey) bool {
 		equalOverflowPtr(a.overflow, b.overflow) &&
 		equalOverflowPtr(a.overflowX, b.overflowX) &&
 		equalOverflowPtr(a.overflowY, b.overflowY) &&
+		equalContainPtr(a.contain, b.contain) &&
+		equalWillChangePtr(a.willChange, b.willChange) &&
 		equalIntPtr(a.scrollbarWidth, b.scrollbarWidth) &&
 		equalColorPtr(a.scrollbarTrack, b.scrollbarTrack) &&
 		equalColorPtr(a.scrollbarThumb, b.scrollbarThumb) &&
@@ -405,6 +417,20 @@ func equalDisplayPtr(a *DisplayMode, b *DisplayMode) bool {
 }
 
 func equalOverflowPtr(a *OverflowMode, b *OverflowMode) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func equalContainPtr(a *ContainMode, b *ContainMode) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func equalWillChangePtr(a *WillChangeHints, b *WillChangeHints) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
@@ -562,6 +588,12 @@ func mergeStyle(base Style, override Style) Style {
 	}
 	if override.overflowY != nil {
 		style.overflowY = override.overflowY
+	}
+	if override.contain != nil {
+		style.contain = override.contain
+	}
+	if override.willChange != nil {
+		style.willChange = override.willChange
 	}
 	if override.scrollbarWidth != nil {
 		style.scrollbarWidth = override.scrollbarWidth
