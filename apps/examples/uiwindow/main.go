@@ -795,7 +795,10 @@ func Run() {
 		setEvent("pointerenter current=" + nodeName(event.CurrentTarget))
 	}
 	bubbleButton.OnPointerDown = func(_ *ui.Element, event *ui.Event) {
-		setEvent("pointerdown primary=" + strconv.FormatBool(event.IsPrimary))
+		setEvent("pointerdown primary=" + strconv.FormatBool(event.IsPrimary) + " buttons=" + strconv.Itoa(int(event.Buttons)))
+	}
+	bubbleButton.OnPointerCancel = func() {
+		setEvent("pointercancel")
 	}
 	preventCheckbox.OnClick = func(_ *ui.Element, event *ui.Event) {
 		event.PreventDefault()

@@ -5,6 +5,7 @@ import "kos"
 type EventType int
 type EventPhase uint8
 type PointerType uint8
+type PointerButtons uint8
 
 const (
 	EventClick EventType = iota + 1
@@ -18,6 +19,7 @@ const (
 	EventPointerMove
 	EventPointerEnter
 	EventPointerLeave
+	EventPointerCancel
 	EventScroll
 	EventFocus
 	EventBlur
@@ -31,6 +33,8 @@ const (
 const (
 	PointerTypeUnknown PointerType = iota
 	PointerTypeMouse
+	PointerTypePen
+	PointerTypeTouch
 )
 
 const (
@@ -38,6 +42,15 @@ const (
 	EventPhaseCapture
 	EventPhaseTarget
 	EventPhaseBubble
+)
+
+const (
+	PointerButtonsNone    PointerButtons = 0
+	PointerButtonsPrimary PointerButtons = 1 << iota
+	PointerButtonsSecondary
+	PointerButtonsAuxiliary
+	PointerButtonsBack
+	PointerButtonsForward
 )
 
 type MouseButton int
@@ -54,6 +67,7 @@ type Event struct {
 	DeltaX        int
 	DeltaY        int
 	Button        MouseButton
+	Buttons       PointerButtons
 	PointerID     int
 	PointerType   PointerType
 	IsPrimary     bool
@@ -93,4 +107,24 @@ func (event *Event) PropagationStopped() bool {
 		return false
 	}
 	return event.propagationStopped
+}
+
+func pointerButtonsFromMouseInfo(info kos.MouseButtonInfo) PointerButtons {
+	var buttons PointerButtons
+	if info.LeftHeld {
+		buttons |= PointerButtonsPrimary
+	}
+	if info.RightHeld {
+		buttons |= PointerButtonsSecondary
+	}
+	if info.MiddleHeld {
+		buttons |= PointerButtonsAuxiliary
+	}
+	if info.Button4Held {
+		buttons |= PointerButtonsBack
+	}
+	if info.Button5Held {
+		buttons |= PointerButtonsForward
+	}
+	return buttons
 }

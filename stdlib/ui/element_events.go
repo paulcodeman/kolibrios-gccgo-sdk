@@ -121,6 +121,8 @@ func elementHandlerForType(current *Element, eventType EventType) interface{} {
 		return current.OnPointerEnter
 	case EventPointerLeave:
 		return current.OnPointerLeave
+	case EventPointerCancel:
+		return current.OnPointerCancel
 	case EventMouseDown:
 		return current.OnMouseDown
 	case EventMouseUp:
@@ -152,7 +154,7 @@ func elementHandlerForType(current *Element, eventType EventType) interface{} {
 	}
 }
 
-func pointerEventForElement(eventType EventType, element *Element, x int, y int, button MouseButton) *Event {
+func pointerEventForElement(eventType EventType, element *Element, x int, y int, button MouseButton, buttons PointerButtons) *Event {
 	if element == nil {
 		return nil
 	}
@@ -162,6 +164,7 @@ func pointerEventForElement(eventType EventType, element *Element, x int, y int,
 		X:           x,
 		Y:           y,
 		Button:      button,
+		Buttons:     buttons,
 		PointerID:   1,
 		PointerType: PointerTypeMouse,
 		IsPrimary:   true,
@@ -340,7 +343,7 @@ func (element *Element) dispatchMouseEnterEvent(x int, y int) bool {
 		return false
 	}
 	handled := false
-	pointerEvent := pointerEventForElement(EventPointerEnter, element, x, y, 0)
+	pointerEvent := pointerEventForElement(EventPointerEnter, element, x, y, 0, PointerButtonsNone)
 	if pointerEvent != nil {
 		pointerEvent.Bubbles = false
 		pointerEvent.Cancelable = false
@@ -357,6 +360,7 @@ func (element *Element) dispatchMouseEnterEvent(x int, y int) bool {
 		Phase:         EventPhaseTarget,
 		X:             x,
 		Y:             y,
+		Buttons:       PointerButtonsNone,
 		Cancelable:    false,
 	}
 	if dispatchElementEventOnCurrent(element, mouseEvent) {
@@ -370,7 +374,7 @@ func (element *Element) dispatchMouseLeaveEvent(x int, y int) bool {
 		return false
 	}
 	handled := false
-	pointerEvent := pointerEventForElement(EventPointerLeave, element, x, y, 0)
+	pointerEvent := pointerEventForElement(EventPointerLeave, element, x, y, 0, PointerButtonsNone)
 	if pointerEvent != nil {
 		pointerEvent.Bubbles = false
 		pointerEvent.Cancelable = false
@@ -387,6 +391,7 @@ func (element *Element) dispatchMouseLeaveEvent(x int, y int) bool {
 		Phase:         EventPhaseTarget,
 		X:             x,
 		Y:             y,
+		Buttons:       PointerButtonsNone,
 		Cancelable:    false,
 	}
 	if dispatchElementEventOnCurrent(element, mouseEvent) {
@@ -395,11 +400,11 @@ func (element *Element) dispatchMouseLeaveEvent(x int, y int) bool {
 	return handled
 }
 
-func (element *Element) HandleMouseMove(x int, y int) bool {
+func (element *Element) HandleMouseMove(x int, y int, buttons PointerButtons) bool {
 	if element == nil {
 		return false
 	}
-	pointerEvent := pointerEventForElement(EventPointerMove, element, x, y, 0)
+	pointerEvent := pointerEventForElement(EventPointerMove, element, x, y, 0, buttons)
 	handled := false
 	if pointerEvent != nil {
 		if dispatchElementEvent(pointerEvent, elementEventPath(element), func(current *Element) interface{} {
@@ -416,6 +421,7 @@ func (element *Element) HandleMouseMove(x int, y int) bool {
 		X:          x,
 		Y:          y,
 		Target:     element,
+		Buttons:    buttons,
 		Bubbles:    true,
 		Cancelable: true,
 	}
@@ -439,12 +445,12 @@ func (element *Element) HandleMouseMove(x int, y int) bool {
 	return handled
 }
 
-func (element *Element) HandleMouseDown(x int, y int, button MouseButton) bool {
+func (element *Element) HandleMouseDown(x int, y int, button MouseButton, buttons PointerButtons) bool {
 	if element == nil {
 		return false
 	}
 	handled := false
-	pointerEvent := pointerEventForElement(EventPointerDown, element, x, y, button)
+	pointerEvent := pointerEventForElement(EventPointerDown, element, x, y, button, buttons)
 	if pointerEvent != nil {
 		if dispatchElementEvent(pointerEvent, elementEventPath(element), func(current *Element) interface{} {
 			return current.OnPointerDown
@@ -461,6 +467,7 @@ func (element *Element) HandleMouseDown(x int, y int, button MouseButton) bool {
 		Y:          y,
 		Button:     button,
 		Target:     element,
+		Buttons:    buttons,
 		Bubbles:    true,
 		Cancelable: true,
 	}
@@ -484,12 +491,12 @@ func (element *Element) HandleMouseDown(x int, y int, button MouseButton) bool {
 	return handled
 }
 
-func (element *Element) HandleMouseUp(x int, y int, button MouseButton) bool {
+func (element *Element) HandleMouseUp(x int, y int, button MouseButton, buttons PointerButtons) bool {
 	if element == nil {
 		return false
 	}
 	handled := false
-	pointerEvent := pointerEventForElement(EventPointerUp, element, x, y, button)
+	pointerEvent := pointerEventForElement(EventPointerUp, element, x, y, button, buttons)
 	if pointerEvent != nil {
 		if dispatchElementEvent(pointerEvent, elementEventPath(element), func(current *Element) interface{} {
 			return current.OnPointerUp
@@ -506,6 +513,7 @@ func (element *Element) HandleMouseUp(x int, y int, button MouseButton) bool {
 		Y:          y,
 		Button:     button,
 		Target:     element,
+		Buttons:    buttons,
 		Bubbles:    true,
 		Cancelable: true,
 	}
@@ -527,4 +535,18 @@ func (element *Element) HandleMouseUp(x int, y int, button MouseButton) bool {
 		}
 	}
 	return handled
+}
+
+func (element *Element) dispatchPointerCancelEvent(x int, y int, button MouseButton, buttons PointerButtons) bool {
+	if element == nil {
+		return false
+	}
+	event := pointerEventForElement(EventPointerCancel, element, x, y, button, buttons)
+	if event == nil {
+		return false
+	}
+	event.Cancelable = false
+	return dispatchElementEvent(event, elementEventPath(element), func(current *Element) interface{} {
+		return current.OnPointerCancel
+	})
 }

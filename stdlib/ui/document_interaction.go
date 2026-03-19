@@ -227,6 +227,8 @@ func documentHandlerForType(node *DocumentNode, eventType EventType) interface{}
 		return node.OnPointerEnter
 	case EventPointerLeave:
 		return node.OnPointerLeave
+	case EventPointerCancel:
+		return node.OnPointerCancel
 	case EventMouseDown:
 		return node.OnMouseDown
 	case EventMouseUp:

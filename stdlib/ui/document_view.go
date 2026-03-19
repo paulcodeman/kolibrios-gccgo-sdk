@@ -14,6 +14,7 @@ type DocumentEvent struct {
 	DeltaX        int
 	DeltaY        int
 	Button        MouseButton
+	Buttons       PointerButtons
 	PointerID     int
 	PointerType   PointerType
 	IsPrimary     bool
@@ -403,13 +404,14 @@ func (view *DocumentView) Handle(event Event) bool {
 	if view == nil || event.Type != EventClick {
 		return false
 	}
-	documentEvent, ok := view.documentEventFor(EventClick, event.X, event.Y, event.Button)
+	documentEvent, ok := view.documentEventFor(EventClick, event.X, event.Y, event.Button, event.Buttons)
 	if !ok {
 		documentEvent = DocumentEvent{
 			Type:    EventClick,
 			X:       event.X,
 			Y:       event.Y,
 			Button:  event.Button,
+			Buttons: event.Buttons,
 			ScrollY: view.scrollY,
 			View:    view,
 		}

@@ -17,6 +17,7 @@ type Element struct {
 	OnPointerMove          interface{}
 	OnPointerEnter         interface{}
 	OnPointerLeave         interface{}
+	OnPointerCancel        interface{}
 	OnMouseDown            interface{}
 	OnMouseUp              interface{}
 	OnMouseMove            interface{}

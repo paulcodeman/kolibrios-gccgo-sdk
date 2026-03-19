@@ -44,12 +44,29 @@ func (window *Window) noteActiveStateChange(node Node) {
 	}
 }
 
+func dispatchPointerCancelForNode(node Node, x int, y int, button MouseButton, buttons PointerButtons) bool {
+	switch current := node.(type) {
+	case *Element:
+		return current.dispatchPointerCancelEvent(x, y, button, buttons)
+	case *DocumentView:
+		return current.dispatchPointerCancelEvent(x, y, button, buttons)
+	default:
+		return false
+	}
+}
+
 func (window *Window) handleMouse() bool {
 	if window == nil || window.client.Empty() {
 		return false
 	}
 	if !window.isActiveWindow() {
 		needsRedraw := false
+		cancelX := window.lastMouseX
+		cancelY := window.lastMouseY
+		if !window.lastMouseValid {
+			cancelX = 0
+			cancelY = 0
+		}
 		window.prevMouseButtons = kos.MouseButtonInfo{}
 		window.hoverDirty = true
 		window.lastMouseValid = false
@@ -64,6 +81,10 @@ func (window *Window) handleMouse() bool {
 			window.caretBlinkResetAt = 0
 		}
 		if window.mouseDown != nil {
+			if dispatchPointerCancelForNode(window.mouseDown, cancelX, cancelY, MouseLeft, PointerButtonsNone) {
+				needsRedraw = true
+				window.noteDirty(window.mouseDown)
+			}
 			if aware, ok := window.mouseDown.(ActiveAware); ok {
 				if aware.SetActive(false) {
 					needsRedraw = true
@@ -93,6 +114,7 @@ func (window *Window) handleMouse() bool {
 	}
 	buttons := kos.MouseButtons()
 	held := kos.MouseHeldButtons()
+	pointerButtons := pointerButtonsFromMouseInfo(held)
 	leftHeld := held.LeftHeld
 	window.lastMouseInteractive = leftHeld || buttons.VerticalScroll || buttons.HorizontalScroll
 	leftPressed := buttons.LeftPressed || (leftHeld && !window.prevMouseButtons.LeftHeld)
@@ -189,7 +211,7 @@ func (window *Window) handleMouse() bool {
 	if mouseMoved {
 		if aware, ok := hover.(MouseMoveAware); ok {
 			window.noteHandlerMayMutate(hover)
-			if aware.HandleMouseMove(eventX, eventY) {
+			if aware.HandleMouseMove(eventX, eventY, pointerButtons) {
 				needsRedraw = true
 				if _, isDocumentView := hover.(*DocumentView); !isDocumentView {
 					window.noteDirty(hover)
@@ -200,7 +222,7 @@ func (window *Window) handleMouse() bool {
 	if leftHeld && window.mouseDown != nil && window.mouseDown != hover {
 		if aware, ok := window.mouseDown.(MouseMoveAware); ok {
 			window.noteHandlerMayMutate(window.mouseDown)
-			if aware.HandleMouseMove(eventX, eventY) {
+			if aware.HandleMouseMove(eventX, eventY, pointerButtons) {
 				needsRedraw = true
 				if _, isDocumentView := window.mouseDown.(*DocumentView); !isDocumentView {
 					window.noteDirty(window.mouseDown)
@@ -238,7 +260,7 @@ func (window *Window) handleMouse() bool {
 		}
 		if aware, ok := window.mouseDown.(MouseDownAware); ok {
 			window.noteHandlerMayMutate(window.mouseDown)
-			if aware.HandleMouseDown(eventX, eventY, MouseLeft) {
+			if aware.HandleMouseDown(eventX, eventY, MouseLeft, pointerButtons) {
 				needsRedraw = true
 				window.noteDirty(window.mouseDown)
 			}
@@ -255,7 +277,7 @@ func (window *Window) handleMouse() bool {
 		mouseDown := window.mouseDown
 		if aware, ok := mouseDown.(MouseUpAware); ok {
 			window.noteHandlerMayMutate(mouseDown)
-			if aware.HandleMouseUp(eventX, eventY, MouseLeft) {
+			if aware.HandleMouseUp(eventX, eventY, MouseLeft, pointerButtons) {
 				needsRedraw = true
 				window.noteDirty(mouseDown)
 			}
@@ -271,11 +293,12 @@ func (window *Window) handleMouse() bool {
 			window.awaitingPress = false
 			window.noteHandlerMayMutate(hover)
 			handled := hover.Handle(Event{
-				Type:   EventClick,
-				X:      eventX,
-				Y:      eventY,
-				Button: MouseLeft,
-				Target: hover,
+				Type:    EventClick,
+				X:       eventX,
+				Y:       eventY,
+				Button:  MouseLeft,
+				Buttons: pointerButtons,
+				Target:  hover,
 			})
 			if handled {
 				window.noteDirty(hover)
@@ -323,11 +346,12 @@ func (window *Window) handleMouse() bool {
 			}
 			window.noteHandlerMayMutate(target)
 			handled := target.Handle(Event{
-				Type:   EventClick,
-				X:      eventX,
-				Y:      eventY,
-				Button: MouseLeft,
-				Target: target,
+				Type:    EventClick,
+				X:       eventX,
+				Y:       eventY,
+				Button:  MouseLeft,
+				Buttons: pointerButtons,
+				Target:  target,
 			})
 			if handled {
 				window.noteDirty(target)
@@ -350,6 +374,10 @@ func (window *Window) handleMouse() bool {
 		}
 		window.mouseDown = nil
 	} else if window.mouseDown != nil && !leftHeld {
+		if dispatchPointerCancelForNode(window.mouseDown, eventX, eventY, MouseLeft, PointerButtonsNone) {
+			needsRedraw = true
+			window.noteDirty(window.mouseDown)
+		}
 		if aware, ok := window.mouseDown.(ActiveAware); ok {
 			if aware.SetActive(false) {
 				needsRedraw = true

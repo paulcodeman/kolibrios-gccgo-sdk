@@ -218,6 +218,7 @@ func (element *Element) hasEventHandlers() bool {
 		element.OnPointerMove != nil ||
 		element.OnPointerEnter != nil ||
 		element.OnPointerLeave != nil ||
+		element.OnPointerCancel != nil ||
 		element.OnMouseDown != nil ||
 		element.OnMouseUp != nil ||
 		element.OnMouseMove != nil ||

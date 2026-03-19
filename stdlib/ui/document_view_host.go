@@ -165,14 +165,14 @@ func (view *DocumentView) HandleScroll(deltaX int, deltaY int) bool {
 	return false
 }
 
-func (view *DocumentView) HandleMouseMove(x int, y int) bool {
+func (view *DocumentView) HandleMouseMove(x int, y int, buttons PointerButtons) bool {
 	if view == nil {
 		return false
 	}
 	if view.scrollDrag {
 		return view.handleDocumentScrollbarDrag(y)
 	}
-	event, ok := view.documentEventFor(EventMouseMove, x, y, 0)
+	event, ok := view.documentEventFor(EventMouseMove, x, y, 0, buttons)
 	if !ok {
 		return view.clearHoverNode()
 	}
@@ -196,14 +196,14 @@ func (view *DocumentView) HandleMouseMove(x int, y int) bool {
 	return changed
 }
 
-func (view *DocumentView) HandleMouseDown(x int, y int, button MouseButton) bool {
+func (view *DocumentView) HandleMouseDown(x int, y int, button MouseButton, buttons PointerButtons) bool {
 	if view == nil {
 		return false
 	}
 	if button == MouseLeft && view.handleDocumentScrollbarMouseDown(x, y) {
 		return true
 	}
-	event, ok := view.documentEventFor(EventMouseDown, x, y, button)
+	event, ok := view.documentEventFor(EventMouseDown, x, y, button, buttons)
 	if !ok {
 		changed := view.clearHoverNode()
 		if view.setActiveNode(nil, DocumentEvent{Type: EventMouseDown, Button: button, View: view}) {
@@ -234,7 +234,7 @@ func (view *DocumentView) HandleMouseDown(x int, y int, button MouseButton) bool
 	return changed
 }
 
-func (view *DocumentView) HandleMouseUp(x int, y int, button MouseButton) bool {
+func (view *DocumentView) HandleMouseUp(x int, y int, button MouseButton, buttons PointerButtons) bool {
 	if view == nil {
 		return false
 	}
@@ -242,7 +242,7 @@ func (view *DocumentView) HandleMouseUp(x int, y int, button MouseButton) bool {
 		view.scrollDrag = false
 		return true
 	}
-	event, ok := view.documentEventFor(EventMouseUp, x, y, button)
+	event, ok := view.documentEventFor(EventMouseUp, x, y, button, buttons)
 	changed := false
 	if ok {
 		changed = view.setHoverNode(event.Node, event)
@@ -261,6 +261,7 @@ func (view *DocumentView) HandleMouseUp(x int, y int, button MouseButton) bool {
 			X:       x,
 			Y:       y,
 			Button:  button,
+			Buttons: buttons,
 			ScrollY: view.scrollY,
 			View:    view,
 		}
@@ -577,12 +578,13 @@ func (view *DocumentView) markDocumentNodeStateChange(node *DocumentNode, needsL
 	view.MarkDirty()
 }
 
-func (view *DocumentView) documentEventFor(kind EventType, x int, y int, button MouseButton) (DocumentEvent, bool) {
+func (view *DocumentView) documentEventFor(kind EventType, x int, y int, button MouseButton, buttons PointerButtons) (DocumentEvent, bool) {
 	event := DocumentEvent{
 		Type:    kind,
 		X:       x,
 		Y:       y,
 		Button:  button,
+		Buttons: buttons,
 		ScrollX: 0,
 		ScrollY: view.scrollY,
 		View:    view,
@@ -600,6 +602,31 @@ func (view *DocumentView) documentEventFor(kind EventType, x int, y int, button 
 	event.DocumentY = y + view.scrollY
 	event.Node = documentEventTarget(view.Document.HitTest(event.DocumentX, event.DocumentY))
 	return event, true
+}
+
+func (view *DocumentView) dispatchPointerCancelEvent(x int, y int, button MouseButton, buttons PointerButtons) bool {
+	if view == nil || view.activeNode == nil {
+		return false
+	}
+	event := DocumentEvent{
+		Type:        EventPointerCancel,
+		X:           x,
+		Y:           y,
+		Button:      button,
+		Buttons:     buttons,
+		PointerID:   1,
+		PointerType: PointerTypeMouse,
+		IsPrimary:   true,
+		ScrollX:     0,
+		ScrollY:     view.scrollY,
+		View:        view,
+		Node:        view.activeNode,
+		Bubbles:     true,
+		Cancelable:  false,
+	}
+	return dispatchDocumentNodeEvent(&event, documentEventPath(view.activeNode), func(current *DocumentNode) interface{} {
+		return current.OnPointerCancel
+	})
 }
 
 func documentEventTarget(node *DocumentNode) *DocumentNode {

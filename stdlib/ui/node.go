@@ -46,15 +46,15 @@ type ActiveAware interface {
 }
 
 type MouseMoveAware interface {
-	HandleMouseMove(x int, y int) bool
+	HandleMouseMove(x int, y int, buttons PointerButtons) bool
 }
 
 type MouseDownAware interface {
-	HandleMouseDown(x int, y int, button MouseButton) bool
+	HandleMouseDown(x int, y int, button MouseButton, buttons PointerButtons) bool
 }
 
 type MouseUpAware interface {
-	HandleMouseUp(x int, y int, button MouseButton) bool
+	HandleMouseUp(x int, y int, button MouseButton, buttons PointerButtons) bool
 }
 
 type FocusAware interface {
