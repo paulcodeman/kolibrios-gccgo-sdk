@@ -4,7 +4,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	xfont "golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
 )
 
@@ -211,7 +210,7 @@ func wrapTextForStyle(text string, maxWidth int, font *ttfFont, charWidth int, s
 
 func wrapTextLines(text string, maxWidth int, font *ttfFont, charWidth int, breakLongWords bool) []textLine {
 	if font != nil {
-		return wrapTextLinesFont(text, maxWidth, font.face, breakLongWords)
+		return wrapTextLinesFont(text, maxWidth, font, breakLongWords)
 	}
 	return wrapTextLinesMono(text, maxWidth, charWidth, breakLongWords)
 }
@@ -256,11 +255,11 @@ func wrapTextLinesMono(text string, maxWidth int, charWidth int, breakLongWords 
 	return lines
 }
 
-func wrapTextLinesFont(text string, maxWidth int, face xfont.Face, breakLongWords bool) []textLine {
+func wrapTextLinesFont(text string, maxWidth int, font *ttfFont, breakLongWords bool) []textLine {
 	if text == "" {
 		return nil
 	}
-	if face == nil {
+	if font == nil || font.face == nil {
 		return wrapTextLinesMono(text, maxWidth, defaultCharWidth, breakLongWords)
 	}
 	if maxWidth <= 0 {
@@ -280,7 +279,7 @@ func wrapTextLinesFont(text string, maxWidth int, face xfont.Face, breakLongWord
 		if start >= end {
 			lines = append(lines, textLine{text: "", start: start, end: start})
 		} else {
-			lines = appendWrapWordsFont(lines, text, start, end, maxWidth, face, breakLongWords)
+			lines = appendWrapWordsFont(lines, text, start, end, maxWidth, font, breakLongWords)
 		}
 		if end >= len(text) {
 			break
@@ -290,11 +289,11 @@ func wrapTextLinesFont(text string, maxWidth int, face xfont.Face, breakLongWord
 	return lines
 }
 
-func appendWrapWordsFont(lines []textLine, text string, rawStart, rawEnd int, maxWidth int, face xfont.Face, breakLongWords bool) []textLine {
+func appendWrapWordsFont(lines []textLine, text string, rawStart, rawEnd int, maxWidth int, font *ttfFont, breakLongWords bool) []textLine {
 	if rawStart >= rawEnd {
 		return append(lines, textLine{text: "", start: rawStart, end: rawStart})
 	}
-	if face == nil {
+	if font == nil || font.face == nil {
 		return append(lines, textLine{text: text[rawStart:rawEnd], start: rawStart, end: rawEnd})
 	}
 	if maxWidth <= 0 {
@@ -321,9 +320,9 @@ func appendWrapWordsFont(lines []textLine, text string, rawStart, rawEnd int, ma
 		r, size := utf8.DecodeRuneInString(text[start:rawEnd])
 		kern := fixed.Int26_6(0)
 		if prev >= 0 {
-			kern = face.Kern(prev, r)
+			kern = font.kern(prev, r)
 		}
-		advance, _ := face.GlyphAdvance(r)
+		advance := font.glyphAdvance(r)
 		nextWidth := width + kern + advance
 		if nextWidth > maxWidthFixed && width > 0 {
 			if lastBreak >= 0 && lastNonSpaceEnd > lineStart {
@@ -681,7 +680,7 @@ func textNextRuneIndex(value string, index int) int {
 
 func wrapTextPreserve(text string, maxWidth int, wrap bool, font *ttfFont, charWidth int) []textLine {
 	if font != nil {
-		return wrapTextPreserveFont(text, maxWidth, wrap, font.face)
+		return wrapTextPreserveFont(text, maxWidth, wrap, font)
 	}
 	if charWidth <= 0 {
 		charWidth = defaultCharWidth
@@ -693,12 +692,12 @@ func wrapTextPreserve(text string, maxWidth int, wrap bool, font *ttfFont, charW
 	return wrapTextPreserveMono(text, maxChars, wrap)
 }
 
-func wrapTextPreserveFont(text string, maxWidth int, wrap bool, face xfont.Face) []textLine {
+func wrapTextPreserveFont(text string, maxWidth int, wrap bool, font *ttfFont) []textLine {
 	if text == "" {
 		lines := getTextLineSlice(1)
 		return append(lines, textLine{text: "", start: 0, end: 0})
 	}
-	if !wrap || maxWidth <= 0 || face == nil {
+	if !wrap || maxWidth <= 0 || font == nil || font.face == nil {
 		lines := getTextLineSlice(4)
 		start := 0
 		for i := 0; i < len(text); i++ {
@@ -727,9 +726,9 @@ func wrapTextPreserveFont(text string, maxWidth int, wrap bool, face xfont.Face)
 		}
 		kern := fixed.Int26_6(0)
 		if prev >= 0 {
-			kern = face.Kern(prev, r)
+			kern = font.kern(prev, r)
 		}
-		advance, _ := face.GlyphAdvance(r)
+		advance := font.glyphAdvance(r)
 		nextWidth := width + kern + advance
 		if nextWidth > maxWidthFixed && width > 0 {
 			lines = append(lines, textLine{text: text[start:i], start: start, end: i})

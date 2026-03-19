@@ -1,29 +1,6 @@
 package ui
 
-import (
-	xfont "golang.org/x/image/font"
-	"golang.org/x/image/math/fixed"
-)
-
-func measureStringFixed(face xfont.Face, text string) fixed.Int26_6 {
-	if face == nil || text == "" {
-		return 0
-	}
-	var width fixed.Int26_6
-	prev := rune(-1)
-	for _, r := range text {
-		if prev >= 0 {
-			width += face.Kern(prev, r)
-		}
-		advance, _ := face.GlyphAdvance(r)
-		width += advance
-		prev = r
-	}
-	if width < 0 {
-		return -width
-	}
-	return width
-}
+import "golang.org/x/image/math/fixed"
 
 func textWidthWithFont(text string, font *ttfFont, charWidth int) int {
 	if text == "" {
@@ -35,7 +12,7 @@ func textWidthWithFont(text string, font *ttfFont, charWidth int) int {
 	if font == nil || font.face == nil {
 		return textColumnCount(text) * charWidth
 	}
-	width := measureStringFixed(font.face, text).Ceil()
+	width := font.measureStringFixed(text).Ceil()
 	if width < 0 {
 		width = -width
 	}
@@ -60,10 +37,9 @@ func textWidthForColumns(text string, cols int, font *ttfFont, charWidth int) in
 			break
 		}
 		if prev >= 0 {
-			width += font.face.Kern(prev, r)
+			width += font.kern(prev, r)
 		}
-		advance, _ := font.face.GlyphAdvance(r)
-		width += advance
+		width += font.glyphAdvance(r)
 		prev = r
 		count++
 	}
@@ -91,13 +67,13 @@ func textColumnForX(text string, x int, font *ttfFont, charWidth int) int {
 	for _, r := range text {
 		kern := fixed.Int26_6(0)
 		if prev >= 0 {
-			kern = font.face.Kern(prev, r)
+			kern = font.kern(prev, r)
 		}
 		start := width + kern
 		if start >= target {
 			break
 		}
-		advance, _ := font.face.GlyphAdvance(r)
+		advance := font.glyphAdvance(r)
 		width = start + advance
 		prev = r
 		col++

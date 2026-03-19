@@ -56,10 +56,10 @@ func (canvas *Canvas) drawTextFontClipped(x int, y int, color kos.Color, alpha u
 	prev := rune(-1)
 	for _, r := range text {
 		if prev >= 0 {
-			dotX += font.face.Kern(prev, r)
+			dotX += font.kern(prev, r)
 		}
 		dot := fixed.Point26_6{X: dotX, Y: dotY}
-		dr, mask, maskp, advance, ok := font.face.Glyph(dot, r)
+		dr, mask, maskp, advance, ok := font.glyph(dot, r)
 		if ok && mask != nil && !dr.Empty() {
 			canvas.drawGlyphMask(dr, mask, maskp, colorValue, alpha, clip)
 		}

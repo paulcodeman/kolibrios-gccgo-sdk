@@ -77,7 +77,8 @@ func ButtonActiveStyle() ui.Style {
 	style := ui.Style{}
 	style.SetBackground(ui.Gray)
 	style.SetForeground(ui.Black)
-	style.SetBorderWidth(0)
+	style.SetBorderWidth(1)
+	style.SetBorderColor(ui.Gray)
 	style.SetGradient(ui.Gradient{
 		From:      ui.Gray,
 		To:        ui.Silver,
