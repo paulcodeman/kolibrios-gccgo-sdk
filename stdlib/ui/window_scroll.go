@@ -206,7 +206,8 @@ func (window *Window) noteScrollChanged() {
 	if window == nil {
 		return
 	}
-	window.invalidateWindowPropertyState()
+	window.invalidateWindowScrollPropertyState()
+	window.invalidateWindowEffectPropertyState()
 	window.hoverDirty = true
 	window.lastMouseValid = false
 	window.scrollRedraw = true

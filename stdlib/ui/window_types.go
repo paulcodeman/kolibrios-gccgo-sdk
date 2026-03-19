@@ -71,7 +71,6 @@ type Window struct {
 	scrollRedraw            bool
 	translateBlits          []translateBlitOp
 	propertyState           windowPropertyState
-	propertyStateValid      bool
 	displayState            windowDisplayState
 	frameState              windowFrameState
 	frameStateActive        bool

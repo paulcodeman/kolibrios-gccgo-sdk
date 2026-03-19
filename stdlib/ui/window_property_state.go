@@ -25,17 +25,74 @@ type windowEffectPropertyState struct {
 }
 
 type windowPropertyState struct {
-	content Rect
-	scroll  windowScrollPropertyState
-	clip    windowClipPropertyState
-	effect  windowEffectPropertyState
+	content      Rect
+	contentValid bool
+	scroll       windowScrollPropertyState
+	scrollValid  bool
+	clip         windowClipPropertyState
+	clipValid    bool
+	effect       windowEffectPropertyState
+	effectValid  bool
 }
 
 func (window *Window) invalidateWindowPropertyState() {
 	if window == nil {
 		return
 	}
+	window.invalidateWindowContentPropertyState()
+	window.invalidateWindowClipPropertyState()
+	window.invalidateWindowScrollPropertyState()
 	window.invalidateWindowEffectPropertyState()
+	window.invalidateWindowDisplayState()
+}
+
+func (window *Window) invalidateWindowContentPropertyState() {
+	if window == nil {
+		return
+	}
+	window.propertyState.content = Rect{}
+	window.propertyState.contentValid = false
+	window.propertyState.scroll = windowScrollPropertyState{}
+	window.propertyState.scrollValid = false
+	window.propertyState.clip = windowClipPropertyState{}
+	window.propertyState.clipValid = false
+	if window.frameStateActive {
+		window.frameState.properties.content = Rect{}
+		window.frameState.properties.contentValid = false
+		window.frameState.properties.scroll = windowScrollPropertyState{}
+		window.frameState.properties.scrollValid = false
+		window.frameState.properties.clip = windowClipPropertyState{}
+		window.frameState.properties.clipValid = false
+		window.frameState.prepaint = windowPrepaintPlan{}
+		window.frameState.prepaintValid = false
+	}
+}
+
+func (window *Window) invalidateWindowScrollPropertyState() {
+	if window == nil {
+		return
+	}
+	window.propertyState.scroll = windowScrollPropertyState{}
+	window.propertyState.scrollValid = false
+	if window.frameStateActive {
+		window.frameState.properties.scroll = windowScrollPropertyState{}
+		window.frameState.properties.scrollValid = false
+		window.frameState.prepaint = windowPrepaintPlan{}
+		window.frameState.prepaintValid = false
+	}
+	window.invalidateWindowDisplayState()
+}
+
+func (window *Window) invalidateWindowClipPropertyState() {
+	if window == nil {
+		return
+	}
+	window.propertyState.clip = windowClipPropertyState{}
+	window.propertyState.clipValid = false
+	if window.frameStateActive {
+		window.frameState.properties.clip = windowClipPropertyState{}
+		window.frameState.properties.clipValid = false
+	}
 	window.invalidateWindowDisplayState()
 }
 
@@ -43,26 +100,92 @@ func (window *Window) invalidateWindowEffectPropertyState() {
 	if window == nil {
 		return
 	}
-	window.propertyState = windowPropertyState{}
-	window.propertyStateValid = false
+	window.propertyState.effect = windowEffectPropertyState{}
+	window.propertyState.effectValid = false
 	if window.frameStateActive {
-		window.frameState.properties = windowPropertyState{}
-		window.frameState.propertiesValid = false
+		window.frameState.properties.effect = windowEffectPropertyState{}
+		window.frameState.properties.effectValid = false
 		window.frameState.prepaint = windowPrepaintPlan{}
 		window.frameState.prepaintValid = false
 	}
+}
+
+func (window *Window) windowContentPropertyStateValue() Rect {
+	if window == nil {
+		return Rect{}
+	}
+	if window.propertyState.contentValid {
+		return window.propertyState.content
+	}
+	content := window.contentRect()
+	window.propertyState.content = content
+	window.propertyState.contentValid = true
+	return content
+}
+
+func (window *Window) windowScrollPropertyStateValue() windowScrollPropertyState {
+	if window == nil {
+		return windowScrollPropertyState{}
+	}
+	if window.propertyState.scrollValid {
+		return window.propertyState.scroll
+	}
+	content := window.windowContentPropertyStateValue()
+	state := window.computeScrollPropertyState(content)
+	window.propertyState.scroll = state
+	window.propertyState.scrollValid = true
+	return state
+}
+
+func (window *Window) windowClipPropertyStateValue() windowClipPropertyState {
+	if window == nil {
+		return windowClipPropertyState{}
+	}
+	if window.propertyState.clipValid {
+		return window.propertyState.clip
+	}
+	content := window.windowContentPropertyStateValue()
+	state := window.computeClipPropertyState(content)
+	window.propertyState.clip = state
+	window.propertyState.clipValid = true
+	return state
+}
+
+func (window *Window) windowEffectPropertyStateValue() windowEffectPropertyState {
+	if window == nil {
+		return windowEffectPropertyState{needsFullRedraw: true}
+	}
+	if window.propertyState.effectValid {
+		return window.propertyState.effect
+	}
+	state := window.computeEffectPropertyState()
+	window.propertyState.effect = state
+	window.propertyState.effectValid = true
+	return state
 }
 
 func (window *Window) windowPropertyStateValue() windowPropertyState {
 	if window == nil {
 		return windowPropertyState{}
 	}
-	if window.propertyStateValid {
-		return window.propertyState
+	state := window.propertyState
+	if !state.contentValid {
+		state.content = window.contentRect()
+		state.contentValid = true
 	}
-	state := window.computeWindowPropertyState()
+	if !state.scrollValid {
+		state.scroll = window.computeScrollPropertyState(state.content)
+		state.scrollValid = true
+	}
+	if !state.clipValid {
+		state.clip = window.computeClipPropertyState(state.content)
+		state.clipValid = true
+	}
+	if !state.effectValid {
+		state.effect = window.computeEffectPropertyState()
+		state.effectValid = true
+	}
 	window.propertyState = state
-	window.propertyStateValid = true
 	return state
 }
 

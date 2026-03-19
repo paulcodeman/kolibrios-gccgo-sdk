@@ -6,7 +6,6 @@ func (window *Window) Redraw() {
 	if window == nil {
 		return
 	}
-	window.invalidateWindowPropertyState()
 	window.beginWindowFrameState()
 	window.syncWindowInfo()
 	window.ensureCanvas()
@@ -29,9 +28,6 @@ func (window *Window) RedrawContent() {
 	if window == nil {
 		return
 	}
-	if !window.visualDirtyOnly {
-		window.invalidateWindowPropertyState()
-	}
 	window.beginWindowFrameState()
 	if window.client.Empty() || window.canvas == nil {
 		window.syncWindowInfo()
@@ -53,9 +49,6 @@ func (window *Window) RedrawContent() {
 func (window *Window) RedrawContentStats(stats *FrameStats) {
 	if window == nil {
 		return
-	}
-	if !window.visualDirtyOnly {
-		window.invalidateWindowPropertyState()
 	}
 	window.beginWindowFrameState()
 	if stats == nil {
@@ -95,9 +88,6 @@ func (window *Window) RenderStats(stats *FrameStats) {
 	if window == nil {
 		return
 	}
-	if !window.visualDirtyOnly {
-		window.invalidateWindowPropertyState()
-	}
 	window.beginWindowFrameState()
 	if stats == nil {
 		window.endWindowFrameState()
@@ -129,7 +119,6 @@ func (window *Window) RenderListStats(stats *FrameStats) {
 	if window == nil || stats == nil {
 		return
 	}
-	window.invalidateWindowPropertyState()
 	window.beginWindowFrameState()
 	*stats = FrameStats{}
 	window.ensureCanvas()
@@ -154,7 +143,6 @@ func (window *Window) RenderStatsFull(stats *FrameStats) {
 	if window == nil {
 		return
 	}
-	window.invalidateWindowPropertyState()
 	window.beginWindowFrameState()
 	if stats == nil {
 		window.endWindowFrameState()

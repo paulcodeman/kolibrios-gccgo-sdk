@@ -88,7 +88,7 @@ func (window *Window) syncScrollDrawState() {
 		return
 	}
 	window.drawnScrollY = window.scrollY
-	window.invalidateWindowPropertyState()
+	window.invalidateWindowScrollPropertyState()
 }
 
 func (window *Window) scrollViewportRect() Rect {
@@ -109,11 +109,7 @@ func (window *Window) canUseScrollBlit(viewport Rect) bool {
 	if window == nil || window.canvas == nil || viewport.Empty() {
 		return false
 	}
-	if window.frameStateActive && window.frameState.propertiesValid {
-		if !window.frameState.properties.effect.simpleBackground {
-			return false
-		}
-	} else if _, ok := window.simpleBackgroundColor(); !ok {
+	if !window.currentFrameEffectPropertyState().simpleBackground {
 		return false
 	}
 	delta := window.pendingScrollDelta()

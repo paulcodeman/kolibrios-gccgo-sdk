@@ -1,14 +1,13 @@
 package ui
 
 type windowFrameState struct {
-	properties      windowPropertyState
-	propertiesValid bool
-	dirty           windowDirtyPlan
-	dirtyValid      bool
-	display         DisplayList
-	displayValid    bool
-	prepaint        windowPrepaintPlan
-	prepaintValid   bool
+	properties    windowPropertyState
+	dirty         windowDirtyPlan
+	dirtyValid    bool
+	display       DisplayList
+	displayValid  bool
+	prepaint      windowPrepaintPlan
+	prepaintValid bool
 }
 
 func (window *Window) beginWindowFrameState() {
@@ -31,45 +30,92 @@ func (window *Window) currentFramePropertyState() windowPropertyState {
 	if window == nil {
 		return windowPropertyState{}
 	}
-	if window.frameStateActive && window.frameState.propertiesValid {
-		return window.frameState.properties
+	if !window.frameStateActive {
+		return window.windowPropertyStateValue()
 	}
-	state := window.windowPropertyStateValue()
-	if window.frameStateActive {
-		window.frameState.properties = state
-		window.frameState.propertiesValid = true
+	state := window.frameState.properties
+	if !state.contentValid {
+		state.content = window.windowContentPropertyStateValue()
+		state.contentValid = true
 	}
+	if !state.scrollValid {
+		state.scroll = window.windowScrollPropertyStateValue()
+		state.scrollValid = true
+	}
+	if !state.clipValid {
+		state.clip = window.windowClipPropertyStateValue()
+		state.clipValid = true
+	}
+	if !state.effectValid {
+		state.effect = window.windowEffectPropertyStateValue()
+		state.effectValid = true
+	}
+	window.frameState.properties = state
 	return state
+}
+
+func (window *Window) currentFrameContentPropertyState() Rect {
+	if window == nil {
+		return Rect{}
+	}
+	if !window.frameStateActive {
+		return window.windowContentPropertyStateValue()
+	}
+	if window.frameState.properties.contentValid {
+		return window.frameState.properties.content
+	}
+	content := window.windowContentPropertyStateValue()
+	window.frameState.properties.content = content
+	window.frameState.properties.contentValid = true
+	return content
 }
 
 func (window *Window) currentFrameScrollPropertyState() windowScrollPropertyState {
 	if window == nil {
 		return windowScrollPropertyState{}
 	}
-	if window.frameStateActive && window.frameState.propertiesValid {
+	if !window.frameStateActive {
+		return window.windowScrollPropertyStateValue()
+	}
+	if window.frameState.properties.scrollValid {
 		return window.frameState.properties.scroll
 	}
-	return window.computeScrollPropertyState(window.contentRect())
+	state := window.windowScrollPropertyStateValue()
+	window.frameState.properties.scroll = state
+	window.frameState.properties.scrollValid = true
+	return state
 }
 
 func (window *Window) currentFrameClipPropertyState() windowClipPropertyState {
 	if window == nil {
 		return windowClipPropertyState{}
 	}
-	if window.frameStateActive && window.frameState.propertiesValid {
+	if !window.frameStateActive {
+		return window.windowClipPropertyStateValue()
+	}
+	if window.frameState.properties.clipValid {
 		return window.frameState.properties.clip
 	}
-	return window.computeClipPropertyState(window.contentRect())
+	state := window.windowClipPropertyStateValue()
+	window.frameState.properties.clip = state
+	window.frameState.properties.clipValid = true
+	return state
 }
 
 func (window *Window) currentFrameEffectPropertyState() windowEffectPropertyState {
 	if window == nil {
 		return windowEffectPropertyState{}
 	}
-	if window.frameStateActive && window.frameState.propertiesValid {
+	if !window.frameStateActive {
+		return window.windowEffectPropertyStateValue()
+	}
+	if window.frameState.properties.effectValid {
 		return window.frameState.properties.effect
 	}
-	return window.computeEffectPropertyState()
+	state := window.windowEffectPropertyStateValue()
+	window.frameState.properties.effect = state
+	window.frameState.properties.effectValid = true
+	return state
 }
 
 func (window *Window) currentFrameScrollPaintOffset() int {
