@@ -2,6 +2,48 @@ package ui
 
 import "kos"
 
+func (window *Window) hoverStateNeedsDirtyNode(node Node) bool {
+	if window == nil || node == nil {
+		return false
+	}
+	switch node.(type) {
+	case *Element, *DocumentView:
+		return false
+	default:
+		return true
+	}
+}
+
+func (window *Window) noteHoverStateChange(node Node) {
+	if window == nil || node == nil {
+		return
+	}
+	if window.hoverStateNeedsDirtyNode(node) {
+		window.noteDirty(node)
+	}
+}
+
+func (window *Window) activeStateNeedsDirtyNode(node Node) bool {
+	if window == nil || node == nil {
+		return false
+	}
+	switch node.(type) {
+	case *Element, *DocumentView:
+		return false
+	default:
+		return true
+	}
+}
+
+func (window *Window) noteActiveStateChange(node Node) {
+	if window == nil || node == nil {
+		return
+	}
+	if window.activeStateNeedsDirtyNode(node) {
+		window.noteDirty(node)
+	}
+}
+
 func (window *Window) handleMouse() bool {
 	if window == nil || window.client.Empty() {
 		return false
@@ -25,7 +67,7 @@ func (window *Window) handleMouse() bool {
 			if aware, ok := window.mouseDown.(ActiveAware); ok {
 				if aware.SetActive(false) {
 					needsRedraw = true
-					window.noteDirty(window.mouseDown)
+					window.noteActiveStateChange(window.mouseDown)
 				}
 			}
 			window.mouseDown = nil
@@ -34,7 +76,7 @@ func (window *Window) handleMouse() bool {
 			if aware, ok := window.mouseHover.(HoverAware); ok {
 				if aware.SetHover(false) {
 					needsRedraw = true
-					window.noteDirty(window.mouseHover)
+					window.noteHoverStateChange(window.mouseHover)
 				}
 			}
 			window.mouseHover = nil
@@ -112,14 +154,14 @@ func (window *Window) handleMouse() bool {
 		if aware, ok := window.mouseHover.(HoverAware); ok {
 			if aware.SetHover(false) {
 				needsRedraw = true
-				window.noteDirty(window.mouseHover)
+				window.noteHoverStateChange(window.mouseHover)
 			}
 		}
 		window.mouseHover = hover
 		if aware, ok := hover.(HoverAware); ok {
 			if aware.SetHover(true) {
 				needsRedraw = true
-				window.noteDirty(hover)
+				window.noteHoverStateChange(hover)
 			}
 		}
 	}
@@ -164,7 +206,7 @@ func (window *Window) handleMouse() bool {
 		if aware, ok := window.mouseDown.(ActiveAware); ok {
 			if aware.SetActive(true) {
 				needsRedraw = true
-				window.noteDirty(window.mouseDown)
+				window.noteActiveStateChange(window.mouseDown)
 			}
 		}
 		if aware, ok := window.mouseDown.(MouseDownAware); ok {
@@ -183,7 +225,7 @@ func (window *Window) handleMouse() bool {
 		if aware, ok := window.mouseDown.(ActiveAware); ok {
 			if aware.SetActive(window.mouseDown == hover) {
 				needsRedraw = true
-				window.noteDirty(window.mouseDown)
+				window.noteActiveStateChange(window.mouseDown)
 			}
 		}
 	}
@@ -248,7 +290,7 @@ func (window *Window) handleMouse() bool {
 		if aware, ok := window.mouseDown.(ActiveAware); ok {
 			if aware.SetActive(false) {
 				needsRedraw = true
-				window.noteDirty(window.mouseDown)
+				window.noteActiveStateChange(window.mouseDown)
 			}
 		}
 		target := hover
@@ -302,7 +344,7 @@ func (window *Window) handleMouse() bool {
 		if aware, ok := window.mouseDown.(ActiveAware); ok {
 			if aware.SetActive(false) {
 				needsRedraw = true
-				window.noteDirty(window.mouseDown)
+				window.noteActiveStateChange(window.mouseDown)
 			}
 		}
 		window.mouseDown = nil

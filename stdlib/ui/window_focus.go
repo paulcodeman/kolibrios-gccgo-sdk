@@ -52,6 +52,9 @@ func (window *Window) focusStateNeedsDirtyNode(node Node) bool {
 	if window == nil || node == nil {
 		return false
 	}
+	if _, ok := node.(*DocumentView); ok {
+		return false
+	}
 	element, ok := node.(*Element)
 	if !ok || element == nil {
 		return true
