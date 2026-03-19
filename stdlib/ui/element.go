@@ -101,6 +101,79 @@ func DefaultBoxStyle() Style {
 	return style
 }
 
+func DefaultCheckboxStyle() Style {
+	style := Style{}
+	style.SetDisplay(DisplayInlineBlock)
+	style.SetForeground(Black)
+	style.SetPadding(4, 6, 4, 4)
+	style.SetTextAlign(TextAlignLeft)
+	return style
+}
+
+func DefaultCheckboxHoverStyle() Style {
+	style := Style{}
+	style.SetBackground(Silver)
+	style.SetBorderRadius(6)
+	return style
+}
+
+func DefaultCheckboxActiveStyle() Style {
+	style := Style{}
+	style.SetBackground(White)
+	style.SetBorderRadius(6)
+	return style
+}
+
+func DefaultRadioStyle() Style {
+	return DefaultCheckboxStyle()
+}
+
+func DefaultRadioHoverStyle() Style {
+	return DefaultCheckboxHoverStyle()
+}
+
+func DefaultRadioActiveStyle() Style {
+	return DefaultCheckboxActiveStyle()
+}
+
+func DefaultProgressStyle() Style {
+	style := Style{}
+	style.SetDisplay(DisplayBlock)
+	style.SetWidth(180)
+	style.SetHeight(18)
+	style.SetPadding(2)
+	style.SetBackground(White)
+	style.SetBorderColor(Silver)
+	style.SetBorderWidth(1)
+	style.SetBorderRadius(999)
+	style.SetForeground(Blue)
+	return style
+}
+
+func DefaultRangeStyle() Style {
+	style := Style{}
+	style.SetDisplay(DisplayBlock)
+	style.SetWidth(180)
+	style.SetHeight(24)
+	style.SetPadding(4, 6)
+	style.SetForeground(Blue)
+	return style
+}
+
+func DefaultRangeHoverStyle() Style {
+	style := Style{}
+	style.SetBackground(Silver)
+	style.SetBorderRadius(8)
+	return style
+}
+
+func DefaultRangeActiveStyle() Style {
+	style := Style{}
+	style.SetBackground(White)
+	style.SetBorderRadius(8)
+	return style
+}
+
 func (element *Element) Spec() *ElementSpec {
 	if element == nil {
 		return nil
@@ -161,6 +234,46 @@ func (element *Element) isContainerElement() bool {
 	return element.kind == ElementKindBox
 }
 
+func (element *Element) isCheckable() bool {
+	if element == nil {
+		return false
+	}
+	if element.hasSpecFlag(ElementSpecCheckable) {
+		return true
+	}
+	return element.kind == ElementKindCheckbox || element.kind == ElementKindRadio
+}
+
+func (element *Element) isRadio() bool {
+	if element == nil {
+		return false
+	}
+	if element.hasSpecFlag(ElementSpecRadio) {
+		return true
+	}
+	return element.kind == ElementKindRadio
+}
+
+func (element *Element) isProgress() bool {
+	if element == nil {
+		return false
+	}
+	if element.hasSpecFlag(ElementSpecProgress) {
+		return true
+	}
+	return element.kind == ElementKindProgress
+}
+
+func (element *Element) isRange() bool {
+	if element == nil {
+		return false
+	}
+	if element.hasSpecFlag(ElementSpecRange) {
+		return true
+	}
+	return element.kind == ElementKindRange
+}
+
 func (element *Element) isTinyGL() bool {
 	if element == nil {
 		return false
@@ -180,6 +293,11 @@ func CreateElementFromSpec(spec *ElementSpec) *Element {
 	element.StyleHover = spec.defaultHoverStyle()
 	element.StyleActive = spec.defaultActiveStyle()
 	element.StyleFocus = spec.defaultFocusStyle()
+	if element.isProgress() || element.isRange() {
+		element.minValue = 0
+		element.maxValue = 100
+		element.stepValue = 1
+	}
 	return element
 }
 
@@ -219,4 +337,20 @@ func CreateTinyGL() *Element {
 
 func CreateBox() *Element {
 	return createElementTyped(ElementKindBox)
+}
+
+func CreateCheckbox() *Element {
+	return createElementTyped(ElementKindCheckbox)
+}
+
+func CreateRadio() *Element {
+	return createElementTyped(ElementKindRadio)
+}
+
+func CreateProgress() *Element {
+	return createElementTyped(ElementKindProgress)
+}
+
+func CreateRange() *Element {
+	return createElementTyped(ElementKindRange)
 }

@@ -12,6 +12,10 @@ const (
 	ElementSpecContainer
 	ElementSpecTinyGL
 	ElementSpecButtonLike
+	ElementSpecCheckable
+	ElementSpecRadio
+	ElementSpecProgress
+	ElementSpecRange
 )
 
 type ElementSpec struct {
@@ -94,6 +98,36 @@ var (
 		Flags:        ElementSpecContainer,
 		DefaultStyle: DefaultBoxStyle,
 	}
+	SpecCheckbox = &ElementSpec{
+		Kind:         ElementKindCheckbox,
+		Name:         "checkbox",
+		Flags:        ElementSpecFocusable | ElementSpecClickable | ElementSpecCheckable,
+		DefaultStyle: DefaultCheckboxStyle,
+		HoverStyle:   DefaultCheckboxHoverStyle,
+		ActiveStyle:  DefaultCheckboxActiveStyle,
+	}
+	SpecRadio = &ElementSpec{
+		Kind:         ElementKindRadio,
+		Name:         "radio",
+		Flags:        ElementSpecFocusable | ElementSpecClickable | ElementSpecCheckable | ElementSpecRadio,
+		DefaultStyle: DefaultRadioStyle,
+		HoverStyle:   DefaultRadioHoverStyle,
+		ActiveStyle:  DefaultRadioActiveStyle,
+	}
+	SpecProgress = &ElementSpec{
+		Kind:         ElementKindProgress,
+		Name:         "progress",
+		Flags:        ElementSpecProgress,
+		DefaultStyle: DefaultProgressStyle,
+	}
+	SpecRange = &ElementSpec{
+		Kind:         ElementKindRange,
+		Name:         "range",
+		Flags:        ElementSpecFocusable | ElementSpecClickable | ElementSpecRange,
+		DefaultStyle: DefaultRangeStyle,
+		HoverStyle:   DefaultRangeHoverStyle,
+		ActiveStyle:  DefaultRangeActiveStyle,
+	}
 )
 
 var (
@@ -108,6 +142,10 @@ func init() {
 	RegisterElementSpec(SpecTextarea)
 	RegisterElementSpec(SpecTinyGL)
 	RegisterElementSpec(SpecBox)
+	RegisterElementSpec(SpecCheckbox)
+	RegisterElementSpec(SpecRadio)
+	RegisterElementSpec(SpecProgress)
+	RegisterElementSpec(SpecRange)
 }
 
 func normalizeElementSpecName(name string) string {

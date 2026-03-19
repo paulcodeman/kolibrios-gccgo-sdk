@@ -31,6 +31,10 @@ func Run() {
 	window.CenterOnScreen()
 
 	count := 0
+	notificationsEnabled := true
+	denseMode := false
+	themeMode := "ocean"
+	progressValue := 35
 	fontPath := "assets/OpenSans-Regular.ttf"
 	monoFontPath := "assets/RobotoMono-Regular.ttf"
 
@@ -341,6 +345,101 @@ func Run() {
 		style.SetShadowPtr(nil)
 	})
 
+	controlLabTitle := elements.Label("Form Controls")
+	apply(controlLabTitle, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(10, 0, 6, 0)
+		style.SetForeground(ui.Navy)
+		style.SetFontSize(14)
+	})
+
+	controlLabHint := elements.Label("These are now real Element-based controls built on top of the shared spec registry: checkbox, radio, progress and range.")
+	apply(controlLabHint, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 6, 0)
+		style.SetForeground(ui.Gray)
+		style.SetFontSize(11)
+		style.SetLineHeight(15)
+	})
+
+	controlSummary := elements.Label("")
+	apply(controlSummary, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 6, 0)
+		style.SetPadding(6, 8)
+		style.SetBackground(ui.White)
+		style.SetBorder(1, ui.Silver)
+		style.SetBorderRadius(8)
+		style.SetFontPath(monoFontPath)
+		style.SetFontSize(12)
+	})
+
+	notifyCheckbox := elements.Checkbox("Enable notifications", true)
+	apply(notifyCheckbox, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 4, 0)
+		style.SetBorderRadius(6)
+	})
+
+	denseCheckbox := elements.Checkbox("Dense mode", false)
+	apply(denseCheckbox, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 6, 0)
+		style.SetBorderRadius(6)
+	})
+
+	themeLabel := elements.Label("Theme")
+	apply(themeLabel, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 4, 0)
+		style.SetForeground(ui.Gray)
+		style.SetFontSize(12)
+	})
+
+	themeOcean := elements.Radio("Ocean", "theme", true)
+	apply(themeOcean, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 2, 0)
+		style.SetBorderRadius(6)
+	})
+
+	themeSunset := elements.Radio("Sunset", "theme", false)
+	apply(themeSunset, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 6, 0)
+		style.SetBorderRadius(6)
+	})
+
+	progressLabel := elements.Label("Progress")
+	apply(progressLabel, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 4, 0)
+		style.SetForeground(ui.Gray)
+		style.SetFontSize(12)
+	})
+
+	progress := elements.Progress(0, 100, progressValue)
+	apply(progress, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 6, 0)
+		style.SetWidth(210)
+	})
+
+	rangeLabel := elements.Label("Adjust progress")
+	apply(rangeLabel, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 4, 0)
+		style.SetForeground(ui.Gray)
+		style.SetFontSize(12)
+	})
+
+	rangeInput := elements.Range(0, 100, progressValue)
+	apply(rangeInput, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 8, 0)
+		style.SetWidth(210)
+	})
+
 	styleTitle := elements.Label("Style Lab")
 	apply(styleTitle, func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
@@ -499,6 +598,38 @@ func Run() {
 		style.SetBorderColor(ui.Blue)
 	})
 
+	updateControlLab := func() {
+		progress.SetValue(progressValue)
+		rangeInput.SetValue(progressValue)
+		if themeMode == "ocean" {
+			progress.UpdateStyle(func(style *ui.Style) {
+				style.SetForeground(ui.Blue)
+				style.SetBorderColor(ui.Navy)
+			})
+			rangeInput.UpdateStyle(func(style *ui.Style) {
+				style.SetForeground(ui.Blue)
+			})
+		} else {
+			progress.UpdateStyle(func(style *ui.Style) {
+				style.SetForeground(ui.Maroon)
+				style.SetBorderColor(ui.Maroon)
+			})
+			rangeInput.UpdateStyle(func(style *ui.Style) {
+				style.SetForeground(ui.Maroon)
+			})
+		}
+		if denseMode {
+			controlSummary.UpdateStyle(func(style *ui.Style) {
+				style.SetBackground(ui.Silver)
+			})
+		} else {
+			controlSummary.UpdateStyle(func(style *ui.Style) {
+				style.SetBackground(ui.White)
+			})
+		}
+		controlSummary.SetText(window, "notify="+strconv.FormatBool(notificationsEnabled)+" | dense="+strconv.FormatBool(denseMode)+" | theme="+themeMode+" | progress="+strconv.Itoa(progressValue))
+	}
+
 	inc.OnClick = func() {
 		count++
 		updateLabel()
@@ -525,6 +656,31 @@ func Run() {
 		count = 0
 		updateLabel()
 	}
+	notifyCheckbox.OnChange = func(checked bool) {
+		notificationsEnabled = checked
+		updateControlLab()
+	}
+	denseCheckbox.OnChange = func(checked bool) {
+		denseMode = checked
+		updateControlLab()
+	}
+	themeOcean.OnChange = func(checked bool) {
+		if checked {
+			themeMode = "ocean"
+			updateControlLab()
+		}
+	}
+	themeSunset.OnChange = func(checked bool) {
+		if checked {
+			themeMode = "sunset"
+			updateControlLab()
+		}
+	}
+	rangeInput.OnChange = func(value int) {
+		progressValue = value
+		updateControlLab()
+	}
+	updateControlLab()
 
 	card.Append(counterRow)
 	card.Append(controlsTitle)
@@ -542,6 +698,18 @@ func Run() {
 	card.Append(dividerAfterForm)
 	card.Append(styled)
 	card.Append(pill)
+	card.Append(controlLabTitle)
+	card.Append(controlLabHint)
+	card.Append(controlSummary)
+	card.Append(notifyCheckbox)
+	card.Append(denseCheckbox)
+	card.Append(themeLabel)
+	card.Append(themeOcean)
+	card.Append(themeSunset)
+	card.Append(progressLabel)
+	card.Append(progress)
+	card.Append(rangeLabel)
+	card.Append(rangeInput)
 	card.Append(styleTitle)
 	card.Append(styleHint)
 	card.Append(borderDemo)

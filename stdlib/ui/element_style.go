@@ -292,6 +292,10 @@ func (element *Element) renderKeyFor(style Style) elementRenderKey {
 	return elementRenderKey{
 		kind:    element.kind,
 		text:    element.text(),
+		checked: element.checked,
+		value:   element.value,
+		min:     element.minValue,
+		max:     element.maxValue,
 		display: display,
 		focus:   elementShowsDefaultFocusRing(element),
 		visual:  visualKeyFor(style),
@@ -321,6 +325,10 @@ func resolveBorderRadius(style Style) CornerRadii {
 func elementRenderKeyEqual(a elementRenderKey, b elementRenderKey) bool {
 	return a.kind == b.kind &&
 		a.text == b.text &&
+		a.checked == b.checked &&
+		a.value == b.value &&
+		a.min == b.min &&
+		a.max == b.max &&
 		equalDisplayPtr(a.display, b.display) &&
 		a.focus == b.focus &&
 		styleVisualKeyEqual(a.visual, b.visual)

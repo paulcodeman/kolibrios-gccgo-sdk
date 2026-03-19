@@ -231,6 +231,11 @@ func (window *Window) handleMouse() bool {
 				needsRedraw = true
 				window.noteDirty(element)
 			}
+		} else if element, ok := window.mouseDown.(*Element); ok && element.isRange() {
+			if element.handleRangeMouseDown(eventX, eventY) {
+				needsRedraw = true
+				window.noteDirty(element)
+			}
 		}
 	} else if leftHeld && window.mouseDown != nil {
 		if aware, ok := window.mouseDown.(ActiveAware); ok {
@@ -246,12 +251,22 @@ func (window *Window) handleMouse() bool {
 				needsRedraw = true
 				window.noteDirty(element)
 			}
+		} else if element, ok := window.mouseDown.(*Element); ok && element.isRange() {
+			if element.handleRangeMouseDrag(eventX, eventY) {
+				needsRedraw = true
+				window.noteDirty(element)
+			}
 		}
 	}
 	if leftReleased {
 		mouseDown := window.mouseDown
 		if element, ok := window.mouseDown.(*Element); ok && element.isTextInput() {
 			if element.handleTextMouseUp() {
+				needsRedraw = true
+				window.noteDirty(element)
+			}
+		} else if element, ok := window.mouseDown.(*Element); ok && element.isRange() {
+			if element.handleRangeMouseUp() {
 				needsRedraw = true
 				window.noteDirty(element)
 			}

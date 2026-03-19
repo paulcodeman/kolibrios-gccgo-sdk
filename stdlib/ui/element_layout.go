@@ -275,6 +275,19 @@ func (element *Element) resolvedWidthWithContext(ctx LayoutContext, style Style)
 		if baseWidth < minWidth {
 			baseWidth = minWidth
 		}
+	case element.isCheckable():
+		baseWidth = insets.Left + insets.Right + element.controlIndicatorSize(style)
+		if textWidth > 0 {
+			baseWidth += controlIndicatorGap + textWidth
+		}
+	case element.isProgress():
+		if baseWidth < 180 {
+			baseWidth = 180
+		}
+	case element.isRange():
+		if baseWidth < 180 {
+			baseWidth = 180
+		}
 	}
 	return clampWidthForStyle(style, baseWidth)
 }
@@ -355,6 +368,19 @@ func (element *Element) resolvedHeightInWithContext(ctx LayoutContext, style Sty
 			if baseHeight < defaultButtonHeight {
 				baseHeight = defaultButtonHeight
 			}
+		case element.isCheckable():
+			indicatorHeight := element.controlIndicatorSize(style) + insets.Top + insets.Bottom
+			if baseHeight < indicatorHeight {
+				baseHeight = indicatorHeight
+			}
+		case element.isProgress():
+			if baseHeight < 18 {
+				baseHeight = 18
+			}
+		case element.isRange():
+			if baseHeight < 24 {
+				baseHeight = 24
+			}
 		}
 		return clampHeightForStyle(style, baseHeight)
 	}
@@ -367,6 +393,19 @@ func (element *Element) resolvedHeightInWithContext(ctx LayoutContext, style Sty
 	case element.isButtonLike():
 		if baseHeight < defaultButtonHeight {
 			baseHeight = defaultButtonHeight
+		}
+	case element.isCheckable():
+		indicatorHeight := element.controlIndicatorSize(style) + insets.Top + insets.Bottom
+		if baseHeight < indicatorHeight {
+			baseHeight = indicatorHeight
+		}
+	case element.isProgress():
+		if baseHeight < 18 {
+			baseHeight = 18
+		}
+	case element.isRange():
+		if baseHeight < 24 {
+			baseHeight = 24
 		}
 	}
 	return clampHeightForStyle(style, baseHeight)

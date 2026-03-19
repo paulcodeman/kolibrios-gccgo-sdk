@@ -46,6 +46,18 @@ func (element *Element) Draw() {
 		)
 		return
 	}
+	if element.isCheckable() || element.isProgress() || element.isRange() {
+		x, y := element.rawPosition(style)
+		width := element.resolvedWidth(style)
+		height := element.resolvedHeight(style)
+		if width <= 0 || height <= 0 {
+			return
+		}
+		canvas := NewCanvasAlpha(width, height)
+		element.drawToRect(canvas, Rect{X: 0, Y: 0, Width: width, Height: height}, style)
+		canvas.BlitToWindow(x, y)
+		return
+	}
 	switch {
 	case element.isButtonLike():
 		x, y := element.rawPosition(style)
@@ -206,6 +218,10 @@ func (element *Element) drawToRect(canvas *Canvas, rect Rect, style Style) {
 		if elementShowsDefaultFocusRing(element) {
 			drawDefaultFocusRing(canvas, rect, style)
 		}
+		return
+	}
+	if element.isCheckable() || element.isProgress() || element.isRange() {
+		element.drawControlToRect(canvas, rect, style)
 		return
 	}
 	if FastNoText {

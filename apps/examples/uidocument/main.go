@@ -17,6 +17,7 @@ type demoState struct {
 	count   int
 	accent  bool
 	details bool
+	mode    string
 }
 
 func style(update func(*ui.Style)) ui.Style {
@@ -160,6 +161,7 @@ func Run() {
 		count:   2,
 		accent:  false,
 		details: true,
+		mode:    "ocean",
 	}
 
 	countValue := ui.NewDocumentText("", style(func(value *ui.Style) {
@@ -168,6 +170,10 @@ func Run() {
 		value.SetMargin(0, 0, 8, 0)
 	}))
 	accentValue := ui.NewDocumentText("", style(func(value *ui.Style) {
+		value.SetFontSize(12)
+		value.SetMargin(0, 0, 4, 0)
+	}))
+	modeValue := ui.NewDocumentText("", style(func(value *ui.Style) {
 		value.SetFontSize(12)
 		value.SetMargin(0, 0, 4, 0)
 	}))
@@ -210,7 +216,11 @@ func Run() {
 		value.SetForeground(ui.Gray)
 		value.SetFontSize(11)
 		value.SetMargin(0, 0, 2, 0)
-	})), accentValue)
+	})), accentValue, ui.NewDocumentText("Mode", style(func(value *ui.Style) {
+		value.SetForeground(ui.Gray)
+		value.SetFontSize(11)
+		value.SetMargin(0, 0, 2, 0)
+	})), modeValue)
 
 	detailsCard := ui.NewDocumentElement("details", style(func(value *ui.Style) {
 		value.SetDisplay(ui.DisplayBlock)
@@ -503,6 +513,96 @@ func Run() {
 		updateState()
 	}
 
+	accentCheckbox := elements.Checkbox("Accent enabled", state.accent)
+	apply(accentCheckbox, func(value *ui.Style) {
+		value.SetDisplay(ui.DisplayBlock)
+		value.SetMargin(0, 0, 4, 0)
+		value.SetBorderRadius(6)
+	})
+	accentCheckbox.OnChange = func(checked bool) {
+		state.accent = checked
+		updateState()
+	}
+
+	detailsCheckbox := elements.Checkbox("Show details", state.details)
+	apply(detailsCheckbox, func(value *ui.Style) {
+		value.SetDisplay(ui.DisplayBlock)
+		value.SetMargin(0, 0, 6, 0)
+		value.SetBorderRadius(6)
+	})
+	detailsCheckbox.OnChange = func(checked bool) {
+		state.details = checked
+		updateState()
+	}
+
+	modeLabel := elements.Label("Mode")
+	apply(modeLabel, func(value *ui.Style) {
+		value.SetDisplay(ui.DisplayBlock)
+		value.SetForeground(ui.Gray)
+		value.SetMargin(0, 0, 4, 0)
+		value.SetFontSize(12)
+	})
+
+	modeOcean := elements.Radio("Ocean", "doc-mode", true)
+	apply(modeOcean, func(value *ui.Style) {
+		value.SetDisplay(ui.DisplayBlock)
+		value.SetMargin(0, 0, 2, 0)
+		value.SetBorderRadius(6)
+	})
+	modeOcean.OnChange = func(checked bool) {
+		if checked {
+			state.mode = "ocean"
+			updateState()
+		}
+	}
+
+	modeSunset := elements.Radio("Sunset", "doc-mode", false)
+	apply(modeSunset, func(value *ui.Style) {
+		value.SetDisplay(ui.DisplayBlock)
+		value.SetMargin(0, 0, 6, 0)
+		value.SetBorderRadius(6)
+	})
+	modeSunset.OnChange = func(checked bool) {
+		if checked {
+			state.mode = "sunset"
+			updateState()
+		}
+	}
+
+	countProgressLabel := elements.Label("Count progress")
+	apply(countProgressLabel, func(value *ui.Style) {
+		value.SetDisplay(ui.DisplayBlock)
+		value.SetForeground(ui.Gray)
+		value.SetMargin(0, 0, 4, 0)
+		value.SetFontSize(12)
+	})
+
+	countProgress := elements.Progress(0, 20, state.count)
+	apply(countProgress, func(value *ui.Style) {
+		value.SetDisplay(ui.DisplayBlock)
+		value.SetMargin(0, 0, 6, 0)
+		value.SetWidth(220)
+	})
+
+	countRangeLabel := elements.Label("Adjust count")
+	apply(countRangeLabel, func(value *ui.Style) {
+		value.SetDisplay(ui.DisplayBlock)
+		value.SetForeground(ui.Gray)
+		value.SetMargin(0, 0, 4, 0)
+		value.SetFontSize(12)
+	})
+
+	countRange := elements.Range(0, 20, state.count)
+	apply(countRange, func(value *ui.Style) {
+		value.SetDisplay(ui.DisplayBlock)
+		value.SetMargin(0, 0, 8, 0)
+		value.SetWidth(220)
+	})
+	countRange.OnChange = func(value int) {
+		state.count = value
+		updateState()
+	}
+
 	reset := elements.Button("Reset")
 	styleButton(reset)
 	reset.OnClick = func() {
@@ -529,6 +629,12 @@ func Run() {
 	})
 
 	updateState = func() {
+		if state.count < 0 {
+			state.count = 0
+		}
+		if state.count > 20 {
+			state.count = 20
+		}
 		countValue.Text = strconv.Itoa(state.count)
 		if state.accent {
 			accentValue.Text = "enabled"
@@ -545,14 +651,50 @@ func Run() {
 			view.Style.SetBorderColor(ui.Silver)
 			nativeStatus.SetForeground(ui.Navy)
 		}
+		modeValue.Text = state.mode
+		if state.mode == "sunset" {
+			hero.Style.SetGradient(ui.Gradient{
+				From:      ui.Maroon,
+				To:        ui.Aqua,
+				Direction: ui.GradientHorizontal,
+			})
+			countProgress.UpdateStyle(func(value *ui.Style) {
+				value.SetForeground(ui.Maroon)
+				value.SetBorderColor(ui.Maroon)
+			})
+			countRange.UpdateStyle(func(value *ui.Style) {
+				value.SetForeground(ui.Maroon)
+			})
+			modeSunset.SetChecked(true)
+			modeOcean.SetChecked(false)
+		} else {
+			hero.Style.SetGradient(ui.Gradient{
+				From:      ui.Aqua,
+				To:        ui.White,
+				Direction: ui.GradientHorizontal,
+			})
+			countProgress.UpdateStyle(func(value *ui.Style) {
+				value.SetForeground(ui.Blue)
+				value.SetBorderColor(ui.Navy)
+			})
+			countRange.UpdateStyle(func(value *ui.Style) {
+				value.SetForeground(ui.Blue)
+			})
+			modeOcean.SetChecked(true)
+			modeSunset.SetChecked(false)
+		}
 		if state.details {
 			detailsCard.Style.SetDisplay(ui.DisplayBlock)
-			detailsBody.Text = "Count=" + strconv.Itoa(state.count) + ", accent=" + strconv.FormatBool(state.accent) + ", details=" + strconv.FormatBool(state.details) + "."
+			detailsBody.Text = "Count=" + strconv.Itoa(state.count) + ", accent=" + strconv.FormatBool(state.accent) + ", details=" + strconv.FormatBool(state.details) + ", mode=" + state.mode + "."
 		} else {
 			detailsCard.Style.SetDisplay(ui.DisplayNone)
 			detailsBody.Text = ""
 		}
-		nativeStatus.SetText(window, "Count "+strconv.Itoa(state.count)+" | accent "+accentValue.Text+" | details "+strconv.FormatBool(state.details))
+		accentCheckbox.SetChecked(state.accent)
+		detailsCheckbox.SetChecked(state.details)
+		countProgress.SetValue(state.count)
+		countRange.SetValue(state.count)
+		nativeStatus.SetText(window, "Count "+strconv.Itoa(state.count)+" | accent "+accentValue.Text+" | details "+strconv.FormatBool(state.details)+" | mode "+state.mode)
 		document.MarkLayoutDirty()
 	}
 
@@ -565,6 +707,15 @@ func Run() {
 	controls.Append(toggleDetails)
 	controls.Append(reset)
 	controls.Append(closeButton)
+	controls.Append(accentCheckbox)
+	controls.Append(detailsCheckbox)
+	controls.Append(modeLabel)
+	controls.Append(modeOcean)
+	controls.Append(modeSunset)
+	controls.Append(countProgressLabel)
+	controls.Append(countProgress)
+	controls.Append(countRangeLabel)
+	controls.Append(countRange)
 	controls.Append(footer)
 
 	root.Append(header)

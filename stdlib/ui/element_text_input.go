@@ -954,6 +954,9 @@ func (element *Element) Handle(event Event) bool {
 		return false
 	}
 	handled := false
+	if element.handleControlClick(event) {
+		handled = true
+	}
 	if element.isTextInput() {
 		style := element.effectiveStyle()
 		rect := element.layoutRect
@@ -969,20 +972,20 @@ func (element *Element) Handle(event Event) bool {
 	if element.OnClick == nil {
 		return handled
 	}
-	switch handler := element.OnClick.(type) {
-	case func():
-		handler()
+	if element.dispatchClickEvent(event) {
 		return true
-	case func(Event):
-		handler(event)
-		return true
-	default:
-		return handled
 	}
+	return handled
 }
 
 func (element *Element) HandleKey(key kos.KeyEvent) bool {
-	if element == nil || !element.isTextInput() || !element.focused {
+	if element == nil || !element.focused {
+		return false
+	}
+	if element.handleControlKey(key) {
+		return true
+	}
+	if !element.isTextInput() {
 		return false
 	}
 	if key.Empty || key.Hotkey {

@@ -8,6 +8,7 @@ type Element struct {
 	ID                     kos.ButtonID
 	Text                   string
 	Label                  string
+	OnChange               interface{}
 	Parent                 *Element
 	window                 *Window
 	Children               []Node
@@ -40,10 +41,17 @@ type Element struct {
 	hovered                bool
 	active                 bool
 	focused                bool
+	checked                bool
+	controlGroup           string
 	caret                  int
 	selectAnchor           int
 	scrollX                int
 	scrollY                int
+	value                  int
+	minValue               int
+	maxValue               int
+	stepValue              int
+	rangeDragActive        bool
 	desiredCol             int
 	dragMode               textDragMode
 	dragScrollOffset       int
@@ -85,6 +93,10 @@ const (
 	ElementKindTextarea
 	ElementKindTinyGL
 	ElementKindBox
+	ElementKindCheckbox
+	ElementKindRadio
+	ElementKindProgress
+	ElementKindRange
 )
 
 func (kind ElementKind) String() string {
@@ -101,6 +113,14 @@ func (kind ElementKind) String() string {
 		return "tinygl"
 	case ElementKindBox:
 		return "box"
+	case ElementKindCheckbox:
+		return "checkbox"
+	case ElementKindRadio:
+		return "radio"
+	case ElementKindProgress:
+		return "progress"
+	case ElementKindRange:
+		return "range"
 	default:
 		return "unknown"
 	}
@@ -119,6 +139,10 @@ type elementCache struct {
 type elementRenderKey struct {
 	kind    ElementKind
 	text    string
+	checked bool
+	value   int
+	min     int
+	max     int
 	display *DisplayMode
 	focus   bool
 	visual  styleVisualKey
