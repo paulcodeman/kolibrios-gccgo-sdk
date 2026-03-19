@@ -66,6 +66,11 @@ type Window struct {
 	scrollY                 int
 	drawnScrollY            int
 	scrollMaxY              int
+	scrollMetricsGen        uint32
+	scrollMetricsValid      bool
+	scrollMetricsCacheGen   uint32
+	scrollMetricsCacheRect  Rect
+	scrollMetricsCacheOn    bool
 	scrollDragActive        bool
 	scrollDragOffset        int
 	scrollRedraw            bool

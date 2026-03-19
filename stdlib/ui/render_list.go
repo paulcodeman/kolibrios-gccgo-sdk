@@ -71,6 +71,7 @@ func (window *Window) buildRenderList() {
 		clearVisited(window.renderVisited)
 	}
 	window.appendRenderItems(window.nodes, clipState{}, gen, false, false)
+	window.noteScrollMetricsBoundsChanged()
 	window.updateScrollMetrics()
 	window.invalidateHitGrid()
 	window.renderListValid = true

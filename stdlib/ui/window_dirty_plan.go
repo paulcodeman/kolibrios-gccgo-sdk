@@ -177,10 +177,14 @@ func (window *Window) applyDirtyPlan(plan *windowDirtyPlan) bool {
 		dirty, dirtySet = window.mergeDirtyBounds(dirty, dirtySet, oldBounds, oldKeys, window.nodeBounds, plan.scrollOffset)
 		window.resetDirtyQueue()
 	case windowDirtyPlanNodeUpdate:
+		boundsChanged := false
 		for _, node := range plan.dirtyNodes {
 			oldBounds := window.nodeBounds[node]
 			newBounds := window.nodeVisualBoundsFor(node, true)
 			window.nodeBounds[node] = newBounds
+			if oldBounds != newBounds {
+				boundsChanged = true
+			}
 			window.noteRetainedLayerDirtyBounds(node, oldBounds, newBounds)
 			rawUpdated := UnionRect(oldBounds, newBounds)
 			updated := rawUpdated
@@ -208,6 +212,9 @@ func (window *Window) applyDirtyPlan(plan *windowDirtyPlan) bool {
 				item.paint = paint
 				window.renderList[idx] = item
 			}
+		}
+		if boundsChanged {
+			window.noteScrollMetricsBoundsChanged()
 		}
 	}
 	window.dirty = dirty

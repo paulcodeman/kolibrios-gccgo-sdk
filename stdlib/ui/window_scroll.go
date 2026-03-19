@@ -1,5 +1,16 @@
 package ui
 
+func (window *Window) noteScrollMetricsBoundsChanged() {
+	if window == nil {
+		return
+	}
+	window.scrollMetricsGen++
+	if window.scrollMetricsGen == 0 {
+		window.scrollMetricsGen = 1
+	}
+	window.scrollMetricsValid = false
+}
+
 func (window *Window) setScrollMaxY(maxScroll int) {
 	if window == nil {
 		return
@@ -22,7 +33,21 @@ func (window *Window) updateScrollMetrics() {
 	if window == nil {
 		return
 	}
-	if !window.scrollEnabled() {
+	enabled := window.scrollEnabled()
+	content := window.contentRect()
+	if window.scrollMetricsValid &&
+		window.scrollMetricsCacheGen == window.scrollMetricsGen &&
+		window.scrollMetricsCacheRect == content &&
+		window.scrollMetricsCacheOn == enabled {
+		return
+	}
+	defer func() {
+		window.scrollMetricsCacheGen = window.scrollMetricsGen
+		window.scrollMetricsCacheRect = content
+		window.scrollMetricsCacheOn = enabled
+		window.scrollMetricsValid = true
+	}()
+	if !enabled {
 		window.setScrollMaxY(0)
 		if window.scrollY != 0 {
 			window.scrollY = 0
@@ -30,7 +55,6 @@ func (window *Window) updateScrollMetrics() {
 		}
 		return
 	}
-	content := window.contentRect()
 	if content.Empty() || content.Height <= 0 {
 		window.setScrollMaxY(0)
 		if window.scrollY != 0 {
