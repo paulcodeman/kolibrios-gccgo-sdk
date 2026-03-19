@@ -20,6 +20,7 @@ const (
 
 type windowPrepaintPlan struct {
 	mode               windowPrepaintMode
+	visualOnly         bool
 	dirty              Rect
 	contentDirty       Rect
 	scrollbarDirty     Rect
@@ -29,6 +30,25 @@ type windowPrepaintPlan struct {
 	backgroundCache    *Canvas
 	applyScrollBlit    bool
 	applyTranslateBlit bool
+}
+
+func (window *Window) splitVisualScrollbarDirty(dirty Rect) (Rect, Rect, bool) {
+	if window == nil || dirty.Empty() {
+		return dirty, Rect{}, false
+	}
+	track, _, _, ok := window.windowScrollbarLayout()
+	if !ok {
+		return dirty, Rect{}, false
+	}
+	scrollbarDirty := IntersectRect(dirty, track)
+	if scrollbarDirty.Empty() {
+		return dirty, Rect{}, false
+	}
+	contentDirty := dirty
+	if rectContainsRect(track, dirty) {
+		contentDirty = Rect{}
+	}
+	return contentDirty, scrollbarDirty, true
 }
 
 func (window *Window) scrollDirtyRectWithState(state windowPropertyState) Rect {
@@ -58,10 +78,10 @@ func (window *Window) buildPrepaintPlanWithState(state windowPropertyState, dirt
 	}
 	full := Rect{X: 0, Y: 0, Width: window.client.Width, Height: window.client.Height}
 	plan := windowPrepaintPlan{
-		mode:           windowPrepaintPartial,
-		dirty:          dirtyPlan.dirty,
-		contentDirty:   dirtyPlan.dirty,
-		scrollbarDirty: dirtyPlan.dirty,
+		mode:         windowPrepaintPartial,
+		visualOnly:   dirtyPlan.hasDamage(windowDirtyDamageVisual),
+		dirty:        dirtyPlan.dirty,
+		contentDirty: dirtyPlan.dirty,
 	}
 	if dirtyPlan.hasDamage(windowDirtyDamageFull) || plan.dirty == full {
 		plan.mode = windowPrepaintFull
@@ -80,6 +100,9 @@ func (window *Window) buildPrepaintPlanWithState(state windowPropertyState, dirt
 		plan.mode = windowPrepaintFull
 		plan.dirty = full
 		return plan, true
+	}
+	if plan.visualOnly {
+		plan.contentDirty, plan.scrollbarDirty, plan.scrollbarDirtySet = window.splitVisualScrollbarDirty(plan.dirty)
 	}
 	if dirtyPlan.mode == windowDirtyPlanNone &&
 		dirtyPlan.hasDamage(windowDirtyDamageScroll) &&

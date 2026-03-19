@@ -18,7 +18,7 @@ func (window *Window) Redraw() {
 	if WindowEnableTinyGL {
 		window.drawTinyGL(true, Rect{})
 	}
-	window.dirtySet = false
+	window.clearDirtyState()
 	window.clearPresentRect()
 	window.syncScrollDrawState()
 	window.noteCaretBlinkDrawn()
@@ -29,7 +29,9 @@ func (window *Window) RedrawContent() {
 	if window == nil {
 		return
 	}
-	window.invalidateWindowPropertyState()
+	if !window.visualDirtyOnly {
+		window.invalidateWindowPropertyState()
+	}
 	window.beginWindowFrameState()
 	if window.client.Empty() || window.canvas == nil {
 		window.syncWindowInfo()
@@ -52,7 +54,9 @@ func (window *Window) RedrawContentStats(stats *FrameStats) {
 	if window == nil {
 		return
 	}
-	window.invalidateWindowPropertyState()
+	if !window.visualDirtyOnly {
+		window.invalidateWindowPropertyState()
+	}
 	window.beginWindowFrameState()
 	if stats == nil {
 		window.RedrawContent()
@@ -91,7 +95,9 @@ func (window *Window) RenderStats(stats *FrameStats) {
 	if window == nil {
 		return
 	}
-	window.invalidateWindowPropertyState()
+	if !window.visualDirtyOnly {
+		window.invalidateWindowPropertyState()
+	}
 	window.beginWindowFrameState()
 	if stats == nil {
 		window.endWindowFrameState()
@@ -111,7 +117,7 @@ func (window *Window) RenderStats(stats *FrameStats) {
 	end := kos.UptimeNanoseconds()
 	stats.TotalNs = end - start
 	// No blit in headless mode; mark dirty as processed.
-	window.dirtySet = false
+	window.clearDirtyState()
 	window.clearPresentRect()
 	window.syncScrollDrawState()
 	window.endWindowFrameState()
@@ -136,7 +142,7 @@ func (window *Window) RenderListStats(stats *FrameStats) {
 	window.drawRenderList(true, Rect{}, stats)
 	stats.DrawNs = kos.UptimeNanoseconds() - start
 	stats.TotalNs = stats.DrawNs
-	window.dirtySet = false
+	window.clearDirtyState()
 	window.clearPresentRect()
 	window.syncScrollDrawState()
 	window.endWindowFrameState()
@@ -177,7 +183,7 @@ func (window *Window) drawFrame() {
 	window.drawBackgroundFull()
 	window.drawRenderList(true, Rect{}, nil)
 	window.drawWindowScrollbar(true, Rect{})
-	window.dirtySet = false
+	window.clearDirtyState()
 	window.layoutDirty = false
 	window.clearPresentRect()
 	window.syncScrollDrawState()
@@ -203,7 +209,7 @@ func (window *Window) drawFrameStats(stats *FrameStats) {
 	window.drawRenderList(true, Rect{}, stats)
 	window.drawWindowScrollbar(true, Rect{})
 	stats.DrawNs = kos.UptimeNanoseconds() - start
-	window.dirtySet = false
+	window.clearDirtyState()
 	window.layoutDirty = false
 	window.clearPresentRect()
 	window.syncScrollDrawState()
@@ -222,13 +228,17 @@ func (window *Window) drawDirty() {
 		return
 	}
 	window.applyPrepaintPlan(plan)
-	window.ensureRenderList()
-	window.drawRenderList(false, plan.contentDirty, nil)
-	scrollbarDirty := plan.dirty
-	if plan.scrollbarDirtySet {
-		scrollbarDirty = plan.scrollbarDirty
+	if !plan.contentDirty.Empty() {
+		window.ensureRenderList()
+		window.drawRenderList(false, plan.contentDirty, nil)
 	}
-	window.drawWindowScrollbar(false, scrollbarDirty)
+	if plan.scrollbarDirtySet || !plan.visualOnly {
+		scrollbarDirty := plan.dirty
+		if plan.scrollbarDirtySet {
+			scrollbarDirty = plan.scrollbarDirty
+		}
+		window.drawWindowScrollbar(false, scrollbarDirty)
+	}
 	window.syncScrollDrawState()
 }
 
@@ -251,15 +261,19 @@ func (window *Window) drawDirtyStats(stats *FrameStats) {
 	window.applyPrepaintPlan(plan)
 	afterClear := kos.UptimeNanoseconds()
 	stats.ClearNs = afterClear - start
-	startList := kos.UptimeNanoseconds()
-	window.ensureRenderList()
-	stats.RenderListNs = kos.UptimeNanoseconds() - startList
-	window.drawRenderList(false, plan.contentDirty, stats)
-	scrollbarDirty := plan.dirty
-	if plan.scrollbarDirtySet {
-		scrollbarDirty = plan.scrollbarDirty
+	if !plan.contentDirty.Empty() {
+		startList := kos.UptimeNanoseconds()
+		window.ensureRenderList()
+		stats.RenderListNs = kos.UptimeNanoseconds() - startList
+		window.drawRenderList(false, plan.contentDirty, stats)
 	}
-	window.drawWindowScrollbar(false, scrollbarDirty)
+	if plan.scrollbarDirtySet || !plan.visualOnly {
+		scrollbarDirty := plan.dirty
+		if plan.scrollbarDirtySet {
+			scrollbarDirty = plan.scrollbarDirty
+		}
+		window.drawWindowScrollbar(false, scrollbarDirty)
+	}
 	stats.DrawNs = kos.UptimeNanoseconds() - start
 	window.syncScrollDrawState()
 }
@@ -275,6 +289,6 @@ func (window *Window) blitDirty() {
 	if presenter := window.presenter(); presenter != nil {
 		presenter.PresentRect(window.canvas, rect)
 	}
-	window.dirtySet = false
+	window.clearDirtyState()
 	window.clearPresentRect()
 }

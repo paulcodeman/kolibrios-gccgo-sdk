@@ -13,6 +13,7 @@ type windowDirtyDamage uint8
 
 const (
 	windowDirtyDamageInvalidate windowDirtyDamage = 1 << iota
+	windowDirtyDamageVisual
 	windowDirtyDamageScroll
 	windowDirtyDamageLayout
 	windowDirtyDamageRebuild
@@ -48,6 +49,9 @@ func (window *Window) initialDirtyPlan() windowDirtyPlan {
 		plan.damage |= windowDirtyDamageScroll
 	} else if plan.dirtySet {
 		plan.damage |= windowDirtyDamageInvalidate
+		if window.visualDirtyOnly {
+			plan.damage |= windowDirtyDamageVisual
+		}
 	}
 	if plan.dirtySet && plan.dirty == plan.full {
 		plan.damage |= windowDirtyDamageFull

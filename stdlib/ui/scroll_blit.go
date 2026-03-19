@@ -84,6 +84,9 @@ func (window *Window) syncScrollDrawState() {
 	if window == nil {
 		return
 	}
+	if window.drawnScrollY == window.scrollY {
+		return
+	}
 	window.drawnScrollY = window.scrollY
 	window.invalidateWindowPropertyState()
 }

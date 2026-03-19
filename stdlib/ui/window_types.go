@@ -57,6 +57,7 @@ type Window struct {
 	pendingEvent            kos.EventType
 	dirty                   Rect
 	dirtySet                bool
+	visualDirtyOnly         bool
 	presentRect             Rect
 	presentRectSet          bool
 	lastBackground          kos.Color

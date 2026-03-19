@@ -31,6 +31,7 @@ func (window *Window) noteDirty(node Node) {
 	if window == nil || node == nil {
 		return
 	}
+	window.visualDirtyOnly = false
 	if window.dirtyQueueGen == 0 {
 		window.dirtyQueueGen = 1
 	}
@@ -76,6 +77,7 @@ func (window *Window) noteHandlerMayMutate(target Node) {
 	if window == nil || target == nil {
 		return
 	}
+	window.visualDirtyOnly = false
 	if element, ok := target.(*Element); ok {
 		if element.OnClick != nil {
 			window.hoverDirty = true
@@ -91,6 +93,11 @@ func (window *Window) noteHandlerMayMutate(target Node) {
 func (window *Window) invalidateRect(rect Rect, invalidateHover bool) {
 	if window == nil || rect.Empty() {
 		return
+	}
+	if invalidateHover {
+		window.visualDirtyOnly = false
+	} else if !window.dirtySet {
+		window.visualDirtyOnly = true
 	}
 	if invalidateHover {
 		window.hoverDirty = true
@@ -145,6 +152,14 @@ func (window *Window) collectDirty() bool {
 	dirty := window.applyDirtyPlan(&plan)
 	window.noteFrameDirtyPlan(plan)
 	return dirty
+}
+
+func (window *Window) clearDirtyState() {
+	if window == nil {
+		return
+	}
+	window.dirtySet = false
+	window.visualDirtyOnly = false
 }
 
 func (window *Window) copyNodeBounds() map[Node]Rect {
