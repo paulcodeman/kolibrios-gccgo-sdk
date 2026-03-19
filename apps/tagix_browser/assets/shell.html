@@ -4,15 +4,6 @@
 <h1 data-role="title"><<title>></h1>
 <p data-role="status"><<status>></p>
 </header>
-<div data-role="toolbar">
-<div data-role="actions">
-<a data-role="button" data-action="back" data-enabled="<<back_enabled>>">Back</a>
-<a data-role="button" data-action="forward" data-enabled="<<forward_enabled>>">Forward</a>
-<a data-role="button" data-action="reload" data-enabled="true">Reload</a>
-<a data-role="button" data-action="home" data-enabled="true">Home</a>
-</div>
-<a data-role="address" data-action="address" data-editable="<<address_editable>>"><<current_url>></a>
-</div>
-<p data-role="hint">Browser shell now renders from an HTML template through the same document pipeline. The page below lives in its own embedded frame host.</p>
+<p data-role="hint">The browser shell renders from an HTML template, while the toolbar below uses native UI controls so the address field is editable inline. The page area still lives in its own embedded frame host.</p>
 </section>
 </body>

@@ -18,14 +18,6 @@ var (
 	cachedShellTemplateRead bool
 )
 
-type shellActions struct {
-	Back        func()
-	Forward     func()
-	Reload      func()
-	Home        func()
-	EditAddress func()
-}
-
 func styled(update func(*ui.Style)) ui.Style {
 	value := ui.Style{}
 	if update != nil {
@@ -34,10 +26,10 @@ func styled(update func(*ui.Style)) ui.Style {
 	return value
 }
 
-func buildShellDocument(title string, status string, currentURL string, canBack bool, canForward bool, canEditAddress bool, actions shellActions) *ui.DocumentNode {
-	doc := dom.Parse(shellTemplateHTML(title, status, currentURL, canBack, canForward, canEditAddress))
+func buildShellDocument(title string, status string) *ui.DocumentNode {
+	doc := dom.Parse(shellTemplateHTML(title, status))
 	if doc != nil && doc.Root != nil {
-		if root := buildShellTemplateRoot(doc.Root, actions); root != nil {
+		if root := buildShellTemplateRoot(doc.Root); root != nil {
 			return root
 		}
 	}
@@ -52,23 +44,16 @@ func buildShellDocument(title string, status string, currentURL string, canBack 
 	}), messageCard("Tagix Browser shell", "Failed to build the shell document template."))
 }
 
-func shellTemplateHTML(title string, status string, currentURL string, canBack bool, canForward bool, canEditAddress bool) string {
+func shellTemplateHTML(title string, status string) string {
 	if strings.TrimSpace(title) == "" {
 		title = "Tagix Browser"
 	}
 	if strings.TrimSpace(status) == "" {
 		status = "Ready"
 	}
-	if strings.TrimSpace(currentURL) == "" {
-		currentURL = defaultURL
-	}
 	replacer := strings.NewReplacer(
 		"<<title>>", escapeHTMLText(title),
 		"<<status>>", escapeHTMLText(status),
-		"<<current_url>>", escapeHTMLText(currentURL),
-		"<<back_enabled>>", boolAttr(canBack),
-		"<<forward_enabled>>", boolAttr(canForward),
-		"<<address_editable>>", boolAttr(canEditAddress),
 	)
 	return replacer.Replace(loadShellTemplateSource())
 }
@@ -87,22 +72,22 @@ func loadShellTemplateSource() string {
 	return cachedShellTemplate
 }
 
-func buildShellTemplateRoot(node *dom.Node, actions shellActions) *ui.DocumentNode {
+func buildShellTemplateRoot(node *dom.Node) *ui.DocumentNode {
 	if node == nil {
 		return nil
 	}
-	if built := buildShellTemplateNode(node, actions); built != nil {
+	if built := buildShellTemplateNode(node); built != nil {
 		return built
 	}
 	for _, child := range node.Children {
-		if built := buildShellTemplateRoot(child, actions); built != nil {
+		if built := buildShellTemplateRoot(child); built != nil {
 			return built
 		}
 	}
 	return nil
 }
 
-func buildShellTemplateNode(node *dom.Node, actions shellActions) *ui.DocumentNode {
+func buildShellTemplateNode(node *dom.Node) *ui.DocumentNode {
 	if node == nil || node.Type != dom.ElementNode {
 		return nil
 	}
@@ -117,7 +102,7 @@ func buildShellTemplateNode(node *dom.Node, actions shellActions) *ui.DocumentNo
 			style.SetLineHeight(18)
 			style.SetForeground(ui.Black)
 			style.SetContain(ui.ContainPaint)
-		}), buildShellChildren(node, actions)...)
+		}), buildShellChildren(node)...)
 	case "hero":
 		return ui.NewDocumentElement("browser-shell-hero", styled(func(style *ui.Style) {
 			style.SetDisplay(ui.DisplayBlock)
@@ -130,7 +115,7 @@ func buildShellTemplateNode(node *dom.Node, actions shellActions) *ui.DocumentNo
 				Direction: ui.GradientHorizontal,
 			})
 			style.SetContain(ui.ContainPaint)
-		}), buildShellChildren(node, actions)...)
+		}), buildShellChildren(node)...)
 	case "title":
 		return ui.NewDocumentText(collectNodeText(node, false), styled(func(style *ui.Style) {
 			style.SetDisplay(ui.DisplayBlock)
@@ -146,34 +131,16 @@ func buildShellTemplateNode(node *dom.Node, actions shellActions) *ui.DocumentNo
 			style.SetFontSize(11)
 			style.SetLineHeight(15)
 		}))
-	case "toolbar":
-		return ui.NewDocumentElement("browser-shell-toolbar", styled(func(style *ui.Style) {
-			style.SetDisplay(ui.DisplayBlock)
-			style.SetPadding(10)
-			style.SetBorderRadius(12)
-			style.SetBackground(ui.White)
-			style.SetBorder(1, ui.Silver)
-			style.SetContain(ui.ContainPaint)
-		}), buildShellChildren(node, actions)...)
-	case "actions":
-		return ui.NewDocumentElement("browser-shell-actions", styled(func(style *ui.Style) {
-			style.SetDisplay(ui.DisplayBlock)
-			style.SetMargin(0, 0, 8, 0)
-		}), buildShellChildren(node, actions)...)
-	case "button":
-		return shellButtonNode(collectNodeText(node, false), strings.TrimSpace(node.Attrs["data-action"]), attrIsTrue(node.Attrs["data-enabled"]), actions)
-	case "address":
-		return shellAddressNode(collectNodeText(node, false), attrIsTrue(node.Attrs["data-editable"]), actions)
 	case "hint":
 		return ui.NewDocumentText(collectNodeText(node, false), styled(func(style *ui.Style) {
 			style.SetDisplay(ui.DisplayBlock)
-			style.SetMargin(8, 0, 0, 0)
+			style.SetMargin(2, 0, 0, 0)
 			style.SetForeground(ui.Gray)
 			style.SetFontSize(11)
 			style.SetLineHeight(16)
 		}))
 	default:
-		children := buildShellChildren(node, actions)
+		children := buildShellChildren(node)
 		if len(children) == 1 {
 			return children[0]
 		}
@@ -186,146 +153,18 @@ func buildShellTemplateNode(node *dom.Node, actions shellActions) *ui.DocumentNo
 	}
 }
 
-func buildShellChildren(node *dom.Node, actions shellActions) []*ui.DocumentNode {
+func buildShellChildren(node *dom.Node) []*ui.DocumentNode {
 	if node == nil {
 		return nil
 	}
 	children := make([]*ui.DocumentNode, 0, len(node.Children))
 	for _, child := range node.Children {
-		built := buildShellTemplateNode(child, actions)
+		built := buildShellTemplateNode(child)
 		if built != nil {
 			children = append(children, built)
 		}
 	}
 	return children
-}
-
-func shellButtonNode(label string, action string, enabled bool, actions shellActions) *ui.DocumentNode {
-	label = normalizeBlockText(label)
-	if label == "" {
-		if action != "" {
-			label = strings.ToUpper(action[:1]) + action[1:]
-		} else {
-			label = "Action"
-		}
-	}
-	button := ui.NewDocumentElement("shell-button", styled(func(style *ui.Style) {
-		style.SetDisplay(ui.DisplayInlineBlock)
-		style.SetMargin(0, 8, 8, 0)
-		style.SetPadding(6, 10)
-		style.SetBorderRadius(8)
-		style.SetBorder(1, ui.Silver)
-		style.SetBackground(ui.Silver)
-		style.SetContain(ui.ContainPaint)
-	}), ui.NewDocumentText(label, styled(func(style *ui.Style) {
-		style.SetDisplay(ui.DisplayInline)
-		style.SetForeground(ui.Black)
-		style.SetFontSize(13)
-	})))
-	if !enabled {
-		button.Style.SetBackground(ui.White)
-		button.Style.SetOpacity(180)
-		button.Style.SetForeground(ui.Gray)
-		button.Children[0].Style.SetForeground(ui.Gray)
-		return button
-	}
-	button.Focusable = true
-	button.StyleHover = styled(func(style *ui.Style) {
-		style.SetBorderColor(ui.Teal)
-		style.SetBackground(ui.Aqua)
-	})
-	button.StyleActive = styled(func(style *ui.Style) {
-		style.SetBorderColor(ui.Navy)
-		style.SetBackground(ui.Silver)
-	})
-	button.StyleFocus = styled(func(style *ui.Style) {
-		style.SetBorderColor(ui.Blue)
-		style.SetOutline(2, ui.Blue)
-		style.SetOutlineOffset(1)
-	})
-	if handler := shellActionHandler(action, actions); handler != nil {
-		button.OnClick = handler
-	}
-	return button
-}
-
-func shellAddressNode(currentURL string, editable bool, actions shellActions) *ui.DocumentNode {
-	currentURL = strings.TrimSpace(currentURL)
-	if currentURL == "" {
-		currentURL = defaultURL
-	}
-	card := ui.NewDocumentElement("shell-address", styled(func(style *ui.Style) {
-		style.SetDisplay(ui.DisplayBlock)
-		style.SetPadding(8, 10)
-		style.SetBorderRadius(10)
-		style.SetBorder(1, ui.Silver)
-		style.SetBackground(ui.White)
-		style.SetContain(ui.ContainPaint)
-	}), ui.NewDocumentText("Address", styled(func(style *ui.Style) {
-		style.SetDisplay(ui.DisplayBlock)
-		style.SetMargin(0, 0, 2, 0)
-		style.SetForeground(ui.Gray)
-		style.SetFontSize(10)
-	})), ui.NewDocumentText(currentURL, styled(func(style *ui.Style) {
-		style.SetDisplay(ui.DisplayBlock)
-		style.SetForeground(ui.Black)
-		style.SetFontSize(13)
-		style.SetLineHeight(18)
-	})))
-	if !editable {
-		card.Children[1].Style.SetForeground(ui.Gray)
-		card.Children[1].Style.SetOpacity(200)
-		return card
-	}
-	card.Focusable = true
-	card.StyleHover = styled(func(style *ui.Style) {
-		style.SetBorderColor(ui.Teal)
-		style.SetBackground(ui.Aqua)
-	})
-	card.StyleActive = styled(func(style *ui.Style) {
-		style.SetBorderColor(ui.Navy)
-		style.SetBackground(ui.Silver)
-	})
-	card.StyleFocus = styled(func(style *ui.Style) {
-		style.SetBorderColor(ui.Blue)
-		style.SetOutline(2, ui.Blue)
-		style.SetOutlineOffset(1)
-	})
-	card.OnClick = actions.EditAddress
-	return card
-}
-
-func shellActionHandler(action string, actions shellActions) func() {
-	switch action {
-	case "back":
-		return actions.Back
-	case "forward":
-		return actions.Forward
-	case "reload":
-		return actions.Reload
-	case "home":
-		return actions.Home
-	case "address":
-		return actions.EditAddress
-	default:
-		return nil
-	}
-}
-
-func attrIsTrue(value string) bool {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "1", "true", "yes", "on":
-		return true
-	default:
-		return false
-	}
-}
-
-func boolAttr(value bool) string {
-	if value {
-		return "true"
-	}
-	return "false"
 }
 
 const defaultShellTemplateHTML = `<body>
@@ -334,16 +173,7 @@ const defaultShellTemplateHTML = `<body>
 <h1 data-role="title"><<title>></h1>
 <p data-role="status"><<status>></p>
 </header>
-<div data-role="toolbar">
-<div data-role="actions">
-<a data-role="button" data-action="back" data-enabled="<<back_enabled>>">Back</a>
-<a data-role="button" data-action="forward" data-enabled="<<forward_enabled>>">Forward</a>
-<a data-role="button" data-action="reload" data-enabled="true">Reload</a>
-<a data-role="button" data-action="home" data-enabled="true">Home</a>
-</div>
-<a data-role="address" data-action="address" data-editable="<<address_editable>>"><<current_url>></a>
-</div>
-<p data-role="hint">Browser shell now renders from an HTML template through the same document pipeline. The page below lives in its own embedded frame host.</p>
+<p data-role="hint">The browser shell renders from an HTML template, while the toolbar below uses native UI controls so the address field is editable inline. The page area still lives in its own embedded frame host.</p>
 </section>
 </body>`
 
