@@ -181,13 +181,21 @@ static int runtime_pool_class_index(size_t size, size_t* class_size_out) {
         size = 1;
     }
 
-    shift = RUNTIME_POOL_MIN_SHIFT;
-    class_size = ((size_t)1u) << shift;
-    while (class_size < size && shift < RUNTIME_POOL_MAX_SHIFT) {
-        class_size <<= 1;
-        shift++;
+    if (size <= (((size_t)1u) << RUNTIME_POOL_MIN_SHIFT)) {
+        shift = RUNTIME_POOL_MIN_SHIFT;
+        class_size = ((size_t)1u) << shift;
+    } else {
+        unsigned int rounded = (unsigned int)(size - 1u);
+        shift = (uint32_t)(sizeof(unsigned int) * 8u - (uint32_t)__builtin_clz(rounded));
+        if (shift < RUNTIME_POOL_MIN_SHIFT) {
+            shift = RUNTIME_POOL_MIN_SHIFT;
+        }
+        if (shift > RUNTIME_POOL_MAX_SHIFT) {
+            return -1;
+        }
+        class_size = ((size_t)1u) << shift;
     }
-    if (class_size < size) {
+    if (shift > RUNTIME_POOL_MAX_SHIFT || class_size < size) {
         return -1;
     }
     if (class_size_out != NULL) {
@@ -1801,13 +1809,15 @@ static runtime_sudog* runtime_sudog_alloc(runtime_hchan* c, void* elem, int32_t 
     if (sd == NULL) {
         runtime_panicmem();
     }
-    memset(sd, 0, sizeof(*sd));
+    sd->next = NULL;
     sd->g = runtime_getg();
     sd->elem = elem;
     sd->c = c;
     sd->select_index = index;
     sd->is_select = is_select;
     sd->success = 0;
+    sd->pad0 = 0;
+    sd->pad1 = 0;
     return sd;
 }
 
