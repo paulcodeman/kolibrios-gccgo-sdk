@@ -111,6 +111,16 @@ func elementHandlerForType(current *Element, eventType EventType) interface{} {
 	switch eventType {
 	case EventClick:
 		return current.OnClick
+	case EventPointerDown:
+		return current.OnPointerDown
+	case EventPointerUp:
+		return current.OnPointerUp
+	case EventPointerMove:
+		return current.OnPointerMove
+	case EventPointerEnter:
+		return current.OnPointerEnter
+	case EventPointerLeave:
+		return current.OnPointerLeave
 	case EventMouseDown:
 		return current.OnMouseDown
 	case EventMouseUp:
@@ -139,6 +149,24 @@ func elementHandlerForType(current *Element, eventType EventType) interface{} {
 		return current.OnChange
 	default:
 		return nil
+	}
+}
+
+func pointerEventForElement(eventType EventType, element *Element, x int, y int, button MouseButton) *Event {
+	if element == nil {
+		return nil
+	}
+	return &Event{
+		Type:        eventType,
+		Target:      element,
+		X:           x,
+		Y:           y,
+		Button:      button,
+		PointerID:   1,
+		PointerType: PointerTypeMouse,
+		IsPrimary:   true,
+		Bubbles:     true,
+		Cancelable:  true,
 	}
 }
 
@@ -311,7 +339,18 @@ func (element *Element) dispatchMouseEnterEvent(x int, y int) bool {
 	if element == nil {
 		return false
 	}
-	event := &Event{
+	handled := false
+	pointerEvent := pointerEventForElement(EventPointerEnter, element, x, y, 0)
+	if pointerEvent != nil {
+		pointerEvent.Bubbles = false
+		pointerEvent.Cancelable = false
+		pointerEvent.CurrentTarget = element
+		pointerEvent.Phase = EventPhaseTarget
+		if dispatchElementEventOnCurrent(element, pointerEvent) {
+			handled = true
+		}
+	}
+	mouseEvent := &Event{
 		Type:          EventMouseEnter,
 		Target:        element,
 		CurrentTarget: element,
@@ -320,14 +359,28 @@ func (element *Element) dispatchMouseEnterEvent(x int, y int) bool {
 		Y:             y,
 		Cancelable:    false,
 	}
-	return dispatchElementEventOnCurrent(element, event)
+	if dispatchElementEventOnCurrent(element, mouseEvent) {
+		handled = true
+	}
+	return handled
 }
 
 func (element *Element) dispatchMouseLeaveEvent(x int, y int) bool {
 	if element == nil {
 		return false
 	}
-	event := &Event{
+	handled := false
+	pointerEvent := pointerEventForElement(EventPointerLeave, element, x, y, 0)
+	if pointerEvent != nil {
+		pointerEvent.Bubbles = false
+		pointerEvent.Cancelable = false
+		pointerEvent.CurrentTarget = element
+		pointerEvent.Phase = EventPhaseTarget
+		if dispatchElementEventOnCurrent(element, pointerEvent) {
+			handled = true
+		}
+	}
+	mouseEvent := &Event{
 		Type:          EventMouseLeave,
 		Target:        element,
 		CurrentTarget: element,
@@ -336,12 +389,27 @@ func (element *Element) dispatchMouseLeaveEvent(x int, y int) bool {
 		Y:             y,
 		Cancelable:    false,
 	}
-	return dispatchElementEventOnCurrent(element, event)
+	if dispatchElementEventOnCurrent(element, mouseEvent) {
+		handled = true
+	}
+	return handled
 }
 
 func (element *Element) HandleMouseMove(x int, y int) bool {
 	if element == nil {
 		return false
+	}
+	pointerEvent := pointerEventForElement(EventPointerMove, element, x, y, 0)
+	handled := false
+	if pointerEvent != nil {
+		if dispatchElementEvent(pointerEvent, elementEventPath(element), func(current *Element) interface{} {
+			return current.OnPointerMove
+		}) {
+			handled = true
+		}
+		if pointerEvent.DefaultPrevented() {
+			return handled
+		}
 	}
 	event := &Event{
 		Type:       EventMouseMove,
@@ -351,9 +419,11 @@ func (element *Element) HandleMouseMove(x int, y int) bool {
 		Bubbles:    true,
 		Cancelable: true,
 	}
-	handled := dispatchElementEvent(event, elementEventPath(element), func(current *Element) interface{} {
+	if dispatchElementEvent(event, elementEventPath(element), func(current *Element) interface{} {
 		return current.OnMouseMove
-	})
+	}) {
+		handled = true
+	}
 	if event.DefaultPrevented() {
 		return handled
 	}
@@ -373,6 +443,18 @@ func (element *Element) HandleMouseDown(x int, y int, button MouseButton) bool {
 	if element == nil {
 		return false
 	}
+	handled := false
+	pointerEvent := pointerEventForElement(EventPointerDown, element, x, y, button)
+	if pointerEvent != nil {
+		if dispatchElementEvent(pointerEvent, elementEventPath(element), func(current *Element) interface{} {
+			return current.OnPointerDown
+		}) {
+			handled = true
+		}
+		if pointerEvent.DefaultPrevented() {
+			return handled
+		}
+	}
 	event := &Event{
 		Type:       EventMouseDown,
 		X:          x,
@@ -382,9 +464,11 @@ func (element *Element) HandleMouseDown(x int, y int, button MouseButton) bool {
 		Bubbles:    true,
 		Cancelable: true,
 	}
-	handled := dispatchElementEvent(event, elementEventPath(element), func(current *Element) interface{} {
+	if dispatchElementEvent(event, elementEventPath(element), func(current *Element) interface{} {
 		return current.OnMouseDown
-	})
+	}) {
+		handled = true
+	}
 	if event.DefaultPrevented() {
 		return handled
 	}
@@ -404,6 +488,18 @@ func (element *Element) HandleMouseUp(x int, y int, button MouseButton) bool {
 	if element == nil {
 		return false
 	}
+	handled := false
+	pointerEvent := pointerEventForElement(EventPointerUp, element, x, y, button)
+	if pointerEvent != nil {
+		if dispatchElementEvent(pointerEvent, elementEventPath(element), func(current *Element) interface{} {
+			return current.OnPointerUp
+		}) {
+			handled = true
+		}
+		if pointerEvent.DefaultPrevented() {
+			return handled
+		}
+	}
 	event := &Event{
 		Type:       EventMouseUp,
 		X:          x,
@@ -413,9 +509,11 @@ func (element *Element) HandleMouseUp(x int, y int, button MouseButton) bool {
 		Bubbles:    true,
 		Cancelable: true,
 	}
-	handled := dispatchElementEvent(event, elementEventPath(element), func(current *Element) interface{} {
+	if dispatchElementEvent(event, elementEventPath(element), func(current *Element) interface{} {
 		return current.OnMouseUp
-	})
+	}) {
+		handled = true
+	}
 	if event.DefaultPrevented() {
 		return handled
 	}

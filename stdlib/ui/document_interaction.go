@@ -217,6 +217,16 @@ func documentHandlerForType(node *DocumentNode, eventType EventType) interface{}
 	switch eventType {
 	case EventClick:
 		return node.OnClick
+	case EventPointerDown:
+		return node.OnPointerDown
+	case EventPointerUp:
+		return node.OnPointerUp
+	case EventPointerMove:
+		return node.OnPointerMove
+	case EventPointerEnter:
+		return node.OnPointerEnter
+	case EventPointerLeave:
+		return node.OnPointerLeave
 	case EventMouseDown:
 		return node.OnMouseDown
 	case EventMouseUp:
@@ -246,6 +256,16 @@ func documentHandlerForType(node *DocumentNode, eventType EventType) interface{}
 	default:
 		return nil
 	}
+}
+
+func pointerEventForDocument(eventType EventType, event DocumentEvent) DocumentEvent {
+	event.Type = eventType
+	event.PointerID = 1
+	event.PointerType = PointerTypeMouse
+	event.IsPrimary = true
+	event.Bubbles = true
+	event.Cancelable = true
+	return event
 }
 
 func dispatchDocumentCaptureEvent(event *DocumentEvent, path []*DocumentNode) bool {

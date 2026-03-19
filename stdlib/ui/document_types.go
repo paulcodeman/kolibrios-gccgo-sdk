@@ -28,6 +28,11 @@ type DocumentNode struct {
 	OnClick        interface{}
 	OnChange       interface{}
 	OnInput        interface{}
+	OnPointerDown  interface{}
+	OnPointerUp    interface{}
+	OnPointerMove  interface{}
+	OnPointerEnter interface{}
+	OnPointerLeave interface{}
 	OnMouseDown    interface{}
 	OnMouseUp      interface{}
 	OnMouseMove    interface{}

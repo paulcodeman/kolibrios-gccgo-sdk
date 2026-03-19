@@ -177,6 +177,15 @@ func (view *DocumentView) HandleMouseMove(x int, y int) bool {
 		return view.clearHoverNode()
 	}
 	changed := view.setHoverNode(event.Node, event)
+	pointerEvent := pointerEventForDocument(EventPointerMove, event)
+	if event.Node != nil && dispatchDocumentNodeEvent(&pointerEvent, documentEventPath(event.Node), func(current *DocumentNode) interface{} {
+		return current.OnPointerMove
+	}) {
+		changed = true
+	}
+	if pointerEvent.DefaultPrevented() {
+		return changed
+	}
 	event.Bubbles = true
 	event.Cancelable = true
 	if event.Node != nil && dispatchDocumentNodeEvent(&event, documentEventPath(event.Node), func(current *DocumentNode) interface{} {
@@ -205,6 +214,15 @@ func (view *DocumentView) HandleMouseDown(x int, y int, button MouseButton) bool
 	changed := view.setHoverNode(event.Node, event)
 	if view.setActiveNode(event.Node, event) {
 		changed = true
+	}
+	pointerEvent := pointerEventForDocument(EventPointerDown, event)
+	if event.Node != nil && dispatchDocumentNodeEvent(&pointerEvent, documentEventPath(event.Node), func(current *DocumentNode) interface{} {
+		return current.OnPointerDown
+	}) {
+		changed = true
+	}
+	if pointerEvent.DefaultPrevented() {
+		return changed
 	}
 	event.Bubbles = true
 	event.Cancelable = true
@@ -251,6 +269,18 @@ func (view *DocumentView) HandleMouseUp(x int, y int, button MouseButton) bool {
 	if view.activeNode != nil {
 		activeEvent := event
 		activeEvent.Node = view.activeNode
+		pointerEvent := pointerEventForDocument(EventPointerUp, activeEvent)
+		if dispatchDocumentNodeEvent(&pointerEvent, documentEventPath(view.activeNode), func(current *DocumentNode) interface{} {
+			return current.OnPointerUp
+		}) {
+			changed = true
+		}
+		if pointerEvent.DefaultPrevented() {
+			if view.setActiveNode(nil, event) {
+				changed = true
+			}
+			return changed
+		}
 		activeEvent.Bubbles = true
 		activeEvent.Cancelable = true
 		if dispatchDocumentNodeEvent(&activeEvent, documentEventPath(view.activeNode), func(current *DocumentNode) interface{} {
@@ -302,6 +332,14 @@ func (view *DocumentView) setHoverNode(node *DocumentNode, event DocumentEvent) 
 			changed = true
 		}
 		leave := event
+		pointerLeave := pointerEventForDocument(EventPointerLeave, leave)
+		pointerLeave.Node = previous
+		pointerLeave.Bubbles = false
+		pointerLeave.Cancelable = false
+		if dispatchDocumentEventOnCurrent(previous, &pointerLeave) {
+			changed = true
+		}
+		leave = event
 		leave.Type = EventMouseLeave
 		leave.Node = previous
 		if dispatchDocumentEventOnCurrent(previous, &leave) {
@@ -315,6 +353,14 @@ func (view *DocumentView) setHoverNode(node *DocumentNode, event DocumentEvent) 
 			changed = true
 		}
 		enter := event
+		pointerEnter := pointerEventForDocument(EventPointerEnter, enter)
+		pointerEnter.Node = node
+		pointerEnter.Bubbles = false
+		pointerEnter.Cancelable = false
+		if dispatchDocumentEventOnCurrent(node, &pointerEnter) {
+			changed = true
+		}
+		enter = event
 		enter.Type = EventMouseEnter
 		enter.Node = node
 		if dispatchDocumentEventOnCurrent(node, &enter) {

@@ -4,6 +4,7 @@ import "kos"
 
 type EventType int
 type EventPhase uint8
+type PointerType uint8
 
 const (
 	EventClick EventType = iota + 1
@@ -12,6 +13,11 @@ const (
 	EventMouseMove
 	EventMouseEnter
 	EventMouseLeave
+	EventPointerDown
+	EventPointerUp
+	EventPointerMove
+	EventPointerEnter
+	EventPointerLeave
 	EventScroll
 	EventFocus
 	EventBlur
@@ -20,6 +26,11 @@ const (
 	EventKeyDown
 	EventInput
 	EventChange
+)
+
+const (
+	PointerTypeUnknown PointerType = iota
+	PointerTypeMouse
 )
 
 const (
@@ -43,6 +54,9 @@ type Event struct {
 	DeltaX        int
 	DeltaY        int
 	Button        MouseButton
+	PointerID     int
+	PointerType   PointerType
+	IsPrimary     bool
 	Key           kos.KeyEvent
 	Target        Node
 	CurrentTarget Node

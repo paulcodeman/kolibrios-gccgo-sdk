@@ -14,6 +14,9 @@ type DocumentEvent struct {
 	DeltaX        int
 	DeltaY        int
 	Button        MouseButton
+	PointerID     int
+	PointerType   PointerType
+	IsPrimary     bool
 	Key           kos.KeyEvent
 	ScrollX       int
 	ScrollY       int

@@ -408,7 +408,7 @@ func Run() {
 		style.SetBorderRadius(8)
 	})
 
-	eventBubbleHint := elements.Label("Bubble click through parent + preventDefault on a checkbox default action.")
+	eventBubbleHint := elements.Label("Bubble click through parent, inspect capture phase, and pointerenter/pointerdown compatibility events.")
 	apply(eventBubbleHint, func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
 		style.SetMargin(0, 0, 6, 0)
@@ -416,7 +416,6 @@ func Run() {
 		style.SetFontSize(11)
 		style.SetLineHeight(15)
 	})
-
 	bubbleButton := elements.Button("Bubble click to parent")
 	apply(bubbleButton, func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayInlineBlock)
@@ -788,9 +787,15 @@ func Run() {
 		setEvent("bubble target=" + nodeName(event.Target) + " current=" + nodeName(event.CurrentTarget) + " phase=" + phaseName(event.Phase))
 	}
 	eventBubbleHost.OnEventCapture = func(_ *ui.Element, event *ui.Event) {
-		if event.Type == ui.EventClick {
+		if event.Type == ui.EventClick || event.Type == ui.EventPointerDown {
 			setCapture("target=" + nodeName(event.Target) + " current=" + nodeName(event.CurrentTarget) + " phase=" + phaseName(event.Phase))
 		}
+	}
+	bubbleButton.OnPointerEnter = func(_ *ui.Element, event *ui.Event) {
+		setEvent("pointerenter current=" + nodeName(event.CurrentTarget))
+	}
+	bubbleButton.OnPointerDown = func(_ *ui.Element, event *ui.Event) {
+		setEvent("pointerdown primary=" + strconv.FormatBool(event.IsPrimary))
 	}
 	preventCheckbox.OnClick = func(_ *ui.Element, event *ui.Event) {
 		event.PreventDefault()
