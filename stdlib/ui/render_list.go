@@ -71,6 +71,7 @@ func (window *Window) buildRenderList() {
 	} else {
 		clearRenderIndex(window.renderIndex)
 	}
+	window.focusables = window.focusables[:0]
 	if window.focusIndex == nil {
 		window.focusIndex = make(map[Node]int)
 	} else {
@@ -152,6 +153,7 @@ func (window *Window) appendRenderItems(nodes []Node, clip clipState, gen uint32
 				skipPaint: suppressPaint,
 			})
 			window.renderIndex[node] = index
+			window.appendFocusableFromRenderNode(node)
 			if WindowEnableTinyGL && isElement && element != nil && element.kind == ElementKindTinyGL {
 				window.tinyglNodes = append(window.tinyglNodes, element)
 			}

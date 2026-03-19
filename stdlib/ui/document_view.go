@@ -269,7 +269,6 @@ func (view *DocumentView) MarkDirty() {
 	view.invalidateVisualBoundsCache()
 	view.layerValid = false
 	view.clearRetainedLayerDirty()
-	view.focusablesValid = false
 	if view.window != nil {
 		view.window.noteDirty(view)
 	}

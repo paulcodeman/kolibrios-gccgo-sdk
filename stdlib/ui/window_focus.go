@@ -229,10 +229,7 @@ func (window *Window) focusableNodes() []Node {
 	}
 	window.ensureRenderList()
 	if len(window.renderList) > 0 {
-		window.rebuildFocusablesFromRenderList()
-		if len(window.focusables) > 0 {
-			return window.focusables
-		}
+		return window.focusables
 	}
 	var focusables []Node
 	window.collectFocusables(window.nodes, &focusables, false)
@@ -244,15 +241,33 @@ func (window *Window) focusableIndex(node Node) int {
 		return -1
 	}
 	window.ensureRenderList()
-	if len(window.renderList) > 0 {
-		window.rebuildFocusablesFromRenderList()
-	}
-	if window.focusIndex != nil {
+	if len(window.renderList) > 0 && window.focusIndex != nil {
 		if index, ok := window.focusIndex[node]; ok {
 			return index
 		}
 	}
 	return -1
+}
+
+func (window *Window) appendFocusableFromRenderNode(node Node) {
+	if window == nil || node == nil {
+		return
+	}
+	switch current := node.(type) {
+	case *Element:
+		if current == nil || !current.isFocusable() {
+			return
+		}
+	case FocusAware:
+		// kept
+	default:
+		return
+	}
+	if _, ok := window.focusIndex[node]; ok {
+		return
+	}
+	window.focusIndex[node] = len(window.focusables)
+	window.focusables = append(window.focusables, node)
 }
 
 func (window *Window) rebuildFocusablesFromRenderList() {
