@@ -18,7 +18,7 @@ type tinyGLState struct {
 
 // SetTinyGLRenderer wires a TinyGL renderer to a tinygl element.
 func (element *Element) SetTinyGLRenderer(renderer TinyGLRenderer) bool {
-	if element == nil || element.kind != ElementKindTinyGL {
+	if element == nil || !element.isTinyGL() {
 		return false
 	}
 	state := element.tinyGLState()
@@ -30,7 +30,7 @@ func (element *Element) SetTinyGLRenderer(renderer TinyGLRenderer) bool {
 
 // MarkTinyGLDirty requests a TinyGL redraw for this element.
 func (element *Element) MarkTinyGLDirty() bool {
-	if element == nil || element.kind != ElementKindTinyGL {
+	if element == nil || !element.isTinyGL() {
 		return false
 	}
 	state := element.tinyGLState()
@@ -53,7 +53,7 @@ func (element *Element) tinyGLState() *tinyGLState {
 }
 
 func (element *Element) drawTinyGL(window *Window, full bool, dirty Rect) {
-	if element == nil || window == nil || element.kind != ElementKindTinyGL {
+	if element == nil || window == nil || !element.isTinyGL() {
 		return
 	}
 	state := element.tinygl

@@ -46,8 +46,8 @@ func (element *Element) Draw() {
 		)
 		return
 	}
-	switch element.kind {
-	case ElementKindButton:
+	switch {
+	case element.isButtonLike():
 		x, y := element.rawPosition(style)
 		background, ok := resolveColor(style.background)
 		if !ok {
@@ -69,7 +69,7 @@ func (element *Element) Draw() {
 			)
 			drawTextDecorationsRaw(textX, textY, line, style, nil, defaultCharWidth, foreground)
 		})
-	case ElementKindLabel:
+	case element.kind == ElementKindLabel:
 		x, y := element.rawPosition(style)
 		foreground, ok := resolveColor(style.foreground)
 		if !ok {
@@ -202,7 +202,7 @@ func (element *Element) drawToRect(canvas *Canvas, rect Rect, style Style) {
 		}
 		return
 	}
-	if element.kind == ElementKindTinyGL {
+	if element.isTinyGL() {
 		if elementShowsDefaultFocusRing(element) {
 			drawDefaultFocusRing(canvas, rect, style)
 		}
@@ -430,7 +430,7 @@ func (element *Element) updateSubtreeRect() {
 }
 
 func (element *Element) visualBoundsFor(rect Rect, style Style) Rect {
-	includeTextShadow := !element.isTextInput() && element.kind != ElementKindTinyGL && element.text() != ""
+	includeTextShadow := !element.isTextInput() && !element.isTinyGL() && element.text() != ""
 	visual := visualBoundsForStyle(rect, style, includeTextShadow)
 	if elementShowsDefaultFocusRing(element) {
 		visual = UnionRect(visual, focusRingBounds(rect))

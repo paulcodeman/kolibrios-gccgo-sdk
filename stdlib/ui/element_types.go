@@ -4,6 +4,7 @@ import "kos"
 
 type Element struct {
 	kind                   ElementKind
+	spec                   *ElementSpec
 	ID                     kos.ButtonID
 	Text                   string
 	Label                  string

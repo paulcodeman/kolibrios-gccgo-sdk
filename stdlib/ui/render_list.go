@@ -154,7 +154,7 @@ func (window *Window) appendRenderItems(nodes []Node, clip clipState, gen uint32
 			})
 			window.renderIndex[node] = index
 			window.appendFocusableFromRenderNode(node)
-			if WindowEnableTinyGL && isElement && element != nil && element.kind == ElementKindTinyGL {
+			if WindowEnableTinyGL && isElement && element != nil && element.isTinyGL() {
 				window.tinyglNodes = append(window.tinyglNodes, element)
 			}
 		}

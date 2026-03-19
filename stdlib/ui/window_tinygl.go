@@ -12,7 +12,7 @@ func (window *Window) drawTinyGL(full bool, dirty Rect) {
 		return
 	}
 	for _, element := range window.tinyglNodes {
-		if element == nil || element.kind != ElementKindTinyGL {
+		if element == nil || !element.isTinyGL() {
 			continue
 		}
 		element.drawTinyGL(window, full, dirty)

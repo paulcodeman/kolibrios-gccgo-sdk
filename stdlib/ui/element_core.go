@@ -1,7 +1,8 @@
 package ui
 
-func newElement(kind ElementKind, text string) *Element {
+func newElement(kind ElementKind, text string, spec *ElementSpec) *Element {
 	return &Element{
+		spec:       spec,
 		kind:       kind,
 		Text:       text,
 		desiredCol: -1,

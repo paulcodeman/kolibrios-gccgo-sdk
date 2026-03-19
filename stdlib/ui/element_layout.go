@@ -269,8 +269,8 @@ func (element *Element) resolvedWidthWithContext(ctx LayoutContext, style Style)
 	textWidth := ctx.MeasureText(text, font, charWidth)
 	insets := boxInsets(style)
 	baseWidth := textWidth + insets.Left + insets.Right
-	switch element.kind {
-	case ElementKindButton:
+	switch {
+	case element.isButtonLike():
 		minWidth := textWidth + defaultButtonWidthPadding + insets.Left + insets.Right
 		if baseWidth < minWidth {
 			baseWidth = minWidth
@@ -336,9 +336,9 @@ func (element *Element) resolvedHeightInWithContext(ctx LayoutContext, style Sty
 		if availableW < 0 {
 			availableW = 0
 		}
-		if element.kind == ElementKindInput {
+		if element.isSingleLineTextInput() {
 			textHeight = lineHeight
-		} else if element.kind == ElementKindTextarea {
+		} else if element.isMultilineTextInput() {
 			lines := element.wrapTextPreserveCached(text, availableW, true, font, charWidth)
 			if len(lines) > 0 {
 				textHeight = len(lines) * lineHeight
@@ -350,8 +350,8 @@ func (element *Element) resolvedHeightInWithContext(ctx LayoutContext, style Sty
 			}
 		}
 		baseHeight := textHeight + insets.Top + insets.Bottom
-		switch element.kind {
-		case ElementKindButton:
+		switch {
+		case element.isButtonLike():
 			if baseHeight < defaultButtonHeight {
 				baseHeight = defaultButtonHeight
 			}
@@ -363,8 +363,8 @@ func (element *Element) resolvedHeightInWithContext(ctx LayoutContext, style Sty
 	}
 	insets := boxInsets(style)
 	baseHeight := textHeight + insets.Top + insets.Bottom
-	switch element.kind {
-	case ElementKindButton:
+	switch {
+	case element.isButtonLike():
 		if baseHeight < defaultButtonHeight {
 			baseHeight = defaultButtonHeight
 		}

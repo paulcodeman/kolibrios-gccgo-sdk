@@ -11,6 +11,47 @@ func DefaultButtonStyle() Style {
 	return style
 }
 
+func DefaultButtonHoverStyle() Style {
+	style := Style{}
+	style.SetBackground(White)
+	style.SetBorderColor(Gray)
+	style.SetBorderWidth(1)
+	style.SetGradient(Gradient{
+		From:      White,
+		To:        Silver,
+		Direction: GradientVertical,
+	})
+	style.SetShadow(Shadow{
+		OffsetX: 1,
+		OffsetY: 1,
+		Blur:    2,
+		Color:   Black,
+		Alpha:   70,
+	})
+	return style
+}
+
+func DefaultButtonActiveStyle() Style {
+	style := Style{}
+	style.SetBackground(Gray)
+	style.SetForeground(Black)
+	style.SetBorderWidth(1)
+	style.SetBorderColor(Gray)
+	style.SetGradient(Gradient{
+		From:      Gray,
+		To:        Silver,
+		Direction: GradientVertical,
+	})
+	style.SetShadow(Shadow{
+		OffsetX: 0,
+		OffsetY: 0,
+		Blur:    1,
+		Color:   Black,
+		Alpha:   40,
+	})
+	return style
+}
+
 func DefaultLabelStyle() Style {
 	style := Style{}
 	style.SetForeground(Black)
@@ -60,34 +101,100 @@ func DefaultBoxStyle() Style {
 	return style
 }
 
+func (element *Element) Spec() *ElementSpec {
+	if element == nil {
+		return nil
+	}
+	if element.spec != nil {
+		return element.spec
+	}
+	return ElementSpecForKind(element.kind)
+}
+
+func (element *Element) hasSpecFlag(flag ElementSpecFlags) bool {
+	if element == nil {
+		return false
+	}
+	if spec := element.Spec(); spec != nil {
+		return spec.hasFlag(flag)
+	}
+	return false
+}
+
 func (element *Element) isFocusable() bool {
 	if element == nil {
 		return false
 	}
-	switch element.kind {
-	case ElementKindInput, ElementKindTextarea, ElementKindButton:
+	if element.hasSpecFlag(ElementSpecFocusable) {
 		return true
 	}
 	return element.OnClick != nil
 }
 
-func createElementTyped(kind ElementKind) *Element {
-	element := newElement(kind, "")
-	switch kind {
-	case ElementKindButton:
-		element.Style = DefaultButtonStyle()
-	case ElementKindLabel:
-		element.Style = DefaultLabelStyle()
-	case ElementKindInput:
-		element.Style = DefaultInputStyle()
-	case ElementKindTextarea:
-		element.Style = DefaultTextareaStyle()
-	case ElementKindTinyGL:
-		element.Style = DefaultTinyGLStyle()
-	case ElementKindBox:
-		element.Style = DefaultBoxStyle()
+func (element *Element) isClickable() bool {
+	if element == nil {
+		return false
 	}
+	if element.hasSpecFlag(ElementSpecClickable) {
+		return true
+	}
+	return element.OnClick != nil
+}
+
+func (element *Element) isButtonLike() bool {
+	if element == nil {
+		return false
+	}
+	if element.hasSpecFlag(ElementSpecButtonLike) {
+		return true
+	}
+	return element.kind == ElementKindButton
+}
+
+func (element *Element) isContainerElement() bool {
+	if element == nil {
+		return false
+	}
+	if element.hasSpecFlag(ElementSpecContainer) {
+		return true
+	}
+	return element.kind == ElementKindBox
+}
+
+func (element *Element) isTinyGL() bool {
+	if element == nil {
+		return false
+	}
+	if element.hasSpecFlag(ElementSpecTinyGL) {
+		return true
+	}
+	return element.kind == ElementKindTinyGL
+}
+
+func CreateElementFromSpec(spec *ElementSpec) *Element {
+	if spec == nil {
+		return newElement(ElementKindUnknown, "", nil)
+	}
+	element := newElement(spec.Kind, "", spec)
+	element.Style = spec.defaultBaseStyle()
+	element.StyleHover = spec.defaultHoverStyle()
+	element.StyleActive = spec.defaultActiveStyle()
+	element.StyleFocus = spec.defaultFocusStyle()
 	return element
+}
+
+func CreateElementByName(name string) *Element {
+	if spec := ElementSpecForName(name); spec != nil {
+		return CreateElementFromSpec(spec)
+	}
+	return newElement(ElementKindUnknown, "", nil)
+}
+
+func createElementTyped(kind ElementKind) *Element {
+	if spec := ElementSpecForKind(kind); spec != nil {
+		return CreateElementFromSpec(spec)
+	}
+	return newElement(kind, "", nil)
 }
 
 func CreateButton() *Element {

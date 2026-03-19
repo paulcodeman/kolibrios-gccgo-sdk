@@ -9,7 +9,24 @@ func (element *Element) isTextInput() bool {
 	if element == nil {
 		return false
 	}
+	if spec := element.Spec(); spec != nil {
+		return spec.hasFlag(ElementSpecTextInput)
+	}
 	return element.kind == ElementKindInput || element.kind == ElementKindTextarea
+}
+
+func (element *Element) isMultilineTextInput() bool {
+	if element == nil {
+		return false
+	}
+	if spec := element.Spec(); spec != nil {
+		return spec.hasFlag(ElementSpecTextInput) && spec.hasFlag(ElementSpecMultiline)
+	}
+	return element.kind == ElementKindTextarea
+}
+
+func (element *Element) isSingleLineTextInput() bool {
+	return element != nil && element.isTextInput() && !element.isMultilineTextInput()
 }
 
 func (element *Element) editLines(content Rect, style Style, font *ttfFont, charWidth int) []textLine {
@@ -18,8 +35,8 @@ func (element *Element) editLines(content Rect, style Style, font *ttfFont, char
 	if content.Width > 0 {
 		maxWidth = content.Width
 	}
-	wrap := element.kind == ElementKindTextarea
-	if element.kind == ElementKindTextarea {
+	wrap := element.isMultilineTextInput()
+	if element.isMultilineTextInput() {
 		overflowX := overflowModeFor(style, "x")
 		if overflowX == OverflowScroll || overflowX == OverflowAuto {
 			wrap = false
@@ -191,8 +208,8 @@ func (element *Element) textInputLayout(rect Rect, style Style) textInputLayout 
 	}
 	layout.overflowX = key.overflowX
 	layout.overflowY = key.overflowY
-	layout.allowH = element.kind == ElementKindInput ||
-		(element.kind == ElementKindTextarea && (layout.overflowX == OverflowScroll || layout.overflowX == OverflowAuto))
+	layout.allowH = element.isSingleLineTextInput() ||
+		(element.isMultilineTextInput() && (layout.overflowX == OverflowScroll || layout.overflowX == OverflowAuto))
 
 	lines := element.editLines(base, style, font, layout.charWidth)
 	if len(lines) == 0 {
@@ -200,7 +217,7 @@ func (element *Element) textInputLayout(rect Rect, style Style) textInputLayout 
 	}
 	ensureTextLineMetrics(lines, font, layout.charWidth)
 
-	if element.kind == ElementKindTextarea {
+	if element.isMultilineTextInput() {
 		totalHeight := len(lines) * layout.lineHeight
 		showV := false
 		minWidth := layout.scrollbar.width + layout.scrollbar.padding.Left + layout.scrollbar.padding.Right
@@ -419,8 +436,8 @@ func (element *Element) ensureCaretVisibleWithLines(content Rect, lines []textLi
 		lines = blankTextLines()
 	}
 	ensureTextLineMetrics(lines, font, charWidth)
-	hScroll := element.kind == ElementKindInput ||
-		(element.kind == ElementKindTextarea && (overflowX == OverflowScroll || overflowX == OverflowAuto))
+	hScroll := element.isSingleLineTextInput() ||
+		(element.isMultilineTextInput() && (overflowX == OverflowScroll || overflowX == OverflowAuto))
 	changed := false
 	text := element.text()
 	textLen := len(text)
@@ -435,7 +452,7 @@ func (element *Element) ensureCaretVisibleWithLines(content Rect, lines []textLi
 		element.caret = clamped
 		changed = true
 	}
-	if element.kind == ElementKindInput {
+	if element.isSingleLineTextInput() {
 		textWidth := textWidthWithFont(text, font, charWidth)
 		maxScroll := 0
 		if content.Width > 0 && textWidth > content.Width {
@@ -530,13 +547,13 @@ func (element *Element) setCaretFromPoint(x int, y int, rect Rect, style Style) 
 	if len(lines) == 0 {
 		lines = blankTextLines()
 	}
-	if element.kind == ElementKindTextarea && layout.showV {
+	if element.isMultilineTextInput() && layout.showV {
 		if x >= content.X+content.Width {
 			return false
 		}
 	}
 	hScroll := layout.allowH
-	if element.kind == ElementKindInput {
+	if element.isSingleLineTextInput() {
 		col := textColumnForX(element.text(), x-content.X+element.scrollX, layout.font, layout.charWidth)
 		caret := textByteIndexForColumn(element.text(), col)
 		changed := element.setCaret(caret)
@@ -589,7 +606,7 @@ func (element *Element) drawEditableTextLines(layout textInputLayout, style Styl
 	font := layout.font
 	startLine := 0
 	y := content.Y
-	if element.kind == ElementKindTextarea && scrollY > 0 {
+	if element.isMultilineTextInput() && scrollY > 0 {
 		startLine = scrollY / lineHeight
 		y -= scrollY % lineHeight
 	}
@@ -760,7 +777,7 @@ func (element *Element) drawInputScrollbars(canvas *Canvas, layout textInputLayo
 	if element == nil || canvas == nil || !element.isTextInput() {
 		return
 	}
-	if element.kind != ElementKindTextarea {
+	if !element.isMultilineTextInput() {
 		return
 	}
 	track, thumb, _, ok := element.verticalScrollbarLayout(layout)
@@ -784,7 +801,7 @@ func (element *Element) drawInputScrollbars(canvas *Canvas, layout textInputLayo
 }
 
 func (element *Element) handleScrollbarClick(x int, y int, rect Rect, style Style) bool {
-	if element == nil || element.kind != ElementKindTextarea {
+	if element == nil || !element.isMultilineTextInput() {
 		return false
 	}
 	layout := element.textInputLayout(rect, style)
@@ -833,7 +850,7 @@ func (element *Element) handleTextMouseDown(x int, y int) bool {
 	element.dragMode = textDragNone
 	element.dragMoved = false
 
-	if element.kind == ElementKindTextarea && layout.showV {
+	if element.isMultilineTextInput() && layout.showV {
 		track, thumb, maxScroll, ok := element.verticalScrollbarLayout(layout)
 		if ok && track.Contains(x, y) {
 			element.dragMoved = true
@@ -1017,7 +1034,7 @@ func (element *Element) HandleKey(key kos.KeyEvent) bool {
 	case key.Code == 8:
 		changed = element.deleteBackward()
 	case key.Code == 13:
-		if element.kind == ElementKindTextarea {
+		if element.isMultilineTextInput() {
 			changed = element.insertAtCaret("\n")
 		}
 	case key.Code == 127 || key.ScanCode == 0x53:
@@ -1031,11 +1048,11 @@ func (element *Element) HandleKey(key kos.KeyEvent) bool {
 	case key.ScanCode == 0x4F:
 		changed = element.moveCaretLineBoundary(lines, false, shiftPressed)
 	case key.ScanCode == 0x48:
-		if element.kind == ElementKindTextarea {
+		if element.isMultilineTextInput() {
 			changed = element.moveCaretVertical(lines, -1, shiftPressed)
 		}
 	case key.ScanCode == 0x50:
-		if element.kind == ElementKindTextarea {
+		if element.isMultilineTextInput() {
 			changed = element.moveCaretVertical(lines, 1, shiftPressed)
 		}
 	default:
@@ -1072,7 +1089,7 @@ func (element *Element) HandleScroll(deltaX int, deltaY int) bool {
 	content := layout.content
 	totalHeight := layout.totalHeight
 	changed := false
-	if element.kind == ElementKindTextarea {
+	if element.isMultilineTextInput() {
 		if layout.overflowY != OverflowHidden && layout.overflowY != OverflowVisible {
 			maxScrollY := 0
 			if content.Height > 0 && totalHeight > content.Height {
@@ -1174,7 +1191,7 @@ func (element *Element) pasteFromClipboard() bool {
 	if !ok || value == "" {
 		return false
 	}
-	if element.kind == ElementKindInput {
+	if element.isSingleLineTextInput() {
 		value = sanitizeSingleLine(value)
 	}
 	if value == "" {

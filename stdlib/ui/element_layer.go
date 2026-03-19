@@ -102,7 +102,7 @@ func (element *Element) useRetainedSubtreeLayer(style Style) bool {
 	if element == nil || !ElementRetainedLayers || FastNoCache {
 		return false
 	}
-	if element.kind != ElementKindBox || len(element.Children) == 0 {
+	if !element.isContainerElement() || len(element.Children) == 0 {
 		return false
 	}
 	if attachment, ok := resolveBackgroundAttachment(style.backgroundAttachment); ok && attachment == BackgroundAttachmentFixed {
@@ -226,10 +226,8 @@ func (element *Element) retainedSubtreeDescendants() (int, bool) {
 			okTree = false
 			break
 		}
-		switch child.kind {
-		case ElementKindButton, ElementKindInput, ElementKindTextarea, ElementKindTinyGL:
+		if child.isClickable() || child.isTextInput() || child.isTinyGL() {
 			okTree = false
-			break
 		}
 		if !okTree {
 			break
