@@ -20,6 +20,11 @@ typedef struct runtime_defer runtime_defer;
 typedef struct runtime_g runtime_g;
 typedef struct runtime_m runtime_m;
 typedef struct runtime_context runtime_context;
+typedef struct runtime_pool_node runtime_pool_node;
+
+#ifndef RUNTIME_POOL_LOCAL_CLASS_COUNT
+#define RUNTIME_POOL_LOCAL_CLASS_COUNT 6u
+#endif
 
 struct runtime_panic {
     runtime_panic* link;
@@ -56,6 +61,9 @@ struct runtime_m {
     runtime_g* park_g;
     runtime_g* enqg;
     uint32_t exit_check_counter;
+    runtime_pool_node* pool_local_lists[RUNTIME_POOL_LOCAL_CLASS_COUNT];
+    uint8_t pool_local_counts[RUNTIME_POOL_LOCAL_CLASS_COUNT];
+    uint32_t pool_local_bytes;
 };
 
 struct runtime_context {
