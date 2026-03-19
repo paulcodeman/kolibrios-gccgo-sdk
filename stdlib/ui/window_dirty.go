@@ -79,7 +79,7 @@ func (window *Window) noteHandlerMayMutate(target Node) {
 	}
 	window.visualDirtyOnly = false
 	if element, ok := target.(*Element); ok {
-		if element.OnClick != nil {
+		if element.hasEventHandlers() {
 			window.invalidateHoverTracking()
 		}
 		return

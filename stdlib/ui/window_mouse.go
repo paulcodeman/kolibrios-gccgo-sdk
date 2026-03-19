@@ -158,6 +158,18 @@ func (window *Window) handleMouse() bool {
 	}
 	needsRedraw := false
 	if hover != window.mouseHover {
+		if element, ok := window.mouseHover.(*Element); ok && element != nil {
+			window.noteHandlerMayMutate(element)
+			if dispatchElementHandler(element.OnMouseLeave, element, Event{
+				Type:   EventMouseLeave,
+				X:      eventX,
+				Y:      eventY,
+				Target: element,
+			}) {
+				needsRedraw = true
+				window.noteDirty(element)
+			}
+		}
 		if aware, ok := window.mouseHover.(HoverAware); ok {
 			if aware.SetHover(false) {
 				needsRedraw = true
@@ -171,9 +183,22 @@ func (window *Window) handleMouse() bool {
 				window.noteHoverStateChange(hover)
 			}
 		}
+		if element, ok := hover.(*Element); ok && element != nil {
+			window.noteHandlerMayMutate(element)
+			if dispatchElementHandler(element.OnMouseEnter, element, Event{
+				Type:   EventMouseEnter,
+				X:      eventX,
+				Y:      eventY,
+				Target: element,
+			}) {
+				needsRedraw = true
+				window.noteDirty(element)
+			}
+		}
 	}
 	if mouseMoved {
 		if aware, ok := hover.(MouseMoveAware); ok {
+			window.noteHandlerMayMutate(hover)
 			if aware.HandleMouseMove(eventX, eventY) {
 				needsRedraw = true
 				if _, isDocumentView := hover.(*DocumentView); !isDocumentView {
@@ -184,6 +209,7 @@ func (window *Window) handleMouse() bool {
 	}
 	if leftHeld && window.mouseDown != nil && window.mouseDown != hover {
 		if aware, ok := window.mouseDown.(MouseMoveAware); ok {
+			window.noteHandlerMayMutate(window.mouseDown)
 			if aware.HandleMouseMove(eventX, eventY) {
 				needsRedraw = true
 				if _, isDocumentView := window.mouseDown.(*DocumentView); !isDocumentView {
@@ -221,20 +247,10 @@ func (window *Window) handleMouse() bool {
 			}
 		}
 		if aware, ok := window.mouseDown.(MouseDownAware); ok {
+			window.noteHandlerMayMutate(window.mouseDown)
 			if aware.HandleMouseDown(eventX, eventY, MouseLeft) {
 				needsRedraw = true
 				window.noteDirty(window.mouseDown)
-			}
-		}
-		if element, ok := window.mouseDown.(*Element); ok && element.isTextInput() {
-			if element.handleTextMouseDown(eventX, eventY) {
-				needsRedraw = true
-				window.noteDirty(element)
-			}
-		} else if element, ok := window.mouseDown.(*Element); ok && element.isRange() {
-			if element.handleRangeMouseDown(eventX, eventY) {
-				needsRedraw = true
-				window.noteDirty(element)
 			}
 		}
 	} else if leftHeld && window.mouseDown != nil {
@@ -245,33 +261,10 @@ func (window *Window) handleMouse() bool {
 			}
 		}
 	}
-	if leftHeld && window.mouseDown != nil {
-		if element, ok := window.mouseDown.(*Element); ok && element.isTextInput() {
-			if element.handleTextMouseDrag(eventX, eventY) {
-				needsRedraw = true
-				window.noteDirty(element)
-			}
-		} else if element, ok := window.mouseDown.(*Element); ok && element.isRange() {
-			if element.handleRangeMouseDrag(eventX, eventY) {
-				needsRedraw = true
-				window.noteDirty(element)
-			}
-		}
-	}
 	if leftReleased {
 		mouseDown := window.mouseDown
-		if element, ok := window.mouseDown.(*Element); ok && element.isTextInput() {
-			if element.handleTextMouseUp() {
-				needsRedraw = true
-				window.noteDirty(element)
-			}
-		} else if element, ok := window.mouseDown.(*Element); ok && element.isRange() {
-			if element.handleRangeMouseUp() {
-				needsRedraw = true
-				window.noteDirty(element)
-			}
-		}
 		if aware, ok := mouseDown.(MouseUpAware); ok {
+			window.noteHandlerMayMutate(mouseDown)
 			if aware.HandleMouseUp(eventX, eventY, MouseLeft) {
 				needsRedraw = true
 				window.noteDirty(mouseDown)
@@ -388,6 +381,7 @@ func (window *Window) handleMouse() bool {
 		handled := false
 		if target != nil {
 			if aware, ok := target.(ScrollAware); ok {
+				window.noteHandlerMayMutate(target)
 				if aware.HandleScroll(delta.X, delta.Y) {
 					handled = true
 					needsRedraw = true

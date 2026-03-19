@@ -47,6 +47,7 @@ func (element *Element) handleRangeMouseDown(x int, y int) bool {
 	element.rangeDragActive = true
 	changed := element.SetValue(element.rangeValueFromPoint(x, rect, style))
 	if changed {
+		element.dispatchInputEvent()
 		element.dispatchChange()
 	}
 	return changed || thumb.Contains(x, y)
@@ -63,6 +64,7 @@ func (element *Element) handleRangeMouseDrag(x int, y int) bool {
 	}
 	changed := element.SetValue(element.rangeValueFromPoint(x, rect, style))
 	if changed {
+		element.dispatchInputEvent()
 		element.dispatchChange()
 	}
 	return changed
@@ -80,22 +82,7 @@ func (element *Element) handleRangeMouseUp() bool {
 }
 
 func (element *Element) dispatchClickEvent(event Event) bool {
-	if element == nil || element.OnClick == nil {
-		return false
-	}
-	switch handler := element.OnClick.(type) {
-	case func():
-		handler()
-		return true
-	case func(Event):
-		handler(event)
-		return true
-	case func(*Element):
-		handler(element)
-		return true
-	default:
-		return false
-	}
+	return dispatchElementHandler(element.OnClick, element, event)
 }
 
 func (element *Element) handleControlClick(event Event) bool {
@@ -105,6 +92,7 @@ func (element *Element) handleControlClick(event Event) bool {
 	switch {
 	case element.isCheckable():
 		if element.ToggleChecked() {
+			element.dispatchInputEvent()
 			element.dispatchChange()
 			return true
 		}
@@ -115,6 +103,7 @@ func (element *Element) handleControlClick(event Event) bool {
 			rect = element.Bounds()
 		}
 		if element.SetValue(element.rangeValueFromPoint(event.X, rect, style)) {
+			element.dispatchInputEvent()
 			element.dispatchChange()
 			return true
 		}
@@ -138,6 +127,7 @@ func (element *Element) handleControlKey(key kos.KeyEvent) bool {
 		if key.Code == 13 || key.Code == 32 {
 			changed := element.ToggleChecked()
 			if changed {
+				element.dispatchInputEvent()
 				element.dispatchChange()
 				element.dispatchClickEvent(Event{Type: EventClick, Target: element})
 			}
@@ -152,36 +142,42 @@ func (element *Element) handleControlKey(key kos.KeyEvent) bool {
 		switch {
 		case key.ScanCode == 0x4B:
 			if element.SetValue(element.value - step) {
+				element.dispatchInputEvent()
 				element.dispatchChange()
 				return true
 			}
 			return false
 		case key.ScanCode == 0x4D:
 			if element.SetValue(element.value + step) {
+				element.dispatchInputEvent()
 				element.dispatchChange()
 				return true
 			}
 			return false
 		case key.ScanCode == 0x47:
 			if element.SetValue(element.minValue) {
+				element.dispatchInputEvent()
 				element.dispatchChange()
 				return true
 			}
 			return false
 		case key.ScanCode == 0x4F:
 			if element.SetValue(element.maxValue) {
+				element.dispatchInputEvent()
 				element.dispatchChange()
 				return true
 			}
 			return false
 		case key.ScanCode == 0x49:
 			if element.SetValue(element.value + pageStep) {
+				element.dispatchInputEvent()
 				element.dispatchChange()
 				return true
 			}
 			return false
 		case key.ScanCode == 0x51:
 			if element.SetValue(element.value - pageStep) {
+				element.dispatchInputEvent()
 				element.dispatchChange()
 				return true
 			}

@@ -13,6 +13,7 @@ func (window *Window) handleKey() bool {
 	if key.Code == 9 {
 		if window.focused != nil {
 			if aware, ok := window.focused.(TabAware); ok {
+				window.noteHandlerMayMutate(window.focused)
 				handled := aware.HandleTab(kos.ControlKeysStatus().Shift())
 				if handled {
 					window.noteDirty(window.focused)
@@ -27,6 +28,7 @@ func (window *Window) handleKey() bool {
 	}
 	if window.focused != nil {
 		if aware, ok := window.focused.(KeyAware); ok {
+			window.noteHandlerMayMutate(window.focused)
 			handled := aware.HandleKey(key)
 			if handled {
 				window.noteDirty(window.focused)

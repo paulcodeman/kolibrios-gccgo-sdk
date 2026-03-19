@@ -1,5 +1,7 @@
 package ui
 
+import "kos"
+
 type EventType int
 
 const (
@@ -13,6 +15,8 @@ const (
 	EventFocus
 	EventBlur
 	EventKeyDown
+	EventInput
+	EventChange
 )
 
 type MouseButton int
@@ -25,6 +29,9 @@ type Event struct {
 	Type   EventType
 	X      int
 	Y      int
+	DeltaX int
+	DeltaY int
 	Button MouseButton
+	Key    kos.KeyEvent
 	Target Node
 }

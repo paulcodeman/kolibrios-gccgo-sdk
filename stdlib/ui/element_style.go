@@ -234,6 +234,11 @@ func (element *Element) SetFocus(focus bool) bool {
 	if retainedLayerStyleChanged(oldStyle, newStyle) {
 		element.invalidateRetainedLayerState()
 	}
+	if focus {
+		dispatchElementHandler(element.OnFocus, element, Event{Type: EventFocus, Target: element})
+	} else {
+		dispatchElementHandler(element.OnBlur, element, Event{Type: EventBlur, Target: element})
+	}
 	element.markDirty()
 	return true
 }

@@ -374,6 +374,18 @@ func Run() {
 		style.SetFontSize(12)
 	})
 
+	eventSummary := elements.Label("event: idle")
+	apply(eventSummary, func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 6, 0)
+		style.SetPadding(6, 8)
+		style.SetBackground(ui.White)
+		style.SetBorder(1, ui.Silver)
+		style.SetBorderRadius(8)
+		style.SetFontPath(monoFontPath)
+		style.SetFontSize(12)
+	})
+
 	notifyCheckbox := elements.Checkbox("Enable notifications", true)
 	apply(notifyCheckbox, func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
@@ -630,6 +642,10 @@ func Run() {
 		controlSummary.SetText(window, "notify="+strconv.FormatBool(notificationsEnabled)+" | dense="+strconv.FormatBool(denseMode)+" | theme="+themeMode+" | progress="+strconv.Itoa(progressValue))
 	}
 
+	setEvent := func(text string) {
+		eventSummary.SetText(window, "event: "+text)
+	}
+
 	inc.OnClick = func() {
 		count++
 		updateLabel()
@@ -656,10 +672,6 @@ func Run() {
 		count = 0
 		updateLabel()
 	}
-	notifyCheckbox.OnChange = func(checked bool) {
-		notificationsEnabled = checked
-		updateControlLab()
-	}
 	denseCheckbox.OnChange = func(checked bool) {
 		denseMode = checked
 		updateControlLab()
@@ -679,6 +691,32 @@ func Run() {
 	rangeInput.OnChange = func(value int) {
 		progressValue = value
 		updateControlLab()
+	}
+	input.OnFocus = func() {
+		setEvent("input focus")
+	}
+	input.OnBlur = func() {
+		setEvent("input blur")
+	}
+	input.OnInput = func(value string) {
+		setEvent("input value=" + value)
+	}
+	textarea.OnInput = func(value string) {
+		setEvent("textarea len=" + strconv.Itoa(len(value)))
+	}
+	notifyCheckbox.OnChange = func(checked bool) {
+		notificationsEnabled = checked
+		updateControlLab()
+		setEvent("checkbox change=" + strconv.FormatBool(checked))
+	}
+	rangeInput.OnInput = func(value int) {
+		setEvent("range input=" + strconv.Itoa(value))
+	}
+	styled.OnMouseEnter = func() {
+		setEvent("rounded enter")
+	}
+	styled.OnMouseLeave = func() {
+		setEvent("rounded leave")
 	}
 	updateControlLab()
 
@@ -701,6 +739,7 @@ func Run() {
 	card.Append(controlLabTitle)
 	card.Append(controlLabHint)
 	card.Append(controlSummary)
+	card.Append(eventSummary)
 	card.Append(notifyCheckbox)
 	card.Append(denseCheckbox)
 	card.Append(themeLabel)

@@ -982,15 +982,21 @@ func (element *Element) HandleKey(key kos.KeyEvent) bool {
 	if element == nil || !element.focused {
 		return false
 	}
+	handled := dispatchElementHandler(element.OnKeyDown, element, Event{
+		Type:   EventKeyDown,
+		Key:    key,
+		Target: element,
+	})
 	if element.handleControlKey(key) {
 		return true
 	}
 	if !element.isTextInput() {
-		return false
+		return handled
 	}
 	if key.Empty || key.Hotkey {
 		return false
 	}
+	beforeText := element.text()
 	control := kos.ControlKeysStatus()
 	shiftPressed := control.Shift()
 	ctrlPressed := control.Ctrl()
@@ -1070,17 +1076,30 @@ func (element *Element) HandleKey(key kos.KeyEvent) bool {
 		layout.release()
 		layout = element.textInputLayout(rect, style)
 		element.ensureCaretVisibleWithLines(layout.content, layout.lines, layout.overflowX, layout.font, layout.charWidth, layout.lineHeight)
+		if element.text() != beforeText {
+			element.dispatchInputEvent()
+			element.dispatchChangeEvent()
+		}
 	}
 	layout.release()
-	return changed
+	return handled || changed
 }
 
 func (element *Element) HandleScroll(deltaX int, deltaY int) bool {
-	if element == nil || !element.isTextInput() {
+	if element == nil {
 		return false
 	}
 	if deltaX == 0 && deltaY == 0 {
 		return false
+	}
+	handled := false
+	if !element.isTextInput() {
+		return dispatchElementHandler(element.OnScroll, element, Event{
+			Type:   EventScroll,
+			DeltaX: deltaX,
+			DeltaY: deltaY,
+			Target: element,
+		})
 	}
 	style := element.effectiveStyle()
 	rect := element.layoutRect
@@ -1146,10 +1165,24 @@ func (element *Element) HandleScroll(deltaX int, deltaY int) bool {
 		}
 	}
 	if !changed {
-		return false
+		return dispatchElementHandler(element.OnScroll, element, Event{
+			Type:   EventScroll,
+			DeltaX: deltaX,
+			DeltaY: deltaY,
+			Target: element,
+		})
 	}
 	element.markDirty()
-	return true
+	handled = true
+	if dispatchElementHandler(element.OnScroll, element, Event{
+		Type:   EventScroll,
+		DeltaX: deltaX,
+		DeltaY: deltaY,
+		Target: element,
+	}) {
+		handled = true
+	}
+	return handled
 }
 
 func (element *Element) selectAll() bool {

@@ -28,19 +28,10 @@ func (element *Element) clampControlValue(value int) int {
 }
 
 func (element *Element) dispatchChange() {
-	if element == nil || element.OnChange == nil {
+	if element == nil {
 		return
 	}
-	switch handler := element.OnChange.(type) {
-	case func():
-		handler()
-	case func(*Element):
-		handler(element)
-	case func(bool):
-		handler(element.checked)
-	case func(int):
-		handler(element.value)
-	}
+	element.dispatchChangeEvent()
 }
 
 func (element *Element) sameRadioGroup(other *Element) bool {

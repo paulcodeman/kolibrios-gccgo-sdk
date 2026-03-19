@@ -9,6 +9,16 @@ type Element struct {
 	Text                   string
 	Label                  string
 	OnChange               interface{}
+	OnInput                interface{}
+	OnMouseDown            interface{}
+	OnMouseUp              interface{}
+	OnMouseMove            interface{}
+	OnMouseEnter           interface{}
+	OnMouseLeave           interface{}
+	OnScroll               interface{}
+	OnFocus                interface{}
+	OnBlur                 interface{}
+	OnKeyDown              interface{}
 	Parent                 *Element
 	window                 *Window
 	Children               []Node

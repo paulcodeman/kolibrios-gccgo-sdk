@@ -204,6 +204,24 @@ func (element *Element) isFocusable() bool {
 	return element.OnClick != nil
 }
 
+func (element *Element) hasEventHandlers() bool {
+	if element == nil {
+		return false
+	}
+	return element.OnClick != nil ||
+		element.OnChange != nil ||
+		element.OnInput != nil ||
+		element.OnMouseDown != nil ||
+		element.OnMouseUp != nil ||
+		element.OnMouseMove != nil ||
+		element.OnMouseEnter != nil ||
+		element.OnMouseLeave != nil ||
+		element.OnScroll != nil ||
+		element.OnFocus != nil ||
+		element.OnBlur != nil ||
+		element.OnKeyDown != nil
+}
+
 func (element *Element) isClickable() bool {
 	if element == nil {
 		return false
