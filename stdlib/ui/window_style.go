@@ -6,10 +6,14 @@ func (window *Window) UpdateStyle(update func(style *Style)) bool {
 		return false
 	}
 	oldStyle := window.Style
-	oldOverflow := window.overflowModeY()
 	oldVisual := visualKeyFor(oldStyle)
 	update(&window.Style)
-	window.invalidateWindowPropertyState()
+	displayStateChanged := window.styleDisplayStateChanged(oldStyle, window.Style)
+	if displayStateChanged {
+		window.invalidateWindowPropertyState()
+	} else if !styleVisualKeyEqual(oldVisual, visualKeyFor(window.Style)) {
+		window.invalidateWindowEffectPropertyState()
+	}
 	changed := window.applyStyleBounds()
 	if window.styleLayoutChanged(oldStyle, window.Style) {
 		window.layoutDirty = true
@@ -24,6 +28,7 @@ func (window *Window) UpdateStyle(update func(style *Style)) bool {
 		}
 		changed = true
 	}
+	oldOverflow := window.overflowModeYForStyle(oldStyle)
 	newOverflow := window.overflowModeY()
 	if oldOverflow != newOverflow {
 		window.updateScrollMetrics()
@@ -72,28 +77,60 @@ func (window *Window) applyStyleBounds() bool {
 }
 
 func (window *Window) styleLayoutChanged(oldStyle Style, newStyle Style) bool {
-	if borderWidthFor(oldStyle) != borderWidthFor(newStyle) {
+	if boxInsets(oldStyle) != boxInsets(newStyle) {
 		return true
 	}
-	oldPadding, _ := resolveSpacingNormalized(oldStyle.padding)
-	newPadding, _ := resolveSpacingNormalized(newStyle.padding)
-	return oldPadding != newPadding
+	return false
+}
+
+func (window *Window) overflowModeYForStyle(style Style) OverflowMode {
+	if window == nil {
+		return OverflowVisible
+	}
+	if style.overflow == nil && style.overflowY == nil {
+		return OverflowAuto
+	}
+	return overflowModeFor(style, "y")
+}
+
+func (window *Window) scrollEnabledForStyle(style Style) bool {
+	if window == nil || !WindowScrollYEnabled {
+		return false
+	}
+	mode := window.overflowModeYForStyle(style)
+	return mode == OverflowScroll || mode == OverflowAuto
+}
+
+func (window *Window) styleClipAxes(style Style) (bool, bool) {
+	if window == nil {
+		return false, false
+	}
+	clipX, clipY := overflowClipAxes(style)
+	if !clipY && window.scrollEnabledForStyle(style) {
+		clipY = true
+	}
+	return clipX, clipY
+}
+
+func (window *Window) styleDisplayStateChanged(oldStyle Style, newStyle Style) bool {
+	if window == nil {
+		return true
+	}
+	if boxInsets(oldStyle) != boxInsets(newStyle) {
+		return true
+	}
+	oldClipX, oldClipY := window.styleClipAxes(oldStyle)
+	newClipX, newClipY := window.styleClipAxes(newStyle)
+	return oldClipX != newClipX || oldClipY != newClipY
 }
 
 func (window *Window) overflowModeY() OverflowMode {
 	if window == nil {
 		return OverflowVisible
 	}
-	if window.Style.overflow == nil && window.Style.overflowY == nil {
-		return OverflowAuto
-	}
-	return overflowModeFor(window.Style, "y")
+	return window.overflowModeYForStyle(window.Style)
 }
 
 func (window *Window) scrollEnabled() bool {
-	if window == nil || !WindowScrollYEnabled {
-		return false
-	}
-	mode := window.overflowModeY()
-	return mode == OverflowScroll || mode == OverflowAuto
+	return window.scrollEnabledForStyle(window.Style)
 }

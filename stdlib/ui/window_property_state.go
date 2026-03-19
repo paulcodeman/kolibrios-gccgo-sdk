@@ -35,9 +35,22 @@ func (window *Window) invalidateWindowPropertyState() {
 	if window == nil {
 		return
 	}
+	window.invalidateWindowEffectPropertyState()
+	window.invalidateWindowDisplayState()
+}
+
+func (window *Window) invalidateWindowEffectPropertyState() {
+	if window == nil {
+		return
+	}
 	window.propertyState = windowPropertyState{}
 	window.propertyStateValid = false
-	window.invalidateWindowDisplayState()
+	if window.frameStateActive {
+		window.frameState.properties = windowPropertyState{}
+		window.frameState.propertiesValid = false
+		window.frameState.prepaint = windowPrepaintPlan{}
+		window.frameState.prepaintValid = false
+	}
 }
 
 func (window *Window) windowPropertyStateValue() windowPropertyState {
