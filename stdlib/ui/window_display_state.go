@@ -20,6 +20,18 @@ func (window *Window) invalidateWindowDisplayState() {
 	}
 }
 
+func (window *Window) invalidateWindowDisplayItemsState() {
+	if window == nil {
+		return
+	}
+	window.displayState.items = nil
+	window.displayState.itemsValid = false
+	if window.frameStateActive {
+		window.frameState.display = DisplayList{}
+		window.frameState.displayValid = false
+	}
+}
+
 func (window *Window) invalidateWindowDisplayClipState() {
 	if window == nil {
 		return

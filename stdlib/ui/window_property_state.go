@@ -69,7 +69,8 @@ func (window *Window) invalidateWindowContentPropertyState() {
 		window.frameState.prepaint = windowPrepaintPlan{}
 		window.frameState.prepaintValid = false
 	}
-	window.invalidateWindowDisplayState()
+	window.invalidateWindowDisplayClipState()
+	window.invalidateWindowDisplayScrollState()
 }
 
 func (window *Window) invalidateWindowScrollPropertyState() {

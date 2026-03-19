@@ -48,7 +48,7 @@ func (window *Window) buildRenderList() {
 	if window == nil {
 		return
 	}
-	window.invalidateWindowDisplayState()
+	window.invalidateWindowDisplayItemsState()
 	window.renderList = window.renderList[:0]
 	window.allNodes = window.allNodes[:0]
 	window.tinyglNodes = window.tinyglNodes[:0]
