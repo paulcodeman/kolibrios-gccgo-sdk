@@ -223,8 +223,12 @@ func (window *Window) drawDirty() {
 	}
 	window.applyPrepaintPlan(plan)
 	window.ensureRenderList()
-	window.drawRenderList(false, plan.dirty, nil)
-	window.drawWindowScrollbar(false, plan.dirty)
+	window.drawRenderList(false, plan.contentDirty, nil)
+	scrollbarDirty := plan.dirty
+	if plan.scrollbarDirtySet {
+		scrollbarDirty = plan.scrollbarDirty
+	}
+	window.drawWindowScrollbar(false, scrollbarDirty)
 	window.syncScrollDrawState()
 }
 
@@ -250,8 +254,12 @@ func (window *Window) drawDirtyStats(stats *FrameStats) {
 	startList := kos.UptimeNanoseconds()
 	window.ensureRenderList()
 	stats.RenderListNs = kos.UptimeNanoseconds() - startList
-	window.drawRenderList(false, plan.dirty, stats)
-	window.drawWindowScrollbar(false, plan.dirty)
+	window.drawRenderList(false, plan.contentDirty, stats)
+	scrollbarDirty := plan.dirty
+	if plan.scrollbarDirtySet {
+		scrollbarDirty = plan.scrollbarDirty
+	}
+	window.drawWindowScrollbar(false, scrollbarDirty)
 	stats.DrawNs = kos.UptimeNanoseconds() - start
 	window.syncScrollDrawState()
 }

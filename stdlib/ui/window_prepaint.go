@@ -21,6 +21,9 @@ const (
 type windowPrepaintPlan struct {
 	mode               windowPrepaintMode
 	dirty              Rect
+	contentDirty       Rect
+	scrollbarDirty     Rect
+	scrollbarDirtySet  bool
 	clearMode          windowPrepaintClearMode
 	clearColor         kos.Color
 	backgroundCache    *Canvas
@@ -55,12 +58,16 @@ func (window *Window) buildPrepaintPlanWithState(state windowPropertyState, dirt
 	}
 	full := Rect{X: 0, Y: 0, Width: window.client.Width, Height: window.client.Height}
 	plan := windowPrepaintPlan{
-		mode:  windowPrepaintPartial,
-		dirty: dirtyPlan.dirty,
+		mode:           windowPrepaintPartial,
+		dirty:          dirtyPlan.dirty,
+		contentDirty:   dirtyPlan.dirty,
+		scrollbarDirty: dirtyPlan.dirty,
 	}
 	if dirtyPlan.hasDamage(windowDirtyDamageFull) || plan.dirty == full {
 		plan.mode = windowPrepaintFull
 		plan.dirty = full
+		plan.contentDirty = full
+		plan.scrollbarDirty = full
 		return plan, true
 	}
 	if state.effect.simpleBackground {
@@ -80,6 +87,14 @@ func (window *Window) buildPrepaintPlanWithState(state windowPropertyState, dirt
 		window.canUseScrollBlit(state.scroll.viewport) &&
 		dirtyPlan.dirty == window.scrollDirtyRectWithState(state) {
 		plan.applyScrollBlit = true
+		plan.contentDirty = scrollExposeRect(state.scroll.viewport, state.scroll.deltaY)
+		if plan.contentDirty.Empty() {
+			plan.contentDirty = state.scroll.viewport
+		}
+		if track, _, _, ok := window.windowScrollbarLayout(); ok {
+			plan.scrollbarDirty = track
+			plan.scrollbarDirtySet = true
+		}
 	}
 	if dirtyPlan.hasDamage(windowDirtyDamageTranslate) && !dirtyPlan.hasDamage(windowDirtyDamageScroll) {
 		plan.applyTranslateBlit = true
@@ -110,10 +125,10 @@ func (window *Window) applyPrepaintPlan(plan windowPrepaintPlan) {
 	}
 	switch plan.clearMode {
 	case windowPrepaintClearSolid:
-		window.canvas.FillRect(plan.dirty.X, plan.dirty.Y, plan.dirty.Width, plan.dirty.Height, plan.clearColor)
+		window.canvas.FillRect(plan.contentDirty.X, plan.contentDirty.Y, plan.contentDirty.Width, plan.contentDirty.Height, plan.clearColor)
 	case windowPrepaintClearCache:
 		if plan.backgroundCache != nil {
-			window.canvas.BlitFrom(plan.backgroundCache, plan.dirty, plan.dirty.X, plan.dirty.Y)
+			window.canvas.BlitFrom(plan.backgroundCache, plan.contentDirty, plan.contentDirty.X, plan.contentDirty.Y)
 		}
 	}
 }
