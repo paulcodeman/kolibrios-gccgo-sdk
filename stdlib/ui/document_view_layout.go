@@ -53,8 +53,15 @@ func (view *DocumentView) drawToOffset(canvas *Canvas, offsetY int) {
 		view.drawnScrollY = view.scrollY
 		return
 	}
-	view.applyPendingScrollBlit(canvas, style, viewport)
-	canvas.PushClip(viewport)
+	documentDirty := viewport
+	scrollDelta := view.pendingScrollDelta()
+	if view.applyPendingScrollBlit(canvas, style, viewport) {
+		exposed := scrollExposeRect(viewport, scrollDelta)
+		if !exposed.Empty() {
+			documentDirty = exposed
+		}
+	}
+	canvas.PushClip(documentDirty)
 	view.Document.PaintOffset(canvas, 0, offsetY-view.scrollY)
 	canvas.PopClip()
 	view.drawDocumentScrollbar(canvas, rect, style)
