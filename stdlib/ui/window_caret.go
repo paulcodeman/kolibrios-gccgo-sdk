@@ -13,7 +13,7 @@ func (window *Window) caretBlinkActive() bool {
 	if !ok || !element.isTextInput() {
 		return false
 	}
-	return element.focused
+	return element.focused && !element.hasSelection()
 }
 
 func (window *Window) caretBlinkTimeout() uint32 {
@@ -80,6 +80,15 @@ func (window *Window) noteCaretBlinkDirty() {
 		return
 	}
 	if element, ok := window.focused.(*Element); ok && element.isTextInput() {
+		style := element.effectiveStyle()
+		rect := element.layoutRect
+		if rect.Empty() {
+			rect = element.Bounds()
+		}
+		if dirty := element.caretDirtyRect(rect, style); !dirty.Empty() {
+			window.InvalidateContent(dirty)
+			return
+		}
 		element.MarkDirty()
 	}
 }

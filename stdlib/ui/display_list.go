@@ -33,7 +33,7 @@ func (list DisplayList) itemPaintState(item renderItem, full bool, dirty Rect) (
 	}
 	clipSet := false
 	clipRect := Rect{}
-	if !full && !dirty.Empty() && !nodeNeedsFullDirtyPaint(item.node) {
+	if !full && !dirty.Empty() && nodeAllowsDirtyClip(item.node, dirty) {
 		clipRect = dirty
 		clipSet = true
 		actual = IntersectRect(actual, dirty)
@@ -76,7 +76,7 @@ func (list DisplayList) itemOpaqueCoverRect(item renderItem, full bool, dirty Re
 	return cover, true
 }
 
-func nodeNeedsFullDirtyPaint(node Node) bool {
+func nodeAllowsDirtyClip(node Node, dirty Rect) bool {
 	if node == nil {
 		return false
 	}
@@ -86,40 +86,40 @@ func nodeNeedsFullDirtyPaint(node Node) bool {
 			return false
 		}
 		style := current.effectiveStyle()
-		if current.canUseDirtyClip(style) {
-			return false
-		}
 		if current.isTextInput() {
-			return true
+			clipRect := current.textInputDirtyClipRect(style)
+			return !clipRect.Empty() && rectContainsRect(clipRect, dirty)
 		}
 		if elementShowsDefaultFocusRing(current) {
-			return true
+			return false
 		}
 		if resolveBorderRadius(style).Active() {
-			return true
+			return false
 		}
 		if shadow, ok := resolveShadow(style.shadow); ok && shadow != nil {
-			return true
+			return false
 		}
 		if opacity, ok := resolveOpacity(style.opacity); ok && opacity < 255 {
-			return true
+			return false
 		}
+		return true
 	case *DocumentView:
 		if current == nil {
 			return false
 		}
 		style := current.effectiveStyle()
 		if resolveBorderRadius(style).Active() {
-			return true
+			return false
 		}
 		if shadow, ok := resolveShadow(style.shadow); ok && shadow != nil {
-			return true
+			return false
 		}
 		if opacity, ok := resolveOpacity(style.opacity); ok && opacity < 255 {
-			return true
+			return false
 		}
+		return true
 	}
-	return false
+	return true
 }
 
 func (element *Element) canUseDirtyClip(style Style) bool {

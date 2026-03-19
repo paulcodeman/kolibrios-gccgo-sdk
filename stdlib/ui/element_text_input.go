@@ -634,6 +634,64 @@ func (element *Element) drawEditableTextLines(layout textInputLayout, style Styl
 	}
 }
 
+func (element *Element) caretRectFromLayout(layout textInputLayout) Rect {
+	if element == nil || !element.isTextInput() {
+		return Rect{}
+	}
+	content := layout.content
+	if content.Empty() {
+		return Rect{}
+	}
+	lines := layout.lines
+	if len(lines) == 0 {
+		lines = []textLine{{text: "", start: 0, end: 0}}
+	}
+	lineHeight := layout.lineHeight
+	if lineHeight <= 0 {
+		lineHeight = defaultFontHeight
+	}
+	charWidth := layout.charWidth
+	if charWidth <= 0 {
+		charWidth = defaultCharWidth
+	}
+	line, col := element.caretLineAndColumn(lines)
+	lineText := ""
+	if line >= 0 && line < len(lines) {
+		lineText = lines[line].text
+	}
+	caretX := content.X + textWidthForColumns(lineText, col, layout.font, charWidth) - element.scrollX
+	caretY := content.Y + line*lineHeight - element.scrollY
+	caret := Rect{
+		X:      caretX,
+		Y:      caretY,
+		Width:  1,
+		Height: lineHeight,
+	}
+	return IntersectRect(caret, content)
+}
+
+func (element *Element) caretDirtyRect(rect Rect, style Style) Rect {
+	if element == nil || !element.isTextInput() {
+		return Rect{}
+	}
+	layout := element.textInputLayout(rect, style)
+	defer layout.release()
+	return element.caretRectFromLayout(layout)
+}
+
+func (element *Element) textInputDirtyClipRect(style Style) Rect {
+	if element == nil || !element.isTextInput() {
+		return Rect{}
+	}
+	rect := element.layoutRect
+	if rect.Empty() {
+		rect = element.Bounds()
+	}
+	layout := element.textInputLayout(rect, style)
+	defer layout.release()
+	return layout.content
+}
+
 func (element *Element) caretVisible() bool {
 	if element == nil || !element.focused {
 		return false
