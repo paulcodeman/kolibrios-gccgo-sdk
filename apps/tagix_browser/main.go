@@ -3,6 +3,7 @@ package main
 import (
 	"dom"
 	"kos"
+	neturl "net/url"
 	"os"
 	"strings"
 	"ui"
@@ -25,9 +26,9 @@ const (
 
 const defaultAboutHomeHTML = `<html><head><title>Tagix Browser</title></head><body><h1>Tagix Browser</h1><p>This built-in page is rendered through the same HTML5 parser and DocumentView pipeline as remote content.</p><p><a href="about:forms">Open the built-in forms demo</a> or visit <a href="https://example.com">example.com</a>.</p><h2>What to test</h2><ul><li>Inline links inside paragraphs</li><li>Preformatted code blocks</li><li>Lists and headings</li><li>Document focus, hover and scroll</li></ul><pre><code>&lt;html&gt; -&gt; dom.Parse -&gt; ui.DocumentNode -&gt; DocumentView</code></pre></body></html>`
 
-const defaultAboutFormsHTML = `<html><head><title>Tagix Forms</title></head><body><h1>Tagix Forms</h1><p>This page exists to test browser-side HTML controls that are currently mapped onto the shared UI pipeline.</p><p><a href="about:tagix">Back to the built-in home page</a></p><h2>Text controls</h2><p><input type="text" value="https://kolibrios.org" placeholder="Type a URL"></p><p><input type="search" placeholder="Search demo"></p><textarea rows="4">Textarea fallback content.
+const defaultAboutFormsHTML = `<html><head><title>Tagix Forms</title></head><body><h1>Tagix Forms</h1><p>This page exists to test browser-side HTML controls that are currently mapped onto the shared UI pipeline.</p><p><a href="about:tagix">Back to the built-in home page</a></p><p>Submit keeps you on built-in pages by targeting <code>about:tagix</code>; after submit, the address bar should include the serialized query string.</p><form action="about:tagix" method="get"><input type="hidden" name="source" value="about:forms"><h2>Text controls</h2><p><input type="text" name="url" value="https://kolibrios.org" placeholder="Type a URL"></p><p><input type="search" name="query" placeholder="Search demo"></p><p>Textarea currently submits its initial content; multiline editing is still pending in the shared DocumentView host.</p><textarea name="notes" rows="4">Textarea fallback content.
 Second line.
-Third line.</textarea><h2>Choice controls</h2><p><input type="checkbox" checked value="Remember this choice"></p><p><input type="checkbox" value="Enable compact mode"></p><p><input type="radio" name="theme" checked value="Ocean theme"></p><p><input type="radio" name="theme" value="Sunset theme"></p><p><select><option selected>First option</option><option>Second option</option><option>Third option</option></select></p><h2>Range and progress</h2><p><input type="range" min="0" max="10" step="2" value="4"></p><p><progress value="42" max="100"></progress></p><h2>Buttons</h2><p><button>Plain button</button></p><p><input type="submit" value="Submit button"></p></body></html>`
+Third line.</textarea><h2>Choice controls</h2><p><input type="checkbox" name="remember" checked value="1"></p><p><input type="checkbox" name="compact" value="1"></p><p><input type="radio" name="theme" checked value="ocean"></p><p><input type="radio" name="theme" value="sunset"></p><p><select name="mode"><option selected value="first">First option</option><option value="second">Second option</option><option value="third">Third option</option></select></p><h2>Range and progress</h2><p><input type="range" name="level" min="0" max="10" step="2" value="4"></p><p><progress value="42" max="100"></progress></p><h2>Buttons</h2><p><button type="submit" name="submitter" value="button">Submit form</button></p><p><input type="reset" value="Reset form"></p></form></body></html>`
 
 type App struct {
 	window *ui.Window
@@ -289,6 +290,8 @@ func (app *App) loadBuiltinPage(url string) bool {
 	app.pageTitle = pageTitle
 	app.pageDocument.SetRoot(buildRenderedDocument(app.pageTitle, app.currentURL, doc, func(target string) {
 		app.openURL(target, true)
+	}, func(actionURL string, method string, values neturl.Values) {
+		app.submitForm(actionURL, method, values)
 	}, func() {
 		app.pageDocument.MarkLayoutDirty()
 	}, func() {
@@ -299,7 +302,7 @@ func (app *App) loadBuiltinPage(url string) bool {
 }
 
 func builtinPageSource(url string) (string, string, string, bool) {
-	switch strings.ToLower(strings.TrimSpace(url)) {
+	switch strings.ToLower(strings.TrimSpace(stripFragment(stripQuery(url)))) {
 	case "about:tagix":
 		return "Tagix Browser", "Built-in page", loadBuiltinAsset(aboutHomeAsset, defaultAboutHomeHTML), true
 	case strings.ToLower(aboutFormsURL):
@@ -315,6 +318,33 @@ func loadBuiltinAsset(path string, fallback string) string {
 		return fallback
 	}
 	return string(data)
+}
+
+func (app *App) submitForm(actionURL string, method string, values neturl.Values) {
+	if app == nil {
+		return
+	}
+	actionURL = strings.TrimSpace(actionURL)
+	if actionURL == "" {
+		actionURL = app.currentURL
+	}
+	method = strings.ToLower(strings.TrimSpace(method))
+	if method == "" {
+		method = "get"
+	}
+	switch method {
+	case "get":
+		encoded := ""
+		if values != nil {
+			encoded = values.Encode()
+		}
+		app.openURL(appendURLQuery(actionURL, encoded), true)
+	default:
+		app.pageTitle = "Unsupported form method"
+		app.statusBase = strings.ToUpper(method) + " not supported"
+		app.showMessageDocument("Unsupported form method", "This lite browser currently supports GET form submission only.")
+		app.syncShell()
+	}
 }
 
 func (app *App) updateContent(header string, body []byte) {
@@ -338,6 +368,8 @@ func (app *App) updateContent(header string, body []byte) {
 	app.pageTitle = documentTitle(doc)
 	app.pageDocument.SetRoot(buildRenderedDocument(app.pageTitle, app.currentURL, doc, func(target string) {
 		app.openURL(target, true)
+	}, func(actionURL string, method string, values neturl.Values) {
+		app.submitForm(actionURL, method, values)
 	}, func() {
 		app.pageDocument.MarkLayoutDirty()
 	}, func() {

@@ -6,7 +6,14 @@ func normalizeURL(value string) string {
 	value = strings.TrimSpace(value)
 	lower := strings.ToLower(value)
 	if strings.HasPrefix(lower, "about:") {
-		return lower
+		end := len(value)
+		if pos := indexByte(value, '?'); pos >= 0 && pos < end {
+			end = pos
+		}
+		if pos := indexByte(value, '#'); pos >= 0 && pos < end {
+			end = pos
+		}
+		return strings.ToLower(value[:end]) + value[end:]
 	}
 	if strings.Contains(value, "://") {
 		return value
@@ -33,6 +40,12 @@ func resolveURL(baseURL string, href string) string {
 		}
 		return scheme + ":" + href
 	}
+	if strings.HasPrefix(href, "#") {
+		return stripFragment(baseURL) + href
+	}
+	if strings.HasPrefix(href, "?") {
+		return stripQuery(stripFragment(baseURL)) + href
+	}
 
 	scheme, host, path := splitURL(baseURL)
 	if scheme == "" || host == "" {
@@ -52,6 +65,27 @@ func resolveURL(baseURL string, href string) string {
 		href = href[2:]
 	}
 	return scheme + "://" + host + baseDir + href
+}
+
+func appendURLQuery(rawURL string, encoded string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	encoded = strings.TrimSpace(encoded)
+	if rawURL == "" || encoded == "" {
+		return rawURL
+	}
+	fragment := ""
+	if pos := indexByte(rawURL, '#'); pos >= 0 {
+		fragment = rawURL[pos:]
+		rawURL = rawURL[:pos]
+	}
+	separator := "?"
+	if strings.Contains(rawURL, "?") {
+		separator = "&"
+		if strings.HasSuffix(rawURL, "?") || strings.HasSuffix(rawURL, "&") {
+			separator = ""
+		}
+	}
+	return rawURL + separator + encoded + fragment
 }
 
 func splitURL(raw string) (string, string, string) {

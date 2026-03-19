@@ -272,3 +272,42 @@ func (window *Window) mergeDirtyBounds(dirty Rect, dirtySet bool, oldBounds map[
 	}
 	return dirty, dirtySet
 }
+
+func (window *Window) mergeExplicitDirtyNodes(dirty Rect, dirtySet bool, oldBounds map[Node]Rect, oldPaints map[Node]Rect, newBounds map[Node]Rect, newPaints map[Node]Rect, scrollOffset int, nodes []Node) (Rect, bool) {
+	if len(nodes) == 0 {
+		return dirty, dirtySet
+	}
+	if oldBounds == nil {
+		oldBounds = map[Node]Rect{}
+	}
+	if newBounds == nil {
+		newBounds = map[Node]Rect{}
+	}
+	seen := make(map[Node]struct{}, len(nodes))
+	for _, node := range nodes {
+		if node == nil {
+			continue
+		}
+		if _, ok := seen[node]; ok {
+			continue
+		}
+		seen[node] = struct{}{}
+		oldRect := mergeDirtyPaintBounds(oldBounds[node], oldPaints[node])
+		newRect := mergeDirtyPaintBounds(newBounds[node], newPaints[node])
+		updated := UnionRect(oldRect, newRect)
+		if updated.Empty() {
+			updated = UnionRect(oldBounds[node], newBounds[node])
+		}
+		if updated.Empty() {
+			continue
+		}
+		updated = applyDirtyScrollOffset(updated, scrollOffset)
+		if dirtySet {
+			dirty = UnionRect(dirty, updated)
+		} else {
+			dirty = updated
+			dirtySet = true
+		}
+	}
+	return dirty, dirtySet
+}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"dom"
+	neturl "net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -22,15 +23,136 @@ var (
 type renderContext struct {
 	baseURL       string
 	openURL       func(string)
+	submitForm    func(string, string, neturl.Values)
 	requestPaint  func()
 	requestLayout func()
 	radioGroups   map[string][]*radioControlState
+	forms         map[*dom.Node]*formState
 }
 
 type radioControlState struct {
 	node      *ui.DocumentNode
 	indicator *ui.DocumentNode
 	checked   bool
+}
+
+type formField struct {
+	name  string
+	value string
+}
+
+type formControlState struct {
+	node   *dom.Node
+	fields func(*dom.Node) []formField
+	reset  func() bool
+}
+
+type formState struct {
+	node     *dom.Node
+	ctx      *renderContext
+	controls []*formControlState
+}
+
+func nearestAncestorTag(node *dom.Node, tag string) *dom.Node {
+	for current := node; current != nil; current = current.Parent {
+		if current.Type == dom.ElementNode && current.Tag == tag {
+			return current
+		}
+	}
+	return nil
+}
+
+func (ctx *renderContext) formForControl(node *dom.Node) *formState {
+	if ctx == nil || node == nil {
+		return nil
+	}
+	formNode := nearestAncestorTag(node, "form")
+	if formNode == nil {
+		return nil
+	}
+	if ctx.forms == nil {
+		ctx.forms = map[*dom.Node]*formState{}
+	}
+	if existing, ok := ctx.forms[formNode]; ok {
+		return existing
+	}
+	form := &formState{
+		node: formNode,
+		ctx:  ctx,
+	}
+	ctx.forms[formNode] = form
+	return form
+}
+
+func (form *formState) addControl(control *formControlState) {
+	if form == nil || control == nil {
+		return
+	}
+	form.controls = append(form.controls, control)
+}
+
+func (form *formState) submit(submitter *dom.Node) {
+	if form == nil || form.ctx == nil {
+		return
+	}
+	method := strings.ToLower(attrValue(form.node, "method"))
+	if method == "" {
+		method = "get"
+	}
+	actionURL := resolveFormAction(form.ctx.baseURL, form.node)
+	if actionURL == "" {
+		return
+	}
+	values := make(neturl.Values)
+	for _, control := range form.controls {
+		if control == nil || control.fields == nil {
+			continue
+		}
+		for _, field := range control.fields(submitter) {
+			name := strings.TrimSpace(field.name)
+			if name == "" {
+				continue
+			}
+			values.Add(name, field.value)
+		}
+	}
+	if form.ctx.submitForm != nil {
+		form.ctx.submitForm(actionURL, method, values)
+		return
+	}
+	if method == "get" && form.ctx.openURL != nil {
+		form.ctx.openURL(appendURLQuery(actionURL, values.Encode()))
+	}
+}
+
+func (form *formState) reset() {
+	if form == nil {
+		return
+	}
+	changed := false
+	for _, control := range form.controls {
+		if control == nil || control.reset == nil {
+			continue
+		}
+		if control.reset() {
+			changed = true
+		}
+	}
+	if changed {
+		requestRenderedPageLayout(form.ctx)
+	}
+}
+
+func resolveFormAction(baseURL string, formNode *dom.Node) string {
+	action := attrValue(formNode, "action")
+	if action == "" {
+		return baseURL
+	}
+	resolved := resolveURL(baseURL, action)
+	if resolved == "" {
+		return ""
+	}
+	return resolved
 }
 
 func styled(update func(*ui.Style)) ui.Style {
@@ -414,13 +536,15 @@ func escapeHTMLText(value string) string {
 	return replacer.Replace(value)
 }
 
-func buildRenderedDocument(title string, currentURL string, doc *dom.Document, openURL func(string), requestLayout func(), requestPaint func()) *ui.DocumentNode {
+func buildRenderedDocument(title string, currentURL string, doc *dom.Document, openURL func(string), submitForm func(string, string, neturl.Values), requestLayout func(), requestPaint func()) *ui.DocumentNode {
 	ctx := &renderContext{
 		baseURL:       currentURL,
 		openURL:       openURL,
+		submitForm:    submitForm,
 		requestLayout: requestLayout,
 		requestPaint:  requestPaint,
 		radioGroups:   map[string][]*radioControlState{},
+		forms:         map[*dom.Node]*formState{},
 	}
 	children := make([]*ui.DocumentNode, 0, 24)
 
@@ -533,7 +657,7 @@ func appendDocumentNodes(out *[]*ui.DocumentNode, node *dom.Node, ctx *renderCon
 		}
 		return
 	case "textarea":
-		if area := htmlTextareaNode(node); area != nil {
+		if area := htmlTextareaNode(node, ctx); area != nil {
 			*out = append(*out, area)
 		}
 		return
@@ -1232,6 +1356,27 @@ func htmlInputType(node *dom.Node) string {
 	return value
 }
 
+func htmlButtonType(node *dom.Node) string {
+	if node == nil {
+		return "button"
+	}
+	if node.Tag == "button" {
+		value := strings.ToLower(attrValue(node, "type"))
+		if value == "" {
+			return "submit"
+		}
+		return value
+	}
+	switch htmlInputType(node) {
+	case "submit":
+		return "submit"
+	case "reset":
+		return "reset"
+	default:
+		return "button"
+	}
+}
+
 func htmlControlLabel(node *dom.Node, fallback string) string {
 	label := collectNodeText(node, false)
 	if label == "" {
@@ -1247,6 +1392,14 @@ func htmlControlLabel(node *dom.Node, fallback string) string {
 		label = fallback
 	}
 	return normalizeBlockText(label)
+}
+
+func htmlOptionValue(node *dom.Node) string {
+	value := attrValue(node, "value")
+	if value != "" {
+		return value
+	}
+	return htmlControlLabel(node, "Option")
 }
 
 func requestRenderedPagePaint(ctx *renderContext) {
@@ -1348,17 +1501,58 @@ func applyDisabledControlState(node *ui.DocumentNode) {
 }
 
 func htmlButtonNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
-	label := htmlControlLabel(node, "Button")
+	buttonType := htmlButtonType(node)
+	fallback := "Button"
+	switch buttonType {
+	case "submit":
+		fallback = "Submit"
+	case "reset":
+		fallback = "Reset"
+	}
+	label := htmlControlLabel(node, fallback)
 	if label == "" {
-		label = "Button"
+		label = fallback
 	}
 	button := ui.NewDocumentElement("html-button", htmlControlStyle(),
 		ui.NewDocumentText(label, htmlControlTextStyle()),
 	)
 	button.Focusable = true
 	applyInteractiveControlStyles(button)
-	if hasAttr(node, "disabled") {
+	disabled := hasAttr(node, "disabled")
+	if disabled {
 		applyDisabledControlState(button)
+		return button
+	}
+	form := ctx.formForControl(node)
+	switch buttonType {
+	case "submit":
+		if form != nil {
+			button.OnClick = func() {
+				form.submit(node)
+			}
+		}
+	case "reset":
+		if form != nil {
+			button.OnClick = func() {
+				form.reset()
+			}
+		}
+	}
+	if form != nil && buttonType == "submit" {
+		name := attrValue(node, "name")
+		value := attrValue(node, "value")
+		if value == "" {
+			value = label
+		}
+		form.addControl(&formControlState{
+			node: node,
+			fields: func(submitter *dom.Node) []formField {
+				if submitter != node || name == "" {
+					return nil
+				}
+				return []formField{{name: name, value: value}}
+			},
+		})
 	}
 	return button
 }
@@ -1366,6 +1560,19 @@ func htmlButtonNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
 func htmlInputNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
 	switch htmlInputType(node) {
 	case "hidden":
+		if form := ctx.formForControl(node); form != nil {
+			name := attrValue(node, "name")
+			value := attrValue(node, "value")
+			form.addControl(&formControlState{
+				node: node,
+				fields: func(_ *dom.Node) []formField {
+					if hasAttr(node, "disabled") || name == "" {
+						return nil
+					}
+					return []formField{{name: name, value: value}}
+				},
+			})
+		}
 		return nil
 	case "submit", "button", "reset":
 		return htmlButtonNode(node, ctx)
@@ -1376,11 +1583,11 @@ func htmlInputNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
 	case "range":
 		return htmlRangeNode(node, ctx)
 	default:
-		return htmlTextInputNode(node)
+		return htmlTextInputNode(node, ctx)
 	}
 }
 
-func htmlTextInputNode(node *dom.Node) *ui.DocumentNode {
+func htmlTextInputNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
 	input := ui.NewDocumentElement("html-input", htmlControlStyle(), nil)
 	input.Editable = true
 	input.Focusable = true
@@ -1406,14 +1613,41 @@ func htmlTextInputNode(node *dom.Node) *ui.DocumentNode {
 		style.SetOutline(2, ui.Blue)
 		style.SetOutlineOffset(1)
 	})
-	if hasAttr(node, "disabled") {
+	disabled := hasAttr(node, "disabled")
+	if disabled {
 		applyDisabledControlState(input)
+		return input
+	}
+	form := ctx.formForControl(node)
+	if form != nil {
+		name := attrValue(node, "name")
+		initialValue := attrValue(node, "value")
+		form.addControl(&formControlState{
+			node: node,
+			fields: func(_ *dom.Node) []formField {
+				if name == "" {
+					return nil
+				}
+				return []formField{{name: name, value: input.Value}}
+			},
+			reset: func() bool {
+				if input.Value == initialValue {
+					return false
+				}
+				input.Value = initialValue
+				return true
+			},
+		})
+		input.OnChange = func(*ui.DocumentNode) {
+			form.submit(nil)
+		}
 	}
 	return input
 }
 
 func htmlCheckboxNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
 	checked := hasAttr(node, "checked")
+	initialChecked := checked
 	indicator := ui.NewDocumentText("[ ]", htmlControlIndicatorStyle())
 	if checked {
 		indicator.Text = "[x]"
@@ -1425,7 +1659,36 @@ func htmlCheckboxNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
 	)
 	control.Focusable = true
 	applyInteractiveControlStyles(control)
-	if hasAttr(node, "disabled") {
+	disabled := hasAttr(node, "disabled")
+	if form := ctx.formForControl(node); form != nil {
+		name := attrValue(node, "name")
+		value := attrValue(node, "value")
+		if value == "" {
+			value = "on"
+		}
+		form.addControl(&formControlState{
+			node: node,
+			fields: func(_ *dom.Node) []formField {
+				if disabled || name == "" || !checked {
+					return nil
+				}
+				return []formField{{name: name, value: value}}
+			},
+			reset: func() bool {
+				if checked == initialChecked {
+					return false
+				}
+				checked = initialChecked
+				if checked {
+					indicator.Text = "[x]"
+				} else {
+					indicator.Text = "[ ]"
+				}
+				return true
+			},
+		})
+	}
+	if disabled {
 		applyDisabledControlState(control)
 		return control
 	}
@@ -1456,6 +1719,7 @@ func htmlCheckboxNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
 
 func htmlRadioNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
 	checked := hasAttr(node, "checked")
+	initialChecked := checked
 	indicator := ui.NewDocumentText("( )", htmlControlIndicatorStyle())
 	if checked {
 		indicator.Text = "(o)"
@@ -1482,6 +1746,34 @@ func htmlRadioNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
 	}
 	if ctx != nil {
 		ctx.radioGroups[group] = append(ctx.radioGroups[group], state)
+	}
+	if form := ctx.formForControl(node); form != nil {
+		name := attrValue(node, "name")
+		value := attrValue(node, "value")
+		if value == "" {
+			value = "on"
+		}
+		form.addControl(&formControlState{
+			node: node,
+			fields: func(_ *dom.Node) []formField {
+				if name == "" || !state.checked {
+					return nil
+				}
+				return []formField{{name: name, value: value}}
+			},
+			reset: func() bool {
+				if state.checked == initialChecked {
+					return false
+				}
+				state.checked = initialChecked
+				if state.checked {
+					state.indicator.Text = "(o)"
+				} else {
+					state.indicator.Text = "( )"
+				}
+				return true
+			},
+		})
 	}
 	selectRadio := func() {
 		changed := false
@@ -1546,6 +1838,7 @@ func htmlRangeNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
 	if value > maxValue {
 		value = maxValue
 	}
+	initialValue := value
 	label := htmlControlLabel(node, "Range")
 	valueText := ui.NewDocumentText("", htmlControlTextStyle())
 	hintText := ui.NewDocumentText("", htmlControlHintStyle())
@@ -1557,7 +1850,28 @@ func htmlRangeNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
 	control := ui.NewDocumentElement("html-range", htmlControlStyle(), valueText, hintText)
 	control.Focusable = true
 	applyInteractiveControlStyles(control)
-	if hasAttr(node, "disabled") {
+	disabled := hasAttr(node, "disabled")
+	if form := ctx.formForControl(node); form != nil {
+		name := attrValue(node, "name")
+		form.addControl(&formControlState{
+			node: node,
+			fields: func(_ *dom.Node) []formField {
+				if disabled || name == "" {
+					return nil
+				}
+				return []formField{{name: name, value: strconv.Itoa(value)}}
+			},
+			reset: func() bool {
+				if value == initialValue {
+					return false
+				}
+				value = initialValue
+				update()
+				return true
+			},
+		})
+	}
+	if disabled {
 		applyDisabledControlState(control)
 		return control
 	}
@@ -1604,8 +1918,9 @@ func htmlRangeNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
 	return control
 }
 
-func htmlTextareaNode(node *dom.Node) *ui.DocumentNode {
+func htmlTextareaNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
 	text := collectNodeTextPreserve(node, false)
+	initialText := text
 	if text == "" {
 		text = attrValue(node, "placeholder")
 	}
@@ -1622,6 +1937,18 @@ func htmlTextareaNode(node *dom.Node) *ui.DocumentNode {
 			style.SetWhiteSpace(ui.WhiteSpacePreWrap)
 		})),
 	)
+	if form := ctx.formForControl(node); form != nil {
+		name := attrValue(node, "name")
+		form.addControl(&formControlState{
+			node: node,
+			fields: func(_ *dom.Node) []formField {
+				if hasAttr(node, "disabled") || name == "" {
+					return nil
+				}
+				return []formField{{name: name, value: initialText}}
+			},
+		})
+	}
 	if rows := attrInt(node, "rows", 0); rows > 0 {
 		height := rows*18 + 18
 		if height < 56 {
@@ -1635,6 +1962,7 @@ func htmlTextareaNode(node *dom.Node) *ui.DocumentNode {
 func htmlSelectNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
 	type optionState struct {
 		label string
+		value string
 	}
 	options := make([]optionState, 0, len(node.Children))
 	selected := 0
@@ -1646,22 +1974,47 @@ func htmlSelectNode(node *dom.Node, ctx *renderContext) *ui.DocumentNode {
 		if label == "" {
 			label = "Option"
 		}
-		options = append(options, optionState{label: label})
+		options = append(options, optionState{
+			label: label,
+			value: htmlOptionValue(child),
+		})
 		if hasAttr(child, "selected") {
 			selected = len(options) - 1
 		}
 	}
 	if len(options) == 0 {
-		options = append(options, optionState{label: "Select option"})
+		options = append(options, optionState{label: "Select option", value: "Select option"})
 	}
 	if selected < 0 || selected >= len(options) {
 		selected = 0
 	}
+	initialSelected := selected
 	valueText := ui.NewDocumentText(options[selected].label, htmlControlTextStyle())
 	control := ui.NewDocumentElement("html-select", htmlControlStyle(), valueText)
 	control.Focusable = true
 	applyInteractiveControlStyles(control)
-	if hasAttr(node, "disabled") {
+	disabled := hasAttr(node, "disabled")
+	if form := ctx.formForControl(node); form != nil {
+		name := attrValue(node, "name")
+		form.addControl(&formControlState{
+			node: node,
+			fields: func(_ *dom.Node) []formField {
+				if disabled || name == "" || selected < 0 || selected >= len(options) {
+					return nil
+				}
+				return []formField{{name: name, value: options[selected].value}}
+			},
+			reset: func() bool {
+				if selected == initialSelected {
+					return false
+				}
+				selected = initialSelected
+				valueText.Text = options[selected].label
+				return true
+			},
+		})
+	}
+	if disabled {
 		applyDisabledControlState(control)
 		return control
 	}

@@ -107,6 +107,9 @@ func (window *Window) buildDirtyPlan() windowDirtyPlan {
 		plan.damage |= windowDirtyDamageFull
 		return plan
 	}
+	if len(window.dirtyList) > 0 {
+		plan.dirtyNodes = window.copyDirtyPlanNodes(window.dirtyList)
+	}
 	if window.layoutDirty {
 		plan.mode = windowDirtyPlanLayout
 		plan.damage |= windowDirtyDamageLayout
@@ -159,7 +162,7 @@ func (window *Window) applyDirtyPlan(plan *windowDirtyPlan) bool {
 	dirtySet := plan.dirtySet
 	switch plan.mode {
 	case windowDirtyPlanNone:
-		// No structural work needed; keep current dirty state.
+	// No structural work needed; keep current dirty state.
 	case windowDirtyPlanLayout:
 		oldBounds := window.copyNodeBounds()
 		oldPaints := window.copyNodePaints()
@@ -167,6 +170,7 @@ func (window *Window) applyDirtyPlan(plan *windowDirtyPlan) bool {
 		window.layoutFlow()
 		window.buildRenderList()
 		dirty, dirtySet = window.mergeDirtyBounds(dirty, dirtySet, oldBounds, oldPaints, oldKeys, window.nodeBounds, window.copyNodePaints(), plan.scrollOffset)
+		dirty, dirtySet = window.mergeExplicitDirtyNodes(dirty, dirtySet, oldBounds, oldPaints, window.nodeBounds, window.copyNodePaints(), plan.scrollOffset, plan.dirtyNodes)
 		window.invalidateHoverTracking()
 		window.layoutDirty = false
 		window.resetDirtyQueue()
@@ -176,6 +180,7 @@ func (window *Window) applyDirtyPlan(plan *windowDirtyPlan) bool {
 		oldKeys := copyElementRenderKeys(oldBounds)
 		window.buildRenderList()
 		dirty, dirtySet = window.mergeDirtyBounds(dirty, dirtySet, oldBounds, oldPaints, oldKeys, window.nodeBounds, window.copyNodePaints(), plan.scrollOffset)
+		dirty, dirtySet = window.mergeExplicitDirtyNodes(dirty, dirtySet, oldBounds, oldPaints, window.nodeBounds, window.copyNodePaints(), plan.scrollOffset, plan.dirtyNodes)
 		window.resetDirtyQueue()
 	case windowDirtyPlanNodeUpdate:
 		boundsChanged := false
