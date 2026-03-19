@@ -149,6 +149,8 @@ int pthread_setspecific(pthread_key_t key, const void* value) {
 #define RUNTIME_POOL_LOCAL_CLASS_BYTES_LIMIT (8u * 1024u)
 #define RUNTIME_POOL_LOCAL_CLASS_MIN_CACHED 2u
 #define RUNTIME_POOL_LOCAL_CLASS_MAX_CACHED 8u
+#define RUNTIME_SUDOG_LOCAL_MAX_CACHED 16u
+#define RUNTIME_SELECT_STACK_CASES 8u
 
 static void* kos_memcpy(void* dest, const void* src, size_t size);
 
@@ -309,14 +311,11 @@ static bool runtime_pool_release_local(void* ptr, size_t size) {
     return true;
 }
 
-static void* runtime_pool_alloc_global_locked(size_t size) {
-    size_t class_size;
-    int class_index;
+static runtime_pool_node* runtime_pool_take_global_locked(int class_index, size_t class_size) {
     runtime_pool_node* node;
 
-    class_index = runtime_pool_class_index(size, &class_size);
-    if (class_index < 0) {
-        return malloc(size);
+    if (class_index < 0 || (uint32_t)class_index >= RUNTIME_POOL_CLASS_COUNT) {
+        return NULL;
     }
 
     node = runtime_pool_free_lists[class_index];
@@ -330,34 +329,59 @@ static void* runtime_pool_alloc_global_locked(size_t size) {
         } else {
             runtime_pool_cached_bytes = 0;
         }
-        return (void*)node;
+        return node;
     }
 
-    return malloc(class_size);
+    return NULL;
 }
 
-static void runtime_pool_release_global_locked(void* ptr, size_t size) {
-    size_t class_size;
+static runtime_pool_node* runtime_pool_refill_local_locked(runtime_m* m, int local_index, int class_index, size_t class_size) {
+    runtime_pool_node* node;
+    uint8_t local_cap;
+
+    if (m == NULL || local_index < 0 || class_index < 0 || (uint32_t)class_index >= RUNTIME_POOL_CLASS_COUNT) {
+        return NULL;
+    }
+
+    node = runtime_pool_take_global_locked(class_index, class_size);
+    if (node == NULL) {
+        return NULL;
+    }
+
+    local_cap = runtime_pool_local_class_cap(class_size);
+    while (local_cap > 0 &&
+           m->pool_local_counts[local_index] < local_cap &&
+           m->pool_local_bytes + class_size <= RUNTIME_POOL_LOCAL_MAX_CACHED_BYTES) {
+        runtime_pool_node* cached = runtime_pool_take_global_locked(class_index, class_size);
+        if (cached == NULL) {
+            break;
+        }
+        cached->next = m->pool_local_lists[local_index];
+        m->pool_local_lists[local_index] = cached;
+        m->pool_local_counts[local_index]++;
+        m->pool_local_bytes += (uint32_t)class_size;
+    }
+
+    return node;
+}
+
+static bool runtime_pool_release_global_locked(void* ptr, size_t class_size, int class_index) {
     uint16_t class_cap;
-    int class_index;
     runtime_pool_node* node;
 
     if (ptr == NULL) {
-        return;
+        return true;
     }
 
-    class_index = runtime_pool_class_index(size, &class_size);
-    if (class_index < 0) {
-        free(ptr);
-        return;
+    if (class_index < 0 || (uint32_t)class_index >= RUNTIME_POOL_CLASS_COUNT) {
+        return false;
     }
 
     class_cap = runtime_pool_class_cap(class_size);
     if (class_cap == 0 ||
         runtime_pool_free_counts[class_index] >= class_cap ||
         runtime_pool_cached_bytes + class_size > RUNTIME_POOL_MAX_CACHED_BYTES) {
-        free(ptr);
-        return;
+        return false;
     }
 
     node = (runtime_pool_node*)ptr;
@@ -365,6 +389,7 @@ static void runtime_pool_release_global_locked(void* ptr, size_t size) {
     runtime_pool_free_lists[class_index] = node;
     runtime_pool_free_counts[class_index]++;
     runtime_pool_cached_bytes += class_size;
+    return true;
 }
 
 static runtime_pool_header* runtime_pool_header_from_payload(void* payload) {
@@ -382,7 +407,10 @@ static void runtime_pool_header_init(runtime_pool_header* header, uint16_t class
 void* runtime_pool_malloc(size_t size) {
     runtime_pool_header* header = NULL;
     size_t total;
+    size_t class_size = 0;
     int class_index;
+    int local_index;
+    runtime_m* m = NULL;
     void* result = NULL;
 
     if (size > (size_t)-1 - RUNTIME_POOL_HEADER_SIZE) {
@@ -390,7 +418,7 @@ void* runtime_pool_malloc(size_t size) {
     }
 
     total = size + RUNTIME_POOL_HEADER_SIZE;
-    class_index = runtime_pool_class_index(total, NULL);
+    class_index = runtime_pool_class_index(total, &class_size);
     if (class_index < 0) {
         header = (runtime_pool_header*)malloc(total);
         if (header == NULL) {
@@ -403,9 +431,19 @@ void* runtime_pool_malloc(size_t size) {
 
     header = (runtime_pool_header*)runtime_pool_alloc_local(total);
     if (header == NULL) {
+        local_index = runtime_pool_local_class_index(class_index);
+        m = runtime_getm();
         runtime_lock_mutex(&runtime_pool_lock);
-        header = (runtime_pool_header*)runtime_pool_alloc_global_locked(total);
+        if (m != NULL && local_index >= 0) {
+            header = (runtime_pool_header*)runtime_pool_refill_local_locked(m, local_index, class_index, class_size);
+        }
+        if (header == NULL) {
+            header = (runtime_pool_header*)runtime_pool_take_global_locked(class_index, class_size);
+        }
         runtime_unlock_mutex(&runtime_pool_lock);
+        if (header == NULL) {
+            header = (runtime_pool_header*)malloc(class_size);
+        }
     }
     if (header == NULL) {
         return NULL;
@@ -419,6 +457,7 @@ void runtime_pool_free(void* ptr) {
     runtime_pool_header* header;
     uint16_t class_index;
     size_t class_size;
+    bool released;
 
     if (ptr == NULL) {
         return;
@@ -445,8 +484,11 @@ void runtime_pool_free(void* ptr) {
         return;
     }
     runtime_lock_mutex(&runtime_pool_lock);
-    runtime_pool_release_global_locked(header, class_size);
+    released = runtime_pool_release_global_locked(header, class_size, (int)class_index);
     runtime_unlock_mutex(&runtime_pool_lock);
+    if (!released) {
+        free(header);
+    }
 }
 
 void* runtime_pool_realloc(void* ptr, size_t size) {
@@ -1717,8 +1759,45 @@ void runtime_panicgonil(void) {
     throw((go_string){ "go of nil func value", 20 });
 }
 
+static runtime_sudog* runtime_sudog_alloc_local(void) {
+    runtime_m* m = runtime_getm();
+    runtime_sudog* sd;
+
+    if (m == NULL || m->sudog_local_list == NULL) {
+        return NULL;
+    }
+
+    sd = m->sudog_local_list;
+    m->sudog_local_list = sd->next;
+    if (m->sudog_local_count > 0) {
+        m->sudog_local_count--;
+    }
+    return sd;
+}
+
+static bool runtime_sudog_free_local(runtime_sudog* sd) {
+    runtime_m* m;
+
+    if (sd == NULL) {
+        return true;
+    }
+
+    m = runtime_getm();
+    if (m == NULL || m->sudog_local_count >= RUNTIME_SUDOG_LOCAL_MAX_CACHED) {
+        return false;
+    }
+
+    sd->next = m->sudog_local_list;
+    m->sudog_local_list = sd;
+    m->sudog_local_count++;
+    return true;
+}
+
 static runtime_sudog* runtime_sudog_alloc(runtime_hchan* c, void* elem, int32_t index, uint8_t is_select) {
-    runtime_sudog* sd = (runtime_sudog*)runtime_pool_malloc(sizeof(runtime_sudog));
+    runtime_sudog* sd = runtime_sudog_alloc_local();
+    if (sd == NULL) {
+        sd = (runtime_sudog*)runtime_pool_malloc(sizeof(runtime_sudog));
+    }
     if (sd == NULL) {
         runtime_panicmem();
     }
@@ -1734,6 +1813,9 @@ static runtime_sudog* runtime_sudog_alloc(runtime_hchan* c, void* elem, int32_t 
 
 static void runtime_sudog_free(runtime_sudog* sd) {
     if (sd == NULL) {
+        return;
+    }
+    if (runtime_sudog_free_local(sd)) {
         return;
     }
     runtime_pool_free(sd);
@@ -2107,19 +2189,30 @@ static bool runtime_select_try_recv_locked(runtime_hchan* c, void* elem, bool* r
     return false;
 }
 
-static int32_t runtime_select_build_lock_order(runtime_scase* cas0, int32_t ncases, runtime_hchan*** order_out) {
+static int32_t runtime_select_build_lock_order(runtime_scase* cas0,
+                                               int32_t ncases,
+                                               runtime_hchan** stack_order,
+                                               int32_t stack_count,
+                                               runtime_hchan*** order_out,
+                                               bool* heap_out) {
     runtime_hchan** order;
     int32_t count = 0;
     int32_t i;
     int32_t j;
 
-    if (order_out == NULL || cas0 == NULL || ncases <= 0) {
+    if (order_out == NULL || heap_out == NULL || cas0 == NULL || ncases <= 0) {
         return 0;
     }
 
-    order = (runtime_hchan**)runtime_pool_malloc((size_t)ncases * sizeof(runtime_hchan*));
-    if (order == NULL) {
-        runtime_panicmem();
+    if (stack_order != NULL && ncases <= stack_count) {
+        order = stack_order;
+        *heap_out = false;
+    } else {
+        order = (runtime_hchan**)runtime_pool_malloc((size_t)ncases * sizeof(runtime_hchan*));
+        if (order == NULL) {
+            runtime_panicmem();
+        }
+        *heap_out = true;
     }
 
     for (i = 0; i < ncases; i++) {
@@ -2301,7 +2394,11 @@ void runtime_selectgo(runtime_selectgo_result* ret, runtime_scase* cas0, uint16_
     int32_t selected = -1;
     int32_t recvok = 0;
     runtime_sudog** sudogs;
+    runtime_sudog* sudogs_stack[RUNTIME_SELECT_STACK_CASES];
+    bool sudogs_heap = false;
     runtime_hchan** lock_order = NULL;
+    runtime_hchan* lock_order_stack[RUNTIME_SELECT_STACK_CASES];
+    bool lock_order_heap = false;
     int32_t lock_count = 0;
 
     (void)order0;
@@ -2328,7 +2425,12 @@ void runtime_selectgo(runtime_selectgo_result* ret, runtime_scase* cas0, uint16_
     }
     if (!block) {
         g = runtime_getg();
-        lock_count = runtime_select_build_lock_order(cas0, ncases, &lock_order);
+        lock_count = runtime_select_build_lock_order(cas0,
+                                                     ncases,
+                                                     lock_order_stack,
+                                                     (int32_t)RUNTIME_SELECT_STACK_CASES,
+                                                     &lock_order,
+                                                     &lock_order_heap);
         runtime_select_lock_all(lock_order, lock_count);
         for (i = 0; i < ncases; i++) {
             runtime_scase* sc = &cas0[i];
@@ -2358,7 +2460,9 @@ void runtime_selectgo(runtime_selectgo_result* ret, runtime_scase* cas0, uint16_
         }
 done_unlock:
         runtime_select_unlock_all(lock_order, lock_count);
-        runtime_pool_free(lock_order);
+        if (lock_order_heap) {
+            runtime_pool_free(lock_order);
+        }
         ret->selected = selected;
         ret->recvOK = recvok;
         return;
@@ -2375,15 +2479,26 @@ retry_block:
     g->select_recvok = 0;
     m = runtime_getm();
 
-    sudogs = (runtime_sudog**)runtime_pool_malloc((size_t)ncases * sizeof(runtime_sudog*));
-    if (sudogs == NULL) {
-        runtime_panicmem();
+    if (ncases <= (int32_t)RUNTIME_SELECT_STACK_CASES) {
+        sudogs = sudogs_stack;
+        sudogs_heap = false;
+    } else {
+        sudogs = (runtime_sudog**)runtime_pool_malloc((size_t)ncases * sizeof(runtime_sudog*));
+        sudogs_heap = true;
+        if (sudogs == NULL) {
+            runtime_panicmem();
+        }
     }
     for (i = 0; i < ncases; i++) {
         sudogs[i] = NULL;
     }
 
-    lock_count = runtime_select_build_lock_order(cas0, ncases, &lock_order);
+    lock_count = runtime_select_build_lock_order(cas0,
+                                                 ncases,
+                                                 lock_order_stack,
+                                                 (int32_t)RUNTIME_SELECT_STACK_CASES,
+                                                 &lock_order,
+                                                 &lock_order_heap);
     runtime_select_lock_all(lock_order, lock_count);
 
     for (i = 0; i < ncases; i++) {
@@ -2433,8 +2548,11 @@ retry_block:
     runtime_debug_event("select park", g, NULL, 0);
 #endif
     runtime_select_unlock_all(lock_order, lock_count);
-    runtime_pool_free(lock_order);
+    if (lock_order_heap) {
+        runtime_pool_free(lock_order);
+    }
     lock_order = NULL;
+    lock_order_heap = false;
     lock_count = 0;
     runtime_gopark_after_unlock(g, m);
 
@@ -2464,7 +2582,9 @@ cleanup:
         runtime_chan_unlock(sd->c);
         runtime_sudog_free(sd);
     }
-    runtime_pool_free(sudogs);
+    if (sudogs_heap) {
+        runtime_pool_free(sudogs);
+    }
 
     if (selected < 0) {
 #if KOLIBRI_RT_DEBUG
@@ -2480,10 +2600,15 @@ done:
 
 selected_unlock:
     runtime_select_unlock_all(lock_order, lock_count);
-    runtime_pool_free(lock_order);
+    if (lock_order_heap) {
+        runtime_pool_free(lock_order);
+    }
     lock_order = NULL;
+    lock_order_heap = false;
     lock_count = 0;
-    runtime_pool_free(sudogs);
+    if (sudogs_heap) {
+        runtime_pool_free(sudogs);
+    }
     goto done;
 }
 

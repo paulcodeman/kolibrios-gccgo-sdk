@@ -21,6 +21,7 @@ typedef struct runtime_g runtime_g;
 typedef struct runtime_m runtime_m;
 typedef struct runtime_context runtime_context;
 typedef struct runtime_pool_node runtime_pool_node;
+typedef struct runtime_sudog runtime_sudog;
 
 #ifndef RUNTIME_POOL_LOCAL_CLASS_COUNT
 #define RUNTIME_POOL_LOCAL_CLASS_COUNT 6u
@@ -64,6 +65,8 @@ struct runtime_m {
     runtime_pool_node* pool_local_lists[RUNTIME_POOL_LOCAL_CLASS_COUNT];
     uint8_t pool_local_counts[RUNTIME_POOL_LOCAL_CLASS_COUNT];
     uint32_t pool_local_bytes;
+    runtime_sudog* sudog_local_list;
+    uint8_t sudog_local_count;
 };
 
 struct runtime_context {
