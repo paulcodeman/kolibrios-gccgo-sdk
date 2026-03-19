@@ -5,10 +5,11 @@ func (window *Window) hitTest(x int, y int) Node {
 		return nil
 	}
 	if window.renderListValid && len(window.renderList) > 0 {
-		window.ensureHitGrid()
 		display := window.currentDisplayList()
-		if node, ok := window.hitGrid.find(x, y, display); ok {
-			return node
+		if window.ensureHitGridWithDisplay(display) {
+			if node, ok := window.hitGrid.find(x, y, display); ok {
+				return node
+			}
 		}
 		return display.Find(x, y)
 	}

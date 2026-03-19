@@ -124,6 +124,9 @@ func (grid *hitTestGrid) find(x int, y int, list DisplayList) (Node, bool) {
 	if grid == nil || grid.cols == 0 || grid.rows == 0 || len(grid.cells) == 0 {
 		return nil, false
 	}
+	if list.rootClip.set && !list.rootClip.rect.Contains(x, y) {
+		return nil, true
+	}
 	if x < 0 || y < 0 || x >= grid.width || y >= grid.height {
 		return nil, true
 	}

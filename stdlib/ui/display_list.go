@@ -238,6 +238,9 @@ func (list DisplayList) Paint(window *Window, full bool, dirty Rect, stats *Fram
 }
 
 func (list DisplayList) Find(x int, y int) Node {
+	if list.rootClip.set && !list.rootClip.rect.Contains(x, y) {
+		return nil
+	}
 	for i := len(list.items) - 1; i >= 0; i-- {
 		item := list.items[i]
 		if item.node == nil {
