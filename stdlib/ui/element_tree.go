@@ -112,6 +112,9 @@ func (element *Element) Append(child Node) {
 	if node, ok := child.(*Element); ok {
 		node.Parent = element
 	}
+	if view, ok := child.(*DocumentView); ok && view != nil {
+		view.parent = element
+	}
 	if aware, ok := child.(windowAware); ok && aware != nil {
 		aware.setWindow(element.window)
 	}
@@ -134,6 +137,9 @@ func (element *Element) Remove(child Node) bool {
 		if node == child {
 			if el, ok := node.(*Element); ok && el.Parent == element {
 				el.Parent = nil
+			}
+			if view, ok := node.(*DocumentView); ok && view != nil && view.parent == element {
+				view.parent = nil
 			}
 			if aware, ok := node.(windowAware); ok && aware != nil {
 				aware.setWindow(nil)
@@ -160,6 +166,9 @@ func (element *Element) ClearChildren() {
 	for _, node := range element.Children {
 		if el, ok := node.(*Element); ok && el.Parent == element {
 			el.Parent = nil
+		}
+		if view, ok := node.(*DocumentView); ok && view != nil && view.parent == element {
+			view.parent = nil
 		}
 		if aware, ok := node.(windowAware); ok && aware != nil {
 			aware.setWindow(nil)

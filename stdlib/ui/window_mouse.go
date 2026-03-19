@@ -176,7 +176,9 @@ func (window *Window) handleMouse() bool {
 		if aware, ok := hover.(MouseMoveAware); ok {
 			if aware.HandleMouseMove(eventX, eventY) {
 				needsRedraw = true
-				window.noteDirty(hover)
+				if _, isDocumentView := hover.(*DocumentView); !isDocumentView {
+					window.noteDirty(hover)
+				}
 			}
 		}
 	}
@@ -184,7 +186,9 @@ func (window *Window) handleMouse() bool {
 		if aware, ok := window.mouseDown.(MouseMoveAware); ok {
 			if aware.HandleMouseMove(eventX, eventY) {
 				needsRedraw = true
-				window.noteDirty(window.mouseDown)
+				if _, isDocumentView := window.mouseDown.(*DocumentView); !isDocumentView {
+					window.noteDirty(window.mouseDown)
+				}
 			}
 		}
 	}

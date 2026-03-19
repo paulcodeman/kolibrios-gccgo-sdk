@@ -58,12 +58,15 @@ func (view *DocumentView) HandleTab(shift bool) bool {
 		return view.setFocusNode(focusables[0], DocumentEvent{Type: EventFocus, View: view})
 	}
 	if shift {
-		index--
-		if index < 0 {
-			index = len(focusables) - 1
+		if index == 0 {
+			return false
 		}
+		index--
 	} else {
-		index = (index + 1) % len(focusables)
+		if index == len(focusables)-1 {
+			return false
+		}
+		index++
 	}
 	return view.setFocusNode(focusables[index], DocumentEvent{Type: EventFocus, View: view})
 }
@@ -328,6 +331,7 @@ func (view *DocumentView) setFocusNode(node *DocumentNode, event DocumentEvent) 
 	if view == nil || view.focusNode == node {
 		return false
 	}
+	view.skipScrollBlitOnce = true
 	hostFocusVisibleBefore := view.focused && view.focusNode == nil && !view.StyleFocus.IsZero()
 	changed := false
 	if previous := view.focusNode; previous != nil {
@@ -357,6 +361,9 @@ func (view *DocumentView) setFocusNode(node *DocumentNode, event DocumentEvent) 
 		if view.scrollDocumentNodeIntoView(node) {
 			changed = true
 		}
+		if view.window != nil {
+			view.window.skipScrollBlitOnce = true
+		}
 		if view.window != nil && view.window.scrollNodeIntoView(view) {
 			changed = true
 		}
@@ -368,7 +375,41 @@ func (view *DocumentView) setFocusNode(node *DocumentNode, event DocumentEvent) 
 			changed = true
 		}
 	}
+	if changed && !view.layoutDirty {
+		if view.window != nil {
+			view.dirty = true
+			if rect := view.focusTransitionRedrawRect(); !rect.Empty() {
+				view.window.InvalidateVisualContent(rect)
+			} else if !view.window.client.Empty() {
+				view.window.InvalidateVisual(Rect{X: 0, Y: 0, Width: view.window.client.Width, Height: view.window.client.Height})
+			} else {
+				view.MarkDirty()
+			}
+		} else {
+			view.MarkDirty()
+		}
+	}
 	return changed
+}
+
+func (view *DocumentView) focusTransitionRedrawRect() Rect {
+	if view == nil {
+		return Rect{}
+	}
+	rect := view.VisualBounds()
+	if rect.Empty() {
+		rect = view.Bounds()
+	}
+	if parent := view.parent; parent != nil {
+		parentRect := parent.VisualBounds()
+		if parentRect.Empty() {
+			parentRect = parent.Bounds()
+		}
+		if !parentRect.Empty() {
+			return parentRect
+		}
+	}
+	return rect
 }
 
 func (view *DocumentView) documentNodeDirtyRect(node *DocumentNode) Rect {
@@ -462,8 +503,15 @@ func (view *DocumentView) documentEventFor(kind EventType, x int, y int, button 
 	event.LocalY = y - viewport.Y
 	event.DocumentX = x
 	event.DocumentY = y + view.scrollY
-	event.Node = view.Document.HitTest(event.DocumentX, event.DocumentY)
+	event.Node = documentEventTarget(view.Document.HitTest(event.DocumentX, event.DocumentY))
 	return event, true
+}
+
+func documentEventTarget(node *DocumentNode) *DocumentNode {
+	for node != nil && node.Kind == DocumentNodeText && node.Parent != nil {
+		node = node.Parent
+	}
+	return node
 }
 
 func (view *DocumentView) documentViewportRect(style Style) Rect {

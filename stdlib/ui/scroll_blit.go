@@ -84,6 +84,9 @@ func (window *Window) syncScrollDrawState() {
 	if window == nil {
 		return
 	}
+	defer func() {
+		window.skipScrollBlitOnce = false
+	}()
 	if window.drawnScrollY == window.scrollY {
 		return
 	}
@@ -107,6 +110,9 @@ func (window *Window) pendingScrollDelta() int {
 
 func (window *Window) canUseScrollBlit(viewport Rect) bool {
 	if window == nil || window.canvas == nil || viewport.Empty() {
+		return false
+	}
+	if window.skipScrollBlitOnce {
 		return false
 	}
 	if !window.currentFrameEffectPropertyState().simpleBackground {
@@ -145,6 +151,9 @@ func (view *DocumentView) pendingScrollDelta() int {
 
 func (view *DocumentView) canUseScrollBlit(style Style, viewport Rect) bool {
 	if view == nil || viewport.Empty() {
+		return false
+	}
+	if view.skipScrollBlitOnce {
 		return false
 	}
 	if !styleHasOpaqueSolidBackground(style) {

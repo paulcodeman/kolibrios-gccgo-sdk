@@ -74,6 +74,7 @@ type Window struct {
 	scrollDragActive        bool
 	scrollDragOffset        int
 	scrollRedraw            bool
+	skipScrollBlitOnce      bool
 	translateBlits          []translateBlitOp
 	propertyState           windowPropertyState
 	displayState            windowDisplayState

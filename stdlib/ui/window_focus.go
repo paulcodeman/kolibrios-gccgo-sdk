@@ -42,6 +42,7 @@ func (window *Window) setFocus(target Node) bool {
 	if window.invalidateFocusNode(window.focused) {
 		needsRedraw = true
 	}
+	window.skipScrollBlitOnce = true
 	if window.scrollNodeIntoView(window.focused) {
 		needsRedraw = true
 	}

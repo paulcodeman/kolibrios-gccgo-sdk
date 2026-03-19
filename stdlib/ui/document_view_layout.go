@@ -26,6 +26,9 @@ func (view *DocumentView) drawToOffset(canvas *Canvas, offsetY int) {
 	if view == nil || canvas == nil {
 		return
 	}
+	defer func() {
+		view.skipScrollBlitOnce = false
+	}()
 	style := view.effectiveStyle()
 	if display, ok := resolveDisplay(style.display); ok && display == DisplayNone {
 		return

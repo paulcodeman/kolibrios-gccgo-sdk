@@ -29,6 +29,7 @@ type DocumentView struct {
 	OnClick     interface{}
 
 	window              *Window
+	parent              *Element
 	layoutRect          Rect
 	visualRect          Rect
 	visualRectValid     bool
@@ -46,6 +47,7 @@ type DocumentView struct {
 	scrollMaxY          int
 	scrollDrag          bool
 	scrollDragOff       int
+	skipScrollBlitOnce  bool
 	hoverNode           *DocumentNode
 	activeNode          *DocumentNode
 	focusNode           *DocumentNode

@@ -41,6 +41,9 @@ func (window *Window) Append(node Node) {
 	if window == nil || node == nil {
 		return
 	}
+	if view, ok := node.(*DocumentView); ok && view != nil {
+		view.parent = nil
+	}
 	if aware, ok := node.(windowAware); ok && aware != nil {
 		aware.setWindow(window)
 	}
