@@ -54,7 +54,9 @@ func (window *Window) layoutFlowElement(ctx LayoutContext, container Rect, eleme
 		element.clearFlow()
 		element.layoutRect = Rect{}
 		element.visualRect = Rect{}
+		element.visualRectValid = false
 		element.subtreeRect = Rect{}
+		element.subtreeRectValid = false
 		return cursorX, cursorY, lineHeight
 	}
 	element.layoutHidden = false
@@ -113,6 +115,7 @@ func (window *Window) layoutFlowDocumentView(ctx LayoutContext, container Rect, 
 		view.clearFlow()
 		view.layoutRect = Rect{}
 		view.visualRect = Rect{}
+		view.visualRectValid = false
 		view.layoutDirty = false
 		return cursorX, cursorY, lineHeight
 	}
@@ -202,6 +205,9 @@ func (window *Window) adjustAutoHeight(element *Element, style Style) bool {
 	}
 	element.layoutRect.Height = desired
 	element.visualRect = element.visualBoundsFor(element.layoutRect, style)
+	element.visualRectValid = true
+	element.subtreeRect = Rect{}
+	element.subtreeRectValid = false
 	return true
 }
 
@@ -227,6 +233,9 @@ func (window *Window) adjustAutoWidth(element *Element, style Style) bool {
 	}
 	element.layoutRect.Width = desired
 	element.visualRect = element.visualBoundsFor(element.layoutRect, style)
+	element.visualRectValid = true
+	element.subtreeRect = Rect{}
+	element.subtreeRectValid = false
 	return true
 }
 
@@ -239,21 +248,29 @@ func (window *Window) nodeVisualBoundsFor(node Node, recompute bool) Rect {
 		return Rect{}
 	}
 	if element, ok := node.(*Element); ok && element != nil && recompute {
+		if element.visualRectValid {
+			return element.visualRect
+		}
 		rect := element.layoutRect
 		if rect.Empty() {
 			rect = element.Bounds()
 		}
 		visual := element.visualBoundsFor(rect, element.effectiveStyle())
 		element.visualRect = visual
+		element.visualRectValid = true
 		return visual
 	}
 	if view, ok := node.(*DocumentView); ok && view != nil && recompute {
+		if view.visualRectValid {
+			return view.visualRect
+		}
 		rect := view.layoutRect
 		if rect.Empty() {
 			rect = view.Bounds()
 		}
 		visual := visualBoundsForStyle(rect, view.effectiveStyle(), false)
 		view.visualRect = visual
+		view.visualRectValid = true
 		return visual
 	}
 	if visual, ok := node.(VisualBoundsAware); ok {

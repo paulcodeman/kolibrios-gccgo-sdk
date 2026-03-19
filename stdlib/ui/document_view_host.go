@@ -14,6 +14,7 @@ func (view *DocumentView) SetFocus(focus bool) bool {
 		return false
 	}
 	view.focused = focus
+	view.invalidateEffectiveStyleCache()
 	changed := false
 	if !focus {
 		changed = view.setFocusNode(nil, DocumentEvent{Type: EventBlur, View: view}) || changed

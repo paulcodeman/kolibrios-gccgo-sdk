@@ -25,8 +25,12 @@ type Element struct {
 	renderKey              elementRenderKey
 	wrapCache              textWrapCache
 	preserveCache          textPreserveCache
+	effectiveStyleCache    Style
+	effectiveStyleValid    bool
 	visualRect             Rect
+	visualRectValid        bool
 	subtreeRect            Rect
+	subtreeRectValid       bool
 	layoutKey              elementLayoutKey
 	flowX                  int
 	flowY                  int

@@ -68,6 +68,7 @@ func (element *Element) applyEffectiveStyleChange(oldStyle Style, newStyle Style
 		styleVisualKeyEqual(visualKeyFor(oldStyle), visualKeyFor(newStyle)) {
 		return false
 	}
+	element.invalidateBoundsCache()
 	if !element.styleTransitionNeedsDirtyNode(oldStyle, newStyle) {
 		return element.invalidateStyleTransition(oldStyle, newStyle)
 	}
@@ -92,6 +93,7 @@ func (element *Element) UpdateStyle(update func(style *Style)) bool {
 	}
 	oldStyle := element.effectiveStyle()
 	update(&element.Style)
+	element.invalidateEffectiveStyleCache()
 	newStyle := element.effectiveStyle()
 	if retainedLayerStyleChanged(oldStyle, newStyle) {
 		element.invalidateRetainedLayerState()
@@ -115,6 +117,7 @@ func (element *Element) UpdateHoverStyle(update func(style *Style)) bool {
 	if !wasHovered {
 		return false
 	}
+	element.invalidateEffectiveStyleCache()
 	newStyle := element.effectiveStyle()
 	return element.applyEffectiveStyleChange(oldStyle, newStyle)
 }
@@ -130,6 +133,7 @@ func (element *Element) UpdateActiveStyle(update func(style *Style)) bool {
 	if !wasActive {
 		return false
 	}
+	element.invalidateEffectiveStyleCache()
 	newStyle := element.effectiveStyle()
 	return element.applyEffectiveStyleChange(oldStyle, newStyle)
 }
@@ -145,6 +149,7 @@ func (element *Element) UpdateFocusStyle(update func(style *Style)) bool {
 	if !wasFocused {
 		return false
 	}
+	element.invalidateEffectiveStyleCache()
 	newStyle := element.effectiveStyle()
 	if retainedLayerStyleChanged(oldStyle, newStyle) {
 		element.invalidateRetainedLayerState()
@@ -176,6 +181,7 @@ func (element *Element) SetHover(hover bool) bool {
 	}
 	oldStyle := element.effectiveStyle()
 	element.hovered = hover
+	element.invalidateEffectiveStyleCache()
 	if element.StyleHover.IsZero() {
 		return false
 	}
@@ -189,6 +195,7 @@ func (element *Element) SetActive(active bool) bool {
 	}
 	oldStyle := element.effectiveStyle()
 	element.active = active
+	element.invalidateEffectiveStyleCache()
 	if element.StyleActive.IsZero() {
 		return false
 	}
@@ -202,6 +209,7 @@ func (element *Element) SetFocus(focus bool) bool {
 	}
 	oldStyle := element.effectiveStyle()
 	element.focused = focus
+	element.invalidateEffectiveStyleCache()
 	if element.isTextInput() {
 		if focus {
 			textLen := len(element.text())
@@ -236,6 +244,12 @@ func (element *Element) Focused() bool {
 }
 
 func (element *Element) effectiveStyle() Style {
+	if element == nil {
+		return Style{}
+	}
+	if element.effectiveStyleValid {
+		return element.effectiveStyleCache
+	}
 	style := element.Style
 	if element.focused && !element.StyleFocus.IsZero() {
 		style = mergeStyle(style, element.StyleFocus)
@@ -245,6 +259,8 @@ func (element *Element) effectiveStyle() Style {
 	} else if element.hovered && !element.StyleHover.IsZero() {
 		style = mergeStyle(style, element.StyleHover)
 	}
+	element.effectiveStyleCache = style
+	element.effectiveStyleValid = true
 	return style
 }
 

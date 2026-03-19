@@ -21,6 +21,8 @@ func (element *Element) setWindow(window *Window) {
 		return
 	}
 	element.window = window
+	element.invalidateEffectiveStyleCache()
+	element.invalidateBoundsCache()
 	element.subtreeLayerValid = false
 	element.renderVisitGen = 0
 	element.layoutVisitGen = 0
@@ -50,6 +52,7 @@ func (element *Element) markDirtyIn(window *Window) {
 	}
 	target.noteDirty(element)
 	if element.layoutDirtyInCurrentContainer() {
+		element.invalidateBoundsCache()
 		target.layoutDirty = true
 		target.renderListValid = false
 	}
@@ -96,4 +99,24 @@ func (element *Element) ClearDirty() {
 		return
 	}
 	element.dirty = false
+}
+
+func (element *Element) invalidateEffectiveStyleCache() {
+	if element == nil {
+		return
+	}
+	element.effectiveStyleCache = Style{}
+	element.effectiveStyleValid = false
+}
+
+func (element *Element) invalidateBoundsCache() {
+	if element == nil {
+		return
+	}
+	element.visualRect = Rect{}
+	element.visualRectValid = false
+	for current := element; current != nil; current = current.Parent {
+		current.subtreeRect = Rect{}
+		current.subtreeRectValid = false
+	}
 }

@@ -105,6 +105,7 @@ func (view *DocumentView) applyLayoutWithContext(ctx LayoutContext, container Re
 	rect.Height = clampHeightForStyle(style, height)
 	view.layoutRect = rect
 	view.visualRect = visualBoundsForStyle(rect, style, false)
+	view.visualRectValid = true
 	view.layoutDirty = false
 }
 

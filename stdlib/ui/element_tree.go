@@ -15,6 +15,7 @@ func (element *Element) SetText(window *Window, text string) {
 	}
 	oldVisual := element.visualBoundsFor(oldRect, oldStyle)
 	element.Text = text
+	element.invalidateBoundsCache()
 	element.clearTextCache()
 	if element.isTextInput() {
 		if element.caret > len(text) {
@@ -27,6 +28,7 @@ func (element *Element) SetText(window *Window, text string) {
 	if targetWindow == nil {
 		return
 	}
+	element.invalidateEffectiveStyleCache()
 	newStyle := element.effectiveStyle()
 	newRect := element.resolveRect(targetWindow.canvas, newStyle)
 	newVisual := element.visualBoundsFor(newRect, newStyle)
@@ -52,11 +54,13 @@ func (element *Element) SetLabel(window *Window, label string) {
 	}
 	oldVisual := element.visualBoundsFor(oldRect, oldStyle)
 	element.Label = label
+	element.invalidateBoundsCache()
 	element.clearTextCache()
 	element.markDirtyIn(targetWindow)
 	if targetWindow == nil {
 		return
 	}
+	element.invalidateEffectiveStyleCache()
 	newStyle := element.effectiveStyle()
 	newRect := element.resolveRect(targetWindow.canvas, newStyle)
 	newVisual := element.visualBoundsFor(newRect, newStyle)
@@ -82,6 +86,8 @@ func (element *Element) SetStyle(window *Window, style Style) {
 	}
 	oldVisual := element.visualBoundsFor(oldRect, oldStyle)
 	element.Style = style
+	element.invalidateEffectiveStyleCache()
+	element.invalidateBoundsCache()
 	if retainedLayerStyleChanged(oldStyle, element.effectiveStyle()) {
 		element.invalidateRetainedLayerState()
 	}
@@ -110,6 +116,7 @@ func (element *Element) Append(child Node) {
 		aware.setWindow(element.window)
 	}
 	element.Children = append(element.Children, child)
+	element.invalidateBoundsCache()
 	element.invalidateRetainedLayerChain()
 	if element.window != nil {
 		element.window.layoutDirty = true
@@ -132,6 +139,7 @@ func (element *Element) Remove(child Node) bool {
 				aware.setWindow(nil)
 			}
 			element.Children = append(element.Children[:i], element.Children[i+1:]...)
+			element.invalidateBoundsCache()
 			element.invalidateRetainedLayerChain()
 			if element.window != nil {
 				element.window.layoutDirty = true

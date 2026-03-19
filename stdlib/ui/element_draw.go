@@ -376,7 +376,7 @@ func (element *Element) Bounds() Rect {
 }
 
 func (element *Element) VisualBounds() Rect {
-	if element.visualRect.Width > 0 || element.visualRect.Height > 0 {
+	if element.visualRectValid {
 		return element.visualRect
 	}
 	return element.Bounds()
@@ -386,10 +386,10 @@ func (element *Element) subtreeBounds() Rect {
 	if element == nil {
 		return Rect{}
 	}
-	if element.subtreeRect.Width > 0 || element.subtreeRect.Height > 0 {
+	if element.subtreeRectValid {
 		return element.subtreeRect
 	}
-	if element.visualRect.Width > 0 || element.visualRect.Height > 0 {
+	if element.visualRectValid {
 		return element.visualRect
 	}
 	return element.Bounds()
@@ -421,6 +421,7 @@ func (element *Element) updateSubtreeRect() {
 		rect = UnionRect(rect, child.Bounds())
 	}
 	element.subtreeRect = rect
+	element.subtreeRectValid = true
 }
 
 func (element *Element) visualBoundsFor(rect Rect, style Style) Rect {

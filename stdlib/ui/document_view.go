@@ -28,41 +28,44 @@ type DocumentView struct {
 	StyleActive Style
 	OnClick     interface{}
 
-	window         *Window
-	layoutRect     Rect
-	visualRect     Rect
-	layoutKey      documentViewLayoutKey
-	flowX          int
-	flowY          int
-	flowSet        bool
-	dirty          bool
-	layoutDirty    bool
-	hovered        bool
-	active         bool
-	focused        bool
-	scrollY        int
-	drawnScrollY   int
-	scrollMaxY     int
-	scrollDrag     bool
-	scrollDragOff  int
-	hoverNode      *DocumentNode
-	activeNode     *DocumentNode
-	focusNode      *DocumentNode
-	layerCanvas    *Canvas
-	layerTiles     []*Canvas
-	layerValid     bool
-	layerWidth     int
-	layerHeight    int
-	layerDirty     Rect
-	layerDirtySet  bool
-	layerOffsetX   int
-	layerOffsetY   int
-	layerTileCols  int
-	layerTileRows  int
-	layerVisualKey styleVisualKey
-	renderVisitGen uint32
-	layoutVisitGen uint32
-	dirtyQueueGen  uint32
+	window              *Window
+	layoutRect          Rect
+	visualRect          Rect
+	visualRectValid     bool
+	layoutKey           documentViewLayoutKey
+	flowX               int
+	flowY               int
+	flowSet             bool
+	dirty               bool
+	layoutDirty         bool
+	hovered             bool
+	active              bool
+	focused             bool
+	scrollY             int
+	drawnScrollY        int
+	scrollMaxY          int
+	scrollDrag          bool
+	scrollDragOff       int
+	hoverNode           *DocumentNode
+	activeNode          *DocumentNode
+	focusNode           *DocumentNode
+	layerCanvas         *Canvas
+	layerTiles          []*Canvas
+	layerValid          bool
+	layerWidth          int
+	layerHeight         int
+	layerDirty          Rect
+	layerDirtySet       bool
+	layerOffsetX        int
+	layerOffsetY        int
+	layerTileCols       int
+	layerTileRows       int
+	layerVisualKey      styleVisualKey
+	effectiveStyleCache Style
+	effectiveStyleValid bool
+	renderVisitGen      uint32
+	layoutVisitGen      uint32
+	dirtyQueueGen       uint32
 }
 
 type documentViewLayoutKey struct {
@@ -103,6 +106,8 @@ func (view *DocumentView) setWindow(window *Window) {
 		return
 	}
 	view.window = window
+	view.invalidateEffectiveStyleCache()
+	view.invalidateVisualBoundsCache()
 	view.layerValid = false
 	view.clearRetainedLayerDirty()
 	view.renderVisitGen = 0
@@ -133,6 +138,8 @@ func (view *DocumentView) setDocument(document *Document) {
 	view.scrollY = 0
 	view.drawnScrollY = 0
 	view.scrollMaxY = 0
+	view.invalidateEffectiveStyleCache()
+	view.invalidateVisualBoundsCache()
 	view.layerValid = false
 	view.clearRetainedLayerDirty()
 }
@@ -147,6 +154,12 @@ func (view *DocumentView) SetDocument(document *Document) bool {
 }
 
 func (view *DocumentView) effectiveStyle() Style {
+	if view == nil {
+		return Style{}
+	}
+	if view.effectiveStyleValid {
+		return view.effectiveStyleCache
+	}
 	style := view.Style
 	if view.focused && !view.StyleFocus.IsZero() {
 		style = mergeStyle(style, view.StyleFocus)
@@ -156,6 +169,8 @@ func (view *DocumentView) effectiveStyle() Style {
 	} else if view.hovered && !view.StyleHover.IsZero() {
 		style = mergeStyle(style, view.StyleHover)
 	}
+	view.effectiveStyleCache = style
+	view.effectiveStyleValid = true
 	return style
 }
 
@@ -164,6 +179,7 @@ func (view *DocumentView) SetHover(hover bool) bool {
 		return false
 	}
 	view.hovered = hover
+	view.invalidateEffectiveStyleCache()
 	changed := false
 	if !hover {
 		changed = view.clearHoverNode()
@@ -182,6 +198,7 @@ func (view *DocumentView) SetActive(active bool) bool {
 		return false
 	}
 	view.active = active
+	view.invalidateEffectiveStyleCache()
 	changed := false
 	if !active {
 		view.scrollDrag = false
@@ -216,6 +233,7 @@ func (view *DocumentView) MarkDirty() {
 		return
 	}
 	view.dirty = true
+	view.invalidateVisualBoundsCache()
 	view.layerValid = false
 	view.clearRetainedLayerDirty()
 	if view.window != nil {
@@ -232,6 +250,7 @@ func (view *DocumentView) MarkLayoutDirty() {
 		return
 	}
 	view.layoutDirty = true
+	view.invalidateVisualBoundsCache()
 	view.layerValid = false
 	view.clearRetainedLayerDirty()
 	view.MarkDirty()
@@ -273,10 +292,26 @@ func (view *DocumentView) VisualBounds() Rect {
 	if view == nil {
 		return Rect{}
 	}
-	if !view.visualRect.Empty() {
+	if view.visualRectValid {
 		return view.visualRect
 	}
 	return view.layoutRect
+}
+
+func (view *DocumentView) invalidateEffectiveStyleCache() {
+	if view == nil {
+		return
+	}
+	view.effectiveStyleCache = Style{}
+	view.effectiveStyleValid = false
+}
+
+func (view *DocumentView) invalidateVisualBoundsCache() {
+	if view == nil {
+		return
+	}
+	view.visualRect = Rect{}
+	view.visualRectValid = false
 }
 
 func (view *DocumentView) Handle(event Event) bool {

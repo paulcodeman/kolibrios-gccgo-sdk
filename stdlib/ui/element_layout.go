@@ -67,6 +67,9 @@ func (element *Element) applyLayoutWithContext(ctx LayoutContext, container Rect
 	rect := element.resolveRectIn(container, style)
 	element.layoutRect = rect
 	element.visualRect = element.visualBoundsFor(rect, style)
+	element.visualRectValid = true
+	element.subtreeRect = Rect{}
+	element.subtreeRectValid = false
 }
 
 func (element *Element) layoutKeyFor(style Style, container Rect) elementLayoutKey {
