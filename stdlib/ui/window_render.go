@@ -186,67 +186,48 @@ func (window *Window) drawFrameStats(stats *FrameStats) {
 }
 
 func (window *Window) drawDirty() {
-	if window == nil || window.canvas == nil || !window.dirtySet {
+	plan, ok := window.buildPrepaintPlan()
+	if !ok {
 		return
 	}
-	full := Rect{X: 0, Y: 0, Width: window.client.Width, Height: window.client.Height}
-	if window.dirty == full {
+	if plan.mode == windowPrepaintFull {
 		window.resetTranslateBlits()
 		window.drawFrame()
-		window.dirty = full
+		window.dirty = plan.dirty
 		window.dirtySet = true
 		return
 	}
-	window.applyPendingScrollBlit()
-	window.applyPendingTranslateBlits()
-	if color, ok := window.simpleBackgroundColor(); ok {
-		window.canvas.FillRect(window.dirty.X, window.dirty.Y, window.dirty.Width, window.dirty.Height, color)
-	} else if cache := window.ensureBackgroundCache(); cache != nil {
-		window.canvas.BlitFrom(cache, window.dirty, window.dirty.X, window.dirty.Y)
-	} else {
-		window.drawFrame()
-		window.dirty = full
-		window.dirtySet = true
-		return
-	}
+	window.applyPrepaintPlan(plan)
 	window.ensureRenderList()
-	window.drawRenderList(false, window.dirty, nil)
-	window.drawWindowScrollbar(false, window.dirty)
+	window.drawRenderList(false, plan.dirty, nil)
+	window.drawWindowScrollbar(false, plan.dirty)
 	window.syncScrollDrawState()
 }
 
 func (window *Window) drawDirtyStats(stats *FrameStats) {
-	if window == nil || window.canvas == nil || stats == nil || !window.dirtySet {
+	if stats == nil {
+		return
+	}
+	plan, ok := window.buildPrepaintPlan()
+	if !ok {
 		return
 	}
 	start := kos.UptimeNanoseconds()
-	full := Rect{X: 0, Y: 0, Width: window.client.Width, Height: window.client.Height}
-	if window.dirty == full {
+	if plan.mode == windowPrepaintFull {
 		window.resetTranslateBlits()
 		window.drawFrameStats(stats)
-		window.dirty = full
+		window.dirty = plan.dirty
 		window.dirtySet = true
 		return
 	}
-	window.applyPendingScrollBlit()
-	window.applyPendingTranslateBlits()
-	if color, ok := window.simpleBackgroundColor(); ok {
-		window.canvas.FillRect(window.dirty.X, window.dirty.Y, window.dirty.Width, window.dirty.Height, color)
-	} else if cache := window.ensureBackgroundCache(); cache != nil {
-		window.canvas.BlitFrom(cache, window.dirty, window.dirty.X, window.dirty.Y)
-	} else {
-		window.drawFrameStats(stats)
-		window.dirty = full
-		window.dirtySet = true
-		return
-	}
+	window.applyPrepaintPlan(plan)
 	afterClear := kos.UptimeNanoseconds()
 	stats.ClearNs = afterClear - start
 	startList := kos.UptimeNanoseconds()
 	window.ensureRenderList()
 	stats.RenderListNs = kos.UptimeNanoseconds() - startList
-	window.drawRenderList(false, window.dirty, stats)
-	window.drawWindowScrollbar(false, window.dirty)
+	window.drawRenderList(false, plan.dirty, stats)
+	window.drawWindowScrollbar(false, plan.dirty)
 	stats.DrawNs = kos.UptimeNanoseconds() - start
 	window.syncScrollDrawState()
 }
