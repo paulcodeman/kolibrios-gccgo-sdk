@@ -25,6 +25,8 @@
 extern void* malloc(size_t size);
 extern void* realloc(void* ptr, size_t size);
 extern void free(void* ptr);
+void* memcpy(void* dest, const void* src, size_t size);
+int memcmp(const void* left, const void* right, size_t size);
 void* memset(void* dest, int value, size_t size);
 void* memmove(void* dest, const void* src, size_t size);
 
@@ -2853,8 +2855,8 @@ static bool runtime_string_equals(const go_string* left, const go_string* right)
 }
 
 int runtime_cmpstring(const char* left, intptr_t left_len, const char* right, intptr_t right_len) {
-    intptr_t index;
     intptr_t min_len;
+    int cmp;
 
     if (left == right && left_len == right_len) {
         return 0;
@@ -2867,11 +2869,13 @@ int runtime_cmpstring(const char* left, intptr_t left_len, const char* right, in
     }
 
     min_len = left_len < right_len ? left_len : right_len;
-    for (index = 0; index < min_len; index++) {
-        unsigned char a = (unsigned char)left[index];
-        unsigned char b = (unsigned char)right[index];
-        if (a != b) {
-            return a < b ? -1 : 1;
+    if (min_len > 0) {
+        cmp = kos_memcmp(left, right, (size_t)min_len);
+        if (cmp < 0) {
+            return -1;
+        }
+        if (cmp > 0) {
+            return 1;
         }
     }
 
@@ -2882,20 +2886,15 @@ int runtime_cmpstring(const char* left, intptr_t left_len, const char* right, in
 }
 
 static void* kos_memcpy(void* dest, const void* src, size_t size) {
-    unsigned char* out = (unsigned char*)dest;
-    const unsigned char* in = (const unsigned char*)src;
-
-    while (size-- > 0) {
-        *out++ = *in++;
+    if (size == 0 || dest == src) {
+        return dest;
     }
-
-    return dest;
+    return __builtin_memcpy(dest, src, size);
 }
 
 static void* kos_memmove(void* dest, const void* src, size_t size) {
     unsigned char* out;
     const unsigned char* in;
-    size_t index;
 
     if (dest == src || size == 0) {
         return dest;
@@ -2907,35 +2906,67 @@ static void* kos_memmove(void* dest, const void* src, size_t size) {
         return kos_memcpy(dest, src, size);
     }
 
-    for (index = size; index > 0; index--) {
-        out[index - 1] = in[index - 1];
+    out += size;
+    in += size;
+    if ((((uintptr_t)out | (uintptr_t)in) & (sizeof(uintptr_t) - 1u)) == 0) {
+        while (size >= sizeof(uintptr_t)) {
+            uintptr_t word;
+
+            out -= sizeof(uintptr_t);
+            in -= sizeof(uintptr_t);
+            word = *(const uintptr_t*)in;
+            *(uintptr_t*)out = word;
+            size -= sizeof(uintptr_t);
+        }
+    }
+
+    while (size-- > 0) {
+        *--out = *--in;
     }
 
     return dest;
 }
 
 static int kos_memcmp(const void* left, const void* right, size_t size) {
-    const unsigned char* left_bytes = (const unsigned char*)left;
-    const unsigned char* right_bytes = (const unsigned char*)right;
-    size_t index;
+    const unsigned char* left_bytes;
+    const unsigned char* right_bytes;
 
-    for (index = 0; index < size; index++) {
-        if (left_bytes[index] != right_bytes[index]) {
-            return (int)left_bytes[index] - (int)right_bytes[index];
+    if (size == 0 || left == right) {
+        return 0;
+    }
+
+    left_bytes = (const unsigned char*)left;
+    right_bytes = (const unsigned char*)right;
+    if ((((uintptr_t)left_bytes | (uintptr_t)right_bytes) & (sizeof(uintptr_t) - 1u)) == 0) {
+        while (size >= sizeof(uintptr_t)) {
+            uintptr_t left_word = *(const uintptr_t*)left_bytes;
+            uintptr_t right_word = *(const uintptr_t*)right_bytes;
+
+            if (left_word != right_word) {
+                break;
+            }
+            left_bytes += sizeof(uintptr_t);
+            right_bytes += sizeof(uintptr_t);
+            size -= sizeof(uintptr_t);
         }
+    }
+
+    while (size-- > 0) {
+        if (*left_bytes != *right_bytes) {
+            return *left_bytes < *right_bytes ? -1 : 1;
+        }
+        left_bytes++;
+        right_bytes++;
     }
 
     return 0;
 }
 
 static void* kos_memset(void* dest, int value, size_t size) {
-    unsigned char* out = (unsigned char*)dest;
-
-    while (size-- > 0) {
-        *out++ = (unsigned char)value;
+    if (size == 0) {
+        return dest;
     }
-
-    return dest;
+    return __builtin_memset(dest, value, size);
 }
 
 #if KOLIBRI_RT_DEBUG_FILE
@@ -9761,6 +9792,13 @@ static void RUNTIME_USED runtime_noop_import(void) {
 
 static const unsigned char RUNTIME_USED runtime_empty_types[1] = {0};
 
+static void* runtime_memmove_export(void* dest, const void* src, size_t size) {
+    if (dest == NULL || src == NULL) {
+        return dest;
+    }
+    return kos_memmove(dest, src, size);
+}
+
 void* memmove(void* dest, const void* src, size_t size) {
     if (dest == NULL || src == NULL) {
         return dest;
@@ -10197,7 +10235,7 @@ __asm__(".global runtime.slicerunetostring");
 __asm__(".set runtime.slicerunetostring, runtime_slicerunetostring");
 
 __asm__(".global runtime.memmove");
-__asm__(".set runtime.memmove, memmove");
+__asm__(".set runtime.memmove, runtime_memmove_export");
 
 __asm__(".global runtime.intstring");
 __asm__(".set runtime.intstring, runtime_intstring");
