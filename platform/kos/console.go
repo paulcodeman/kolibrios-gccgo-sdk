@@ -15,6 +15,7 @@ type Console struct {
 	getsProc        DLLProc
 	keyHitProc      DLLProc
 	version         uint32
+	titlePtr        *byte
 }
 
 var activeConsole Console
@@ -88,25 +89,26 @@ func (console Console) SupportsLineInput() bool {
 	return console.getsProc.Valid()
 }
 
-func (console Console) start() {
+func (console *Console) start() {
 	if console.startProc.Valid() {
 		CallStdcall1VoidRaw(uint32(console.startProc), ConsoleDLLStart)
 	}
 }
 
-func (console Console) Init(windowWidth uint32, windowHeight uint32, scrollWidth uint32, scrollHeight uint32, title string) bool {
+func (console *Console) Init(windowWidth uint32, windowHeight uint32, scrollWidth uint32, scrollHeight uint32, title string) bool {
 	titlePtr, titleAddr := stringAddress(title)
 	if !console.Valid() || titlePtr == nil {
 		return false
 	}
 
+	console.releaseTitle()
 	CallStdcall5VoidRaw(uint32(console.initProc), windowWidth, windowHeight, scrollWidth, scrollHeight, titleAddr)
-	freeCString(titlePtr)
+	console.titlePtr = titlePtr
 	registerActiveConsole(console)
 	return true
 }
 
-func (console Console) InitDefault(title string) bool {
+func (console *Console) InitDefault(title string) bool {
 	return console.Init(
 		ConsoleDefaultDimension,
 		ConsoleDefaultDimension,
@@ -116,14 +118,15 @@ func (console Console) InitDefault(title string) bool {
 	)
 }
 
-func (console Console) SetTitle(title string) bool {
+func (console *Console) SetTitle(title string) bool {
 	titlePtr, titleAddr := stringAddress(title)
 	if !console.SupportsTitle() || titlePtr == nil {
 		return false
 	}
 
 	CallStdcall1VoidRaw(uint32(console.setTitleProc), titleAddr)
-	freeCString(titlePtr)
+	console.releaseTitle()
+	console.titlePtr = titlePtr
 	return true
 }
 
@@ -211,7 +214,8 @@ func (console Console) Getch() int {
 	return int(int32(CallStdcall0Raw(uint32(console.getchProc))))
 }
 
-// Getch2 returns the full keycode from CONSOLE.OBJ (ASCII in the high byte).
+// Getch2 returns the full keycode from CONSOLE.OBJ (ASCII/control in the low byte,
+// scan code in the high byte when the low byte is zero).
 func (console Console) Getch2() uint32 {
 	if !console.SupportsInputFull() {
 		return 0
@@ -220,7 +224,7 @@ func (console Console) Getch2() uint32 {
 	return CallStdcall0Raw(uint32(console.getch2Proc))
 }
 
-func (console Console) Close() error {
+func (console *Console) Close() error {
 	if !console.Valid() {
 		return &consoleError{text: "console close failed"}
 	}
@@ -229,13 +233,14 @@ func (console Console) Close() error {
 	return nil
 }
 
-func (console Console) Exit(closeWindow bool) {
+func (console *Console) Exit(closeWindow bool) {
 	if !console.exitProc.Valid() {
 		return
 	}
 
 	CallStdcall1VoidRaw(uint32(console.exitProc), boolToUint32(closeWindow))
 	unregisterActiveConsole(console)
+	console.releaseTitle()
 }
 
 func boolToUint32(value bool) uint32 {
@@ -264,12 +269,12 @@ func consoleLineLength(buffer []byte) int {
 	return len(buffer)
 }
 
-func registerActiveConsole(console Console) {
-	activeConsole = console
+func registerActiveConsole(console *Console) {
+	activeConsole = *console
 	ConsoleBridgeSetRaw(uint32(console.table), uint32(console.writeStringProc), uint32(console.exitProc), uint32(console.getsProc))
 }
 
-func unregisterActiveConsole(console Console) {
+func unregisterActiveConsole(console *Console) {
 	ConsoleBridgeClearRaw(uint32(console.table))
 	if activeConsole.table == console.table {
 		activeConsole = Console{}
@@ -282,5 +287,14 @@ func closeActiveConsole(closeWindow bool) {
 	}
 
 	ConsoleBridgeCloseRaw(boolToUint32(closeWindow))
+	activeConsole.releaseTitle()
 	activeConsole = Console{}
+}
+
+func (console *Console) releaseTitle() {
+	if console == nil || console.titlePtr == nil {
+		return
+	}
+	freeCString(console.titlePtr)
+	console.titlePtr = nil
 }

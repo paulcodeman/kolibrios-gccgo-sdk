@@ -103,7 +103,9 @@ func (wg *WaitGroup) Wait() {
 
 // Cond is a minimal condition variable.
 type Cond struct {
-	L Locker
+	L       Locker
+	mu      Mutex
+	waiters []chan struct{}
 }
 
 func NewCond(l Locker) *Cond {
@@ -114,15 +116,42 @@ func (c *Cond) Wait() {
 	if c == nil || c.L == nil {
 		return
 	}
+	waiter := make(chan struct{})
+	c.mu.Lock()
+	c.waiters = append(c.waiters, waiter)
+	c.mu.Unlock()
 	c.L.Unlock()
-	yield()
+	<-waiter
 	c.L.Lock()
 }
 
 func (c *Cond) Signal() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	if len(c.waiters) == 0 {
+		c.mu.Unlock()
+		return
+	}
+	waiter := c.waiters[0]
+	copy(c.waiters, c.waiters[1:])
+	c.waiters = c.waiters[:len(c.waiters)-1]
+	c.mu.Unlock()
+	close(waiter)
 }
 
 func (c *Cond) Broadcast() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	waiters := c.waiters
+	c.waiters = nil
+	c.mu.Unlock()
+	for _, waiter := range waiters {
+		close(waiter)
+	}
 }
 
 // Pool is a minimal object pool.

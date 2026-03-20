@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime"
 	"strconv"
 	"time"
 	"unsafe"
@@ -19,6 +20,9 @@ const (
 	socketConnectOp      = 4
 	socketSendOp         = 6
 	socketReceiveOp      = 7
+
+	socketFlagDontWait   = 0x40
+	socketErrWouldBlock  = 6
 )
 
 type socketError struct {
@@ -91,14 +95,20 @@ func (c *TCPConn) Read(b []byte) (int, error) {
 	if len(b) == 0 {
 		return 0, nil
 	}
-	n, err := socketRecv(c.fd, b)
-	if err != nil {
-		return n, err
+	spins := 0
+	for {
+		n, err := socketRecv(c.fd, b, socketFlagDontWait)
+		if err == nil {
+			if n == 0 {
+				return 0, io.EOF
+			}
+			return n, nil
+		}
+		if !isWouldBlock(err) {
+			return n, err
+		}
+		spins = yieldSocketWait(spins)
 	}
-	if n == 0 {
-		return 0, io.EOF
-	}
-	return n, nil
 }
 
 func (c *TCPConn) Write(b []byte) (int, error) {
@@ -106,15 +116,21 @@ func (c *TCPConn) Write(b []byte) (int, error) {
 		return 0, nil
 	}
 	written := 0
+	spins := 0
 	for written < len(b) {
-		n, err := socketSend(c.fd, b[written:])
-		written += n
+		n, err := socketSend(c.fd, b[written:], socketFlagDontWait)
 		if err != nil {
+			if isWouldBlock(err) {
+				spins = yieldSocketWait(spins)
+				continue
+			}
 			return written, err
 		}
 		if n == 0 {
 			return written, io.ErrShortWrite
 		}
+		spins = 0
+		written += n
 	}
 	return written, nil
 }
@@ -301,7 +317,7 @@ func socketConnectCall(fd int, addr *sockaddr) error {
 	return nil
 }
 
-func socketSend(fd int, data []byte) (int, error) {
+func socketSend(fd int, data []byte, flags uint32) (int, error) {
 	if len(data) == 0 {
 		return 0, nil
 	}
@@ -311,7 +327,7 @@ func socketSend(fd int, data []byte) (int, error) {
 		ECX: uint32(fd),
 		EDX: pointerValue(unsafe.Pointer(&data[0])),
 		ESI: uint32(len(data)),
-		EDI: 0,
+		EDI: flags,
 	}
 	kos.SyscallRaw(&regs)
 	if int32(regs.EAX) < 0 {
@@ -320,7 +336,7 @@ func socketSend(fd int, data []byte) (int, error) {
 	return int(int32(regs.EAX)), nil
 }
 
-func socketRecv(fd int, buf []byte) (int, error) {
+func socketRecv(fd int, buf []byte, flags uint32) (int, error) {
 	if len(buf) == 0 {
 		return 0, nil
 	}
@@ -330,13 +346,30 @@ func socketRecv(fd int, buf []byte) (int, error) {
 		ECX: uint32(fd),
 		EDX: pointerValue(unsafe.Pointer(&buf[0])),
 		ESI: uint32(len(buf)),
-		EDI: 0,
+		EDI: flags,
 	}
 	kos.SyscallRaw(&regs)
 	if int32(regs.EAX) < 0 {
 		return 0, &socketError{op: "recv", code: regs.EBX}
 	}
 	return int(int32(regs.EAX)), nil
+}
+
+func isWouldBlock(err error) bool {
+	socketErr, ok := err.(*socketError)
+	return ok && socketErr.code == socketErrWouldBlock
+}
+
+func yieldSocketWait(spins int) int {
+	runtime.Gosched()
+	switch {
+	case spins < 4:
+	case spins < 20:
+		kos.SleepCentiseconds(1)
+	default:
+		kos.SleepCentiseconds(2)
+	}
+	return spins + 1
 }
 
 func pointerValue(ptr unsafe.Pointer) uint32 {

@@ -235,6 +235,7 @@ type FileInfo interface {
 
 type fileInfo struct {
 	name string
+	path string
 	raw  kos.FileInfo
 }
 
@@ -248,7 +249,7 @@ func (info fileInfo) Size() int64 {
 
 func (info fileInfo) Mode() FileMode {
 	mode := FileMode(0)
-	if info.raw.Attributes&kos.FileAttributeDirectory != 0 {
+	if info.raw.Attributes&kos.FileAttributeDirectory != 0 || isVolumeRootPath(info.path) {
 		mode |= ModeDir
 	}
 
@@ -484,8 +485,94 @@ func Stat(name string) (FileInfo, error) {
 
 	return fileInfo{
 		name: baseName(name),
+		path: path.Clean(name),
 		raw:  info,
 	}, nil
+}
+
+func isVolumeRootPath(name string) bool {
+	name = path.Clean(name)
+	if name == "/" {
+		return true
+	}
+	if len(name) < 2 || name[0] != '/' {
+		return false
+	}
+	if equalFoldASCII(name[1:], "sys") {
+		return true
+	}
+
+	firstEnd := indexSlash(name, 1)
+	if firstEnd < 0 {
+		return false
+	}
+	first := name[1:firstEnd]
+	secondStart := firstEnd + 1
+	if secondStart >= len(name) {
+		return false
+	}
+	if indexSlash(name, secondStart) >= 0 {
+		return false
+	}
+
+	second := name[secondStart:]
+	if !isASCIIUnsignedDecimal(second) {
+		return false
+	}
+	if equalFoldASCII(first, "rd") || equalFoldASCII(first, "fd") {
+		return true
+	}
+	if hasASCIIPrefixFold(first, "hd") || hasASCIIPrefixFold(first, "cd") {
+		return len(first) > 2 && isASCIIUnsignedDecimal(first[2:])
+	}
+	return false
+}
+
+func indexSlash(value string, start int) int {
+	for index := start; index < len(value); index++ {
+		if value[index] == '/' {
+			return index
+		}
+	}
+	return -1
+}
+
+func hasASCIIPrefixFold(value string, prefix string) bool {
+	if len(prefix) > len(value) {
+		return false
+	}
+	return equalFoldASCII(value[:len(prefix)], prefix)
+}
+
+func equalFoldASCII(left string, right string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := 0; index < len(left); index++ {
+		if foldASCII(left[index]) != foldASCII(right[index]) {
+			return false
+		}
+	}
+	return true
+}
+
+func foldASCII(value byte) byte {
+	if value >= 'A' && value <= 'Z' {
+		return value + ('a' - 'A')
+	}
+	return value
+}
+
+func isASCIIUnsignedDecimal(value string) bool {
+	if value == "" {
+		return false
+	}
+	for index := 0; index < len(value); index++ {
+		if value[index] < '0' || value[index] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func IsNotExist(err error) bool {
