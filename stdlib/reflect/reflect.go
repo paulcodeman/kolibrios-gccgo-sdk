@@ -158,6 +158,21 @@ type mapType struct {
 	flags      uint32
 }
 
+type runtimeMap struct {
+	len       int
+	entries   unsafe.Pointer
+	used      int
+	cap       int
+	typ       unsafe.Pointer
+	zeroValue unsafe.Pointer
+}
+
+type runtimeMapIterator struct {
+	key   unsafe.Pointer
+	value unsafe.Pointer
+	state unsafe.Pointer
+}
+
 type ptrType struct {
 	rtype
 	elem *rtype
@@ -725,6 +740,17 @@ func (v Value) Float() float64 {
 	}
 }
 
+func (v Value) Complex() complex128 {
+	switch v.kind() {
+	case Complex64:
+		return complex128(*(*complex64)(v.ptr))
+	case Complex128:
+		return *(*complex128)(v.ptr)
+	default:
+		panic(&ValueError{"reflect.Value.Complex", v.kind()})
+	}
+}
+
 func (v Value) String() string {
 	if v.kind() == Invalid {
 		return "<invalid Value>"
@@ -789,6 +815,12 @@ func (v Value) Len() int {
 		return (*unsafeheader.Slice)(v.ptr).Len
 	case String:
 		return (*unsafeheader.String)(v.ptr).Len
+	case Map:
+		ptr := rawValuePointer(v)
+		if ptr == nil {
+			return 0
+		}
+		return (*runtimeMap)(ptr).len
 	default:
 		panic(&ValueError{"reflect.Value.Len", v.kind()})
 	}
@@ -884,7 +916,19 @@ func (v Value) FieldByName(name string) Value {
 func (v Value) NumMethod() int                 { return 0 }
 func (v Value) Method(i int) Value             { return Value{} }
 func (v Value) MethodByName(name string) Value { return Value{} }
-func (v Value) Pointer() uintptr               { return 0 }
+func (v Value) Pointer() uintptr {
+	switch v.kind() {
+	case Pointer, Map, Chan, Func, UnsafePointer:
+		return uintptr(rawValuePointer(v))
+	case Slice:
+		return uintptr((*unsafeheader.Slice)(v.ptr).Data)
+	default:
+		panic(&ValueError{"reflect.Value.Pointer", v.kind()})
+	}
+}
+func (v Value) UnsafePointer() unsafe.Pointer {
+	return unsafe.Pointer(v.Pointer())
+}
 func (v Value) Convert(t Type) Value           { return Value{} }
 func (v Value) Call(in []Value) []Value        { return nil }
 func (v Value) CallSlice(in []Value) []Value   { return nil }
@@ -997,6 +1041,18 @@ func (v Value) SetFloat(x float64) {
 		*(*float64)(v.ptr) = x
 	default:
 		panic(&ValueError{"reflect.Value.SetFloat", v.kind()})
+	}
+}
+
+func (v Value) SetComplex(x complex128) {
+	v.flag.mustBeAssignable("reflect.Value.SetComplex")
+	switch v.kind() {
+	case Complex64:
+		*(*complex64)(v.ptr) = complex64(x)
+	case Complex128:
+		*(*complex128)(v.ptr) = x
+	default:
+		panic(&ValueError{"reflect.Value.SetComplex", v.kind()})
 	}
 }
 
@@ -1143,13 +1199,44 @@ func Copy(dst, src Value) int {
 
 func ValueOfPtr(ptr unsafe.Pointer) Value { return Value{} }
 
-type MapIter struct{}
+type MapIter struct {
+	typ     *mapType
+	iter    runtimeMapIterator
+	started bool
+}
 
-func (it *MapIter) Next() bool   { return false }
-func (it *MapIter) Key() Value   { return Value{} }
-func (it *MapIter) Value() Value { return Value{} }
+func (it *MapIter) Next() bool {
+	if it == nil {
+		return false
+	}
+	if !it.started {
+		it.started = true
+		return it.iter.key != nil
+	}
+	runtimeMapiternext(&it.iter)
+	return it.iter.key != nil
+}
 
-func (v Value) MapRange() *MapIter { return &MapIter{} }
+func (it *MapIter) Key() Value {
+	if it == nil || !it.started || it.iter.key == nil {
+		return Value{}
+	}
+	return Value{typ: it.typ.key, ptr: it.iter.key, flag: flag(it.typ.key.Kind()) | flagIndir}
+}
+
+func (it *MapIter) Value() Value {
+	if it == nil || !it.started || it.iter.value == nil {
+		return Value{}
+	}
+	return Value{typ: it.typ.elem, ptr: it.iter.value, flag: flag(it.typ.elem.Kind()) | flagIndir}
+}
+
+func (v Value) MapRange() *MapIter {
+	v.flag.mustBe(Map, "reflect.Value.MapRange")
+	it := &MapIter{typ: (*mapType)(unsafe.Pointer(v.typ))}
+	runtimeMapiterinit(nil, rawValuePointer(v), &it.iter)
+	return it
+}
 
 func ptrTo(t *rtype) *rtype {
 	if t == nil {
@@ -1264,3 +1351,5 @@ func deepValueEqual(x, y Value) bool {
 func runtimeNewObject(t *rtype) unsafe.Pointer __asm__("runtime.newobject")
 func runtimeMakeSlice(t *rtype, len int, cap int) unsafe.Pointer __asm__("runtime.makeslice")
 func runtimeTypedSliceCopy(t *rtype, dst unsafe.Pointer, dstLen int, src unsafe.Pointer, srcLen int) int __asm__("runtime.typedslicecopy")
+func runtimeMapiterinit(mapType unsafe.Pointer, m unsafe.Pointer, it *runtimeMapIterator) __asm__("runtime.mapiterinit")
+func runtimeMapiternext(it *runtimeMapIterator) __asm__("runtime.mapiternext")

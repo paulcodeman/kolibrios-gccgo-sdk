@@ -115,11 +115,22 @@ func compare(aVal, bVal reflect.Value) int {
 	case reflect.Float32, reflect.Float64:
 		return floatCompare(aVal.Float(), bVal.Float())
 	case reflect.Complex64, reflect.Complex128:
-		a, b := aVal.Complex(), bVal.Complex()
-		if c := floatCompare(real(a), real(b)); c != 0 {
-			return c
+		switch a := aVal.Interface().(type) {
+		case complex64:
+			b := bVal.Interface().(complex64)
+			if c := floatCompare(float64(real(a)), float64(real(b))); c != 0 {
+				return c
+			}
+			return floatCompare(float64(imag(a)), float64(imag(b)))
+		case complex128:
+			b := bVal.Interface().(complex128)
+			if c := floatCompare(real(a), real(b)); c != 0 {
+				return c
+			}
+			return floatCompare(imag(a), imag(b))
+		default:
+			panic("bad complex type in compare: " + aType.String())
 		}
-		return floatCompare(imag(a), imag(b))
 	case reflect.Bool:
 		a, b := aVal.Bool(), bVal.Bool()
 		switch {

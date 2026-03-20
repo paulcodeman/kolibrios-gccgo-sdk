@@ -623,18 +623,18 @@ typedef struct {
 
 typedef bool (*go_equal_function)(const void* left, const void* right);
 typedef uint32_t (*go_hash_function)(const void* value);
+typedef uintptr_t (*go_seeded_hash_function)(const void* value, uintptr_t seed);
 
 typedef struct {
     go_type_descriptor common;
     const go_type_descriptor* key_type;
     const go_type_descriptor* value_type;
     const go_type_descriptor* bucket_type;
-    void* hasher;
+    go_seeded_hash_function* hasher;
     uint8_t key_size;
     uint8_t value_size;
-    uint8_t bucket_size;
-    uint8_t flags;
-    uint32_t extra;
+    uint16_t bucket_size;
+    uint32_t flags;
 } go_map_type_descriptor;
 
 typedef struct {
@@ -727,10 +727,14 @@ typedef struct {
 typedef struct {
     intptr_t len;
     runtime_map_entry* entries;
+    unsigned char* storage;
     intptr_t used;
     intptr_t cap;
+    uint32_t hash_seed;
     const go_map_type_descriptor* type;
     void* zero_value;
+    size_t value_offset;
+    size_t entry_stride;
 } runtime_map;
 
 typedef void (*runtime_defer_fn)(void* arg);
@@ -2628,6 +2632,7 @@ typedef struct {
     runtime_map_iter_state* state;
 } runtime_map_iterator;
 
+typedef struct runtime_gc_header runtime_gc_header;
 typedef struct runtime_gc_page_entry runtime_gc_page_entry;
 
 typedef struct {
@@ -2643,6 +2648,14 @@ typedef struct runtime_gc_root_block {
     runtime_gc_root_descriptor roots[];
 } runtime_gc_root_block;
 
+struct runtime_gc_page_entry {
+    uintptr_t page_base;
+    runtime_gc_header* header;
+    runtime_gc_page_entry* next_in_bucket;
+    runtime_gc_page_entry* prev_in_bucket;
+    runtime_gc_page_entry* next_in_header;
+};
+
 struct runtime_gc_header {
     runtime_gc_header* next;
     runtime_gc_header* prev;
@@ -2651,15 +2664,8 @@ struct runtime_gc_header {
     runtime_gc_scan_fn scan;
     uintptr_t aux;
     runtime_gc_page_entry* page_entries;
+    runtime_gc_page_entry inline_page_entry;
     uint8_t marked;
-};
-
-struct runtime_gc_page_entry {
-    uintptr_t page_base;
-    runtime_gc_header* header;
-    runtime_gc_page_entry* next_in_bucket;
-    runtime_gc_page_entry* prev_in_bucket;
-    runtime_gc_page_entry* next_in_header;
 };
 
 #define GO_TYPE_KIND_DIRECT_IFACE 0x20u
@@ -2691,11 +2697,19 @@ static void* runtime_gc_alloc_object(const go_type_descriptor* descriptor);
 static void* runtime_gc_alloc_array(const go_type_descriptor* descriptor, intptr_t count, size_t total_size);
 static runtime_map* runtime_gc_alloc_map_object(void);
 static runtime_map_entry* runtime_gc_alloc_map_entries(runtime_map* map, intptr_t cap);
+static unsigned char* runtime_gc_alloc_map_storage(runtime_map* map, intptr_t cap);
 static runtime_map_iter_state* runtime_gc_alloc_map_iter_state(void);
 static void runtime_gc_free_exact(void* ptr);
 static uint32_t runtime_strhash_impl(const void* value);
 static uint32_t runtime_hash_interface(const go_type_descriptor* descriptor, const void* data);
 static go_equal_function runtime_resolve_equal_function(const go_type_descriptor* descriptor);
+uintptr_t runtime_strhash(const void* value, uintptr_t seed);
+uintptr_t runtime_f32hash(const void* value, uintptr_t seed);
+uintptr_t runtime_f64hash(const void* value, uintptr_t seed);
+uintptr_t runtime_c64hash(const void* value, uintptr_t seed);
+uintptr_t runtime_c128hash(const void* value, uintptr_t seed);
+uintptr_t runtime_interhash(const void* value, uintptr_t seed);
+uintptr_t runtime_nilinterhash(const void* value, uintptr_t seed);
 void* runtime_mapassign(const go_map_type_descriptor* map_type, runtime_map* map, const void* key);
 void* runtime_mapaccess1(const go_map_type_descriptor* map_type, runtime_map* map, const void* key);
 go_mapaccess2_result runtime_mapaccess2(const go_map_type_descriptor* map_type, runtime_map* map, const void* key);
@@ -3708,110 +3722,252 @@ static void runtime_debug_write_int64(int64_t value) {
     }
 }
 
-static uint32_t runtime_hash_bytes(const unsigned char* data, size_t size) {
-    uint32_t hash;
-    size_t index;
+#define RUNTIME_HASH_C0 ((uintptr_t)2860486313u)
+#define RUNTIME_HASH_C1 ((uintptr_t)3267000013u)
 
-    if (data == NULL || size == 0) {
+static uintptr_t runtime_hashkey[4] = {
+    1u,
+    0x9e3779b1u,
+    0x85ebca77u,
+    0xc2b2ae3du,
+};
+static uint32_t runtime_hash_initialized = 0;
+
+static uint32_t runtime_read_unaligned32(const void* value) {
+    const unsigned char* bytes;
+
+    if (value == NULL) {
         return 0;
     }
 
-    hash = 2166136261u;
-    for (index = 0; index < size; index++) {
-        hash ^= (uint32_t)data[index];
-        hash *= 16777619u;
+    bytes = (const unsigned char*)value;
+    return (uint32_t)bytes[0] |
+           ((uint32_t)bytes[1] << 8) |
+           ((uint32_t)bytes[2] << 16) |
+           ((uint32_t)bytes[3] << 24);
+}
+
+static void runtime_hash_mix32(uint32_t a, uint32_t b, uint32_t* out_a, uint32_t* out_b) {
+    uint64_t c;
+
+    c = (uint64_t)(a ^ (uint32_t)runtime_hashkey[1]) * (uint64_t)(b ^ (uint32_t)runtime_hashkey[2]);
+    *out_a = (uint32_t)c;
+    *out_b = (uint32_t)(c >> 32);
+}
+
+static void runtime_hash_init(void) {
+    uintptr_t seed0;
+    uintptr_t seed1;
+    uintptr_t seed2;
+    uintptr_t seed3;
+
+    if (runtime_atomic_load_u32(&runtime_hash_initialized) != 0) {
+        return;
     }
 
-    return hash;
+    seed0 = ((uintptr_t)runtime_fastrand() << 1u) | 1u;
+    seed1 = ((uintptr_t)runtime_fastrand() ^ (uintptr_t)runtime_current_sp() ^ (uintptr_t)0x9e3779b1u) | 1u;
+    seed2 = ((uintptr_t)runtime_fastrand() ^ (uintptr_t)runtime_kolibri_current_thread_slot() ^ (uintptr_t)0x85ebca77u) | 1u;
+    seed3 = ((uintptr_t)runtime_fastrand() ^ (uintptr_t)runtime_kos_get_free_ram_raw() ^ (uintptr_t)0xc2b2ae3du) | 1u;
+
+    runtime_hashkey[0] = seed0;
+    runtime_hashkey[1] = seed1;
+    runtime_hashkey[2] = seed2;
+    runtime_hashkey[3] = seed3;
+    runtime_atomic_store_u32(&runtime_hash_initialized, 1u);
+}
+
+static uintptr_t runtime_memhash_bytes_seeded(const unsigned char* data, size_t size, uintptr_t seed) {
+    uint32_t a;
+    uint32_t b;
+    uint32_t t;
+    size_t remaining;
+
+    runtime_hash_init();
+    a = (uint32_t)seed;
+    b = (uint32_t)(size ^ runtime_hashkey[0]);
+    runtime_hash_mix32(a, b, &a, &b);
+    if (data == NULL || size == 0) {
+        return (uintptr_t)(a ^ b);
+    }
+
+    remaining = size;
+    while (remaining > 8) {
+        a ^= runtime_read_unaligned32(data);
+        b ^= runtime_read_unaligned32(data + 4);
+        runtime_hash_mix32(a, b, &a, &b);
+        data += 8;
+        remaining -= 8;
+    }
+
+    if (remaining >= 4) {
+        a ^= runtime_read_unaligned32(data);
+        b ^= runtime_read_unaligned32(data + remaining - 4);
+    } else {
+        t = (uint32_t)data[0];
+        t |= (uint32_t)data[remaining >> 1] << 8;
+        t |= (uint32_t)data[remaining - 1] << 16;
+        b ^= t;
+    }
+
+    runtime_hash_mix32(a, b, &a, &b);
+    runtime_hash_mix32(a, b, &a, &b);
+    return (uintptr_t)(a ^ b);
+}
+
+static uint32_t runtime_hash_bytes(const unsigned char* data, size_t size) {
+    return (uint32_t)runtime_memhash_bytes_seeded(data, size, 0);
 }
 
 static uint32_t runtime_hash_bytes_seeded(const unsigned char* data, size_t size, uint32_t seed) {
-    uint32_t hash;
-    size_t index;
+    return (uint32_t)runtime_memhash_bytes_seeded(data, size, (uintptr_t)seed);
+}
 
-    if (data == NULL || size == 0) {
+static uintptr_t runtime_hash_float32_seeded(float value, uintptr_t seed) {
+    if (value == 0.0f) {
+        return RUNTIME_HASH_C1 * (RUNTIME_HASH_C0 ^ seed);
+    }
+    if (value != value) {
+        return RUNTIME_HASH_C1 * (RUNTIME_HASH_C0 ^ seed ^ (uintptr_t)runtime_fastrand());
+    }
+
+    return runtime_memhash(&value, seed, sizeof(value));
+}
+
+static uintptr_t runtime_hash_float64_seeded(double value, uintptr_t seed) {
+    if (value == 0.0) {
+        return RUNTIME_HASH_C1 * (RUNTIME_HASH_C0 ^ seed);
+    }
+    if (value != value) {
+        return RUNTIME_HASH_C1 * (RUNTIME_HASH_C0 ^ seed ^ (uintptr_t)runtime_fastrand());
+    }
+
+    return runtime_memhash(&value, seed, sizeof(value));
+}
+
+static uintptr_t runtime_hash_value_seeded(const go_type_descriptor* descriptor, const void* data, uintptr_t seed);
+
+static uintptr_t runtime_strhash_seeded_impl(const void* value, uintptr_t seed) {
+    const go_string* text;
+
+    text = (const go_string*)value;
+    if (text == NULL) {
         return seed;
     }
 
-    hash = 2166136261u ^ seed;
-    for (index = 0; index < size; index++) {
-        hash ^= (uint32_t)data[index];
-        hash *= 16777619u;
-    }
-
-    return hash;
+    return runtime_memhash(text->str, seed, (uintptr_t)(text->len > 0 ? text->len : 0));
 }
 
-static uint32_t runtime_hash_float32_value(float value) {
-    uint32_t bits;
+static uintptr_t runtime_nilinterhash_seeded_impl(const void* value, uintptr_t seed) {
+    const go_empty_interface* iface;
+    const go_type_descriptor* concrete_type;
+    go_equal_function equal;
 
-    kos_memcpy(&bits, &value, sizeof(bits));
-    if (value == 0.0f) {
-        bits = 0;
-    } else if (value != value) {
-        bits = 0x7fc00000u;
+    iface = (const go_empty_interface*)value;
+    if (iface == NULL) {
+        return seed;
     }
 
-    return runtime_hash_bytes((const unsigned char*)&bits, sizeof(bits));
-}
-
-static uint32_t runtime_hash_float64_value(double value) {
-    uint64_t bits;
-
-    kos_memcpy(&bits, &value, sizeof(bits));
-    if (value == 0.0) {
-        bits = 0;
-    } else if (value != value) {
-        bits = 0x7ff8000000000000ull;
+    concrete_type = iface->type;
+    if (concrete_type == NULL) {
+        return seed;
     }
 
-    return runtime_hash_bytes((const unsigned char*)&bits, sizeof(bits));
+    equal = runtime_resolve_equal_function(concrete_type);
+    if (equal == NULL) {
+        runtime_fail_simple("hash of unhashable type");
+    }
+
+    if ((concrete_type->kind & GO_TYPE_KIND_DIRECT_IFACE) != 0) {
+        return RUNTIME_HASH_C1 * runtime_hash_value_seeded(concrete_type, &iface->data, seed ^ RUNTIME_HASH_C0);
+    }
+
+    return RUNTIME_HASH_C1 * runtime_hash_value_seeded(concrete_type, iface->data, seed ^ RUNTIME_HASH_C0);
 }
 
-static uint32_t runtime_hash_value(const go_type_descriptor* descriptor, const void* data) {
-    uint8_t kind;
-    uintptr_t direct_value;
+static uintptr_t runtime_interhash_seeded_impl(const void* value, uintptr_t seed) {
+    const go_interface* iface;
+    const go_type_descriptor* concrete_type;
+    go_equal_function equal;
+
+    iface = (const go_interface*)value;
+    if (iface == NULL || iface->methods == NULL) {
+        return seed;
+    }
+
+    concrete_type = iface->methods->type;
+    if (concrete_type == NULL) {
+        return seed;
+    }
+
+    equal = runtime_resolve_equal_function(concrete_type);
+    if (equal == NULL) {
+        runtime_fail_simple("hash of unhashable type");
+    }
+
+    if ((concrete_type->kind & GO_TYPE_KIND_DIRECT_IFACE) != 0) {
+        return RUNTIME_HASH_C1 * runtime_hash_value_seeded(concrete_type, &iface->data, seed ^ RUNTIME_HASH_C0);
+    }
+
+    return RUNTIME_HASH_C1 * runtime_hash_value_seeded(concrete_type, iface->data, seed ^ RUNTIME_HASH_C0);
+}
+
+static uintptr_t runtime_hash_interface_seeded(const go_type_descriptor* descriptor, const void* data, uintptr_t seed) {
+    const go_interface_type_descriptor* iface_type;
 
     if (descriptor == NULL) {
-        return 0;
+        return seed;
     }
 
-    if ((descriptor->kind & GO_TYPE_KIND_DIRECT_IFACE) != 0) {
-        direct_value = (uintptr_t)data;
-        return runtime_hash_bytes((const unsigned char*)&direct_value, sizeof(direct_value));
+    iface_type = (const go_interface_type_descriptor*)descriptor;
+    if (iface_type->method_count == 0 && iface_type->exported_method_count == 0) {
+        return runtime_nilinterhash_seeded_impl(data, seed);
     }
 
+    return runtime_interhash_seeded_impl(data, seed);
+}
+
+static uintptr_t runtime_hash_value_seeded(const go_type_descriptor* descriptor, const void* data, uintptr_t seed) {
+    uint8_t kind;
+
+    if (descriptor == NULL) {
+        return seed;
+    }
     if (data == NULL) {
-        return 0;
+        return seed;
     }
 
     kind = descriptor->kind & GO_TYPE_KIND_MASK;
     if (kind == GO_TYPE_KIND_INTERFACE) {
-        return runtime_hash_interface(descriptor, data);
+        return runtime_hash_interface_seeded(descriptor, data, seed);
     }
     if (kind == GO_TYPE_KIND_STRING) {
-        return runtime_strhash_impl(data);
+        return runtime_strhash_seeded_impl(data, seed);
     }
     if (kind == GO_TYPE_KIND_FLOAT32) {
-        return runtime_hash_float32_value(*(const float*)data);
+        return runtime_hash_float32_seeded(*(const float*)data, seed);
     }
     if (kind == GO_TYPE_KIND_FLOAT64) {
-        return runtime_hash_float64_value(*(const double*)data);
+        return runtime_hash_float64_seeded(*(const double*)data, seed);
     }
     if (kind == GO_TYPE_KIND_COMPLEX64) {
         const float* parts = (const float*)data;
-        uint32_t re = runtime_hash_float32_value(parts[0]);
-        uint32_t im = runtime_hash_float32_value(parts[1]);
-        return re ^ (im * 16777619u);
+        return runtime_hash_float32_seeded(parts[1], runtime_hash_float32_seeded(parts[0], seed));
     }
     if (kind == GO_TYPE_KIND_COMPLEX128) {
         const double* parts = (const double*)data;
-        uint32_t re = runtime_hash_float64_value(parts[0]);
-        uint32_t im = runtime_hash_float64_value(parts[1]);
-        return re ^ (im * 16777619u);
+        return runtime_hash_float64_seeded(parts[1], runtime_hash_float64_seeded(parts[0], seed));
     }
 
-    return runtime_hash_bytes((const unsigned char*)data, (size_t)descriptor->size);
+    return runtime_memhash(data, seed, (uintptr_t)descriptor->size);
+}
+
+static uint32_t runtime_hash_interface(const go_type_descriptor* descriptor, const void* data) {
+    return (uint32_t)runtime_hash_interface_seeded(descriptor, data, 0);
+}
+
+static uint32_t runtime_hash_value(const go_type_descriptor* descriptor, const void* data) {
+    return (uint32_t)runtime_hash_value_seeded(descriptor, data, 0);
 }
 
 static inline uint32_t runtime_atomic_load_u32(const volatile uint32_t* value) {
@@ -4225,7 +4381,10 @@ static runtime_gc_root_block* runtime_gc_roots = NULL;
 static void* runtime_gc_stack_top = NULL;
 static size_t runtime_gc_live_bytes = 0;
 static size_t runtime_gc_live_objects = 0;
-static size_t runtime_gc_threshold = 32768u;
+/* Small heaps make allocation-heavy interpreters spend disproportionate time in GC. */
+#define RUNTIME_GC_MIN_HEAP_GOAL (256u * 1024u)
+
+static size_t runtime_gc_threshold = RUNTIME_GC_MIN_HEAP_GOAL;
 static size_t runtime_gc_collection_count = 0;
 static int runtime_gc_running = 0;
 static int runtime_gc_enabled = 0;
@@ -4356,6 +4515,7 @@ static void runtime_gc_index_add(runtime_gc_header* header) {
     uintptr_t end;
     uintptr_t page;
     uintptr_t last_page;
+    uint8_t used_inline;
 
     if (header == NULL) {
         return;
@@ -4370,14 +4530,20 @@ static void runtime_gc_index_add(runtime_gc_header* header) {
 
     page = runtime_gc_page_base(start);
     last_page = runtime_gc_page_base(end - 1u);
+    used_inline = 0;
     while (1) {
         runtime_gc_page_entry* entry;
         size_t bucket;
 
-        entry = (runtime_gc_page_entry*)runtime_pool_malloc(sizeof(runtime_gc_page_entry));
-        if (entry == NULL) {
-            runtime_gc_page_index_complete = 0;
-            break;
+        if (!used_inline) {
+            entry = &header->inline_page_entry;
+            used_inline = 1;
+        } else {
+            entry = (runtime_gc_page_entry*)runtime_pool_malloc(sizeof(runtime_gc_page_entry));
+            if (entry == NULL) {
+                runtime_gc_page_index_complete = 0;
+                break;
+            }
         }
 
         entry->page_base = page;
@@ -4390,6 +4556,7 @@ static void runtime_gc_index_add(runtime_gc_header* header) {
         }
         runtime_gc_page_buckets[bucket] = entry;
 
+        entry->prev_in_bucket = NULL;
         entry->next_in_header = header->page_entries;
         header->page_entries = entry;
 
@@ -4425,7 +4592,9 @@ static void runtime_gc_index_remove(runtime_gc_header* header) {
         if (entry->next_in_bucket != NULL) {
             entry->next_in_bucket->prev_in_bucket = entry->prev_in_bucket;
         }
-        runtime_pool_free(entry);
+        if (entry != &header->inline_page_entry) {
+            runtime_pool_free(entry);
+        }
         entry = next;
     }
 
@@ -4708,24 +4877,51 @@ static void runtime_gc_scan_runtime_map(runtime_gc_header* header) {
     }
 
     runtime_gc_mark_pointer(map->entries);
+    runtime_gc_mark_pointer(map->storage);
     runtime_gc_mark_pointer(map->zero_value);
 }
 
 static void runtime_gc_scan_runtime_map_entries(runtime_gc_header* header) {
-    runtime_map_entry* entries;
+    (void)header;
+}
+
+static void runtime_gc_scan_runtime_map_storage(runtime_gc_header* header) {
+    runtime_map* map;
+    unsigned char* storage;
     uintptr_t index;
 
-    entries = (runtime_map_entry*)runtime_gc_payload(header);
-    if (entries == NULL) {
+    if (header == NULL) {
         return;
     }
 
-    for (index = 0; index < header->aux; index++) {
-        if (entries[index].state != 1) {
+    map = (runtime_map*)(uintptr_t)header->aux;
+    storage = (unsigned char*)runtime_gc_payload(header);
+    if (map == NULL || storage == NULL || map->entries == NULL || map->type == NULL) {
+        return;
+    }
+
+    for (index = 0; index < (uintptr_t)map->cap; index++) {
+        unsigned char* base;
+        runtime_map_entry* entry;
+
+        entry = &map->entries[index];
+        if (entry->state != 1) {
             continue;
         }
-        runtime_gc_mark_pointer(entries[index].key_data);
-        runtime_gc_mark_pointer(entries[index].value_data);
+
+        base = storage + index * map->entry_stride;
+        if (map->type->key_type != NULL && map->type->key_type->ptrdata != 0 && map->type->key_type->size != 0) {
+            runtime_gc_scan_precise_words(base,
+                                          map->type->key_type->size,
+                                          map->type->key_type->ptrdata,
+                                          (const uint8_t*)map->type->key_type->gcdata);
+        }
+        if (map->type->value_type != NULL && map->type->value_type->ptrdata != 0 && map->type->value_type->size != 0) {
+            runtime_gc_scan_precise_words(base + map->value_offset,
+                                          map->type->value_type->size,
+                                          map->type->value_type->ptrdata,
+                                          (const uint8_t*)map->type->value_type->gcdata);
+        }
     }
 }
 
@@ -4936,8 +5132,8 @@ static void runtime_gc_update_threshold(void) {
     size_t base;
 
     base = runtime_gc_live_bytes;
-    if (base < 32768u) {
-        base = 32768u;
+    if (base < RUNTIME_GC_MIN_HEAP_GOAL) {
+        base = RUNTIME_GC_MIN_HEAP_GOAL;
     }
     if (base > ((size_t)-1) - (base / 2u) - 4096u) {
         runtime_gc_threshold = (size_t)-1;
@@ -5081,6 +5277,8 @@ static runtime_map* runtime_gc_alloc_map_object(void) {
 }
 
 static runtime_map_entry* runtime_gc_alloc_map_entries(runtime_map* map, intptr_t cap) {
+    (void)map;
+
     if (cap <= 0) {
         return NULL;
     }
@@ -5088,9 +5286,29 @@ static runtime_map_entry* runtime_gc_alloc_map_entries(runtime_map* map, intptr_
     return (runtime_map_entry*)runtime_gc_alloc_managed(
         (size_t)cap * sizeof(runtime_map_entry),
         NULL,
-        runtime_gc_scan_runtime_map_entries,
+        NULL,
         NULL,
         (uintptr_t)cap);
+}
+
+static unsigned char* runtime_gc_alloc_map_storage(runtime_map* map, intptr_t cap) {
+    size_t total_size;
+
+    if (map == NULL || cap <= 0 || map->entry_stride == 0) {
+        return NULL;
+    }
+
+    if ((size_t)cap > ((size_t)-1) / map->entry_stride) {
+        runtime_panicmem();
+    }
+
+    total_size = (size_t)cap * map->entry_stride;
+    return (unsigned char*)runtime_gc_alloc_managed(
+        total_size,
+        NULL,
+        runtime_gc_scan_runtime_map_storage,
+        NULL,
+        (uintptr_t)map);
 }
 
 static runtime_map_iter_state* runtime_gc_alloc_map_iter_state(void) {
@@ -6120,7 +6338,145 @@ static void* runtime_alloc_zeroed(size_t size) {
 }
 
 static runtime_map* runtime_alloc_map(void) {
-    return runtime_gc_alloc_map_object();
+    runtime_map* map;
+
+    map = runtime_gc_alloc_map_object();
+    if (map != NULL) {
+        map->hash_seed = runtime_fastrand();
+        if (map->hash_seed == 0) {
+            map->hash_seed = 1u;
+        }
+    }
+
+    return map;
+}
+
+static uint32_t runtime_map_hash_seed(const runtime_map* map) {
+    if (map == NULL || map->hash_seed == 0) {
+        return 1u;
+    }
+
+    return map->hash_seed;
+}
+
+static uint32_t runtime_map_hash_generic(const go_map_type_descriptor* map_type, runtime_map* map, const void* key) {
+    uintptr_t seed;
+
+    seed = (uintptr_t)runtime_map_hash_seed(map);
+    if (map_type != NULL && map_type->hasher != NULL) {
+        return (uint32_t)(*map_type->hasher)(key, seed);
+    }
+    if (map_type != NULL && map_type->key_type != NULL) {
+        return (uint32_t)runtime_hash_value_seeded(map_type->key_type, key, seed);
+    }
+
+    return (uint32_t)runtime_memhash(key, seed, (uintptr_t)runtime_map_key_size(map_type));
+}
+
+static uint32_t runtime_map_hash_fast32(const go_map_type_descriptor* map_type, runtime_map* map, uint32_t key) {
+    uintptr_t seed;
+
+    seed = (uintptr_t)runtime_map_hash_seed(map);
+    if (map_type != NULL && map_type->hasher != NULL) {
+        return (uint32_t)(*map_type->hasher)(&key, seed);
+    }
+
+    return (uint32_t)runtime_memhash32(&key, seed);
+}
+
+static uint32_t runtime_map_hash_faststr(const go_map_type_descriptor* map_type, runtime_map* map, const char* key_ptr, intptr_t key_len) {
+    go_string key;
+    uintptr_t seed;
+
+    key.str = key_ptr;
+    key.len = key_len;
+    seed = (uintptr_t)runtime_map_hash_seed(map);
+    if (map_type != NULL && map_type->hasher != NULL) {
+        return (uint32_t)(*map_type->hasher)(&key, seed);
+    }
+
+    return (uint32_t)runtime_strhash(&key, seed);
+}
+
+static size_t runtime_align_up_size(size_t value, size_t align) {
+    if (align <= 1) {
+        return value;
+    }
+
+    return (value + align - 1) & ~(align - 1);
+}
+
+static size_t runtime_map_type_align(const go_type_descriptor* descriptor, size_t fallback_size) {
+    size_t align;
+
+    align = 1;
+    if (descriptor != NULL) {
+        if (descriptor->align != 0) {
+            align = (size_t)descriptor->align;
+        } else if (descriptor->field_align != 0) {
+            align = (size_t)descriptor->field_align;
+        }
+    } else if (fallback_size >= sizeof(void*)) {
+        align = sizeof(void*);
+    } else if (fallback_size >= sizeof(uint32_t)) {
+        align = sizeof(uint32_t);
+    } else if (fallback_size >= sizeof(uint16_t)) {
+        align = sizeof(uint16_t);
+    }
+
+    if ((align & (align - 1)) != 0) {
+        size_t rounded = 1;
+        while (rounded < align && rounded <= (((size_t)-1) >> 1)) {
+            rounded <<= 1;
+        }
+        align = rounded;
+    }
+
+    return align;
+}
+
+static void runtime_map_compute_layout(runtime_map* map, const go_map_type_descriptor* map_type) {
+    size_t key_align;
+    size_t value_align;
+    size_t max_align;
+    size_t key_size;
+    size_t value_size;
+    size_t stride;
+
+    if (map == NULL || map_type == NULL) {
+        return;
+    }
+
+    key_size = runtime_map_key_size(map_type);
+    value_size = runtime_map_value_size(map_type);
+    key_align = runtime_map_type_align(map_type->key_type, key_size);
+    value_align = runtime_map_type_align(map_type->value_type, value_size);
+    max_align = key_align;
+    if (value_align > max_align) {
+        max_align = value_align;
+    }
+    if (max_align < sizeof(void*)) {
+        max_align = sizeof(void*);
+    }
+
+    map->value_offset = runtime_align_up_size(key_size, value_align);
+    stride = runtime_align_up_size(map->value_offset + value_size, max_align);
+    if (stride == 0) {
+        stride = max_align;
+    }
+    map->entry_stride = stride;
+}
+
+static void runtime_map_set_entry_storage(runtime_map* map, runtime_map_entry* entry, intptr_t index) {
+    unsigned char* base;
+
+    if (map == NULL || entry == NULL || map->storage == NULL || index < 0) {
+        return;
+    }
+
+    base = map->storage + (size_t)index * map->entry_stride;
+    entry->key_data = base;
+    entry->value_data = base + map->value_offset;
 }
 
 static bool runtime_map_bind_type(runtime_map* map, const go_map_type_descriptor* map_type) {
@@ -6129,7 +6485,11 @@ static bool runtime_map_bind_type(runtime_map* map, const go_map_type_descriptor
     }
     if (map->type == NULL) {
         map->type = map_type;
+        runtime_map_compute_layout(map, map_type);
         return true;
+    }
+    if (map->type == map_type && map->entry_stride == 0) {
+        runtime_map_compute_layout(map, map_type);
     }
 
     return map->type == map_type;
@@ -6181,10 +6541,14 @@ static intptr_t runtime_map_next_power_of_two(intptr_t value) {
 
 static bool runtime_map_rehash(runtime_map* map, intptr_t new_cap) {
     runtime_map_entry* resized;
+    unsigned char* resized_storage;
     runtime_map_entry* previous_entries;
+    unsigned char* previous_storage;
     intptr_t previous_cap;
     intptr_t index;
     intptr_t mask;
+    size_t key_size;
+    size_t value_size;
 
     if (map == NULL) {
         return false;
@@ -6199,11 +6563,20 @@ static bool runtime_map_rehash(runtime_map* map, intptr_t new_cap) {
     if (resized == NULL) {
         return false;
     }
+    resized_storage = runtime_gc_alloc_map_storage(map, new_cap);
+    if (resized_storage == NULL) {
+        runtime_gc_free_exact(resized);
+        return false;
+    }
 
     previous_entries = map->entries;
+    previous_storage = map->storage;
     previous_cap = map->cap;
+    key_size = runtime_map_key_size(map->type);
+    value_size = runtime_map_value_size(map->type);
 
     map->entries = resized;
+    map->storage = resized_storage;
     map->cap = new_cap;
     map->len = 0;
     map->used = 0;
@@ -6220,12 +6593,28 @@ static bool runtime_map_rehash(runtime_map* map, intptr_t new_cap) {
             while (resized[slot].state == 1) {
                 slot = (slot + 1) & mask;
             }
-            resized[slot] = *entry;
+            resized[slot].hash = entry->hash;
             resized[slot].state = 1;
+            runtime_map_set_entry_storage(map, &resized[slot], slot);
+            if (key_size != 0) {
+                if (map->type != NULL && map->type->key_type != NULL) {
+                    runtime_typedmemmove(map->type->key_type, resized[slot].key_data, entry->key_data);
+                } else {
+                    kos_memcpy(resized[slot].key_data, entry->key_data, key_size);
+                }
+            }
+            if (value_size != 0) {
+                if (map->type != NULL && map->type->value_type != NULL) {
+                    runtime_typedmemmove(map->type->value_type, resized[slot].value_data, entry->value_data);
+                } else {
+                    kos_memcpy(resized[slot].value_data, entry->value_data, value_size);
+                }
+            }
             map->len++;
             map->used++;
         }
         runtime_gc_free_exact(previous_entries);
+        runtime_gc_free_exact(previous_storage);
     }
 
     return true;
@@ -6269,85 +6658,52 @@ static bool runtime_map_reserve(runtime_map* map, intptr_t needed) {
     return true;
 }
 
-static bool runtime_map_alloc_entry_storage(runtime_map_entry* entry,
+static bool runtime_map_alloc_entry_storage(runtime_map* map,
+                                            runtime_map_entry* entry,
                                             const go_map_type_descriptor* map_type,
                                             size_t key_size,
                                             size_t value_size) {
+    intptr_t index;
+
+    (void)map_type;
+
     if (entry == NULL) {
         return false;
     }
 
-    entry->key_data = NULL;
-    entry->value_data = NULL;
-
-    if (map_type != NULL && map_type->key_type != NULL) {
-        entry->key_data = runtime_gc_alloc_object(map_type->key_type);
-    } else {
-        entry->key_data = runtime_alloc_zeroed(key_size);
-    }
-    if (map_type != NULL && map_type->value_type != NULL) {
-        entry->value_data = runtime_gc_alloc_object(map_type->value_type);
-    } else {
-        entry->value_data = runtime_alloc_zeroed(value_size);
-    }
-    if (entry->key_data == NULL || entry->value_data == NULL) {
-        if (entry->key_data != NULL) {
-            runtime_gc_free_exact(entry->key_data);
-        }
-        if (entry->value_data != NULL) {
-            runtime_gc_free_exact(entry->value_data);
-        }
-        entry->key_data = NULL;
-        entry->value_data = NULL;
+    if (map == NULL || map->entries == NULL || map->storage == NULL) {
         return false;
     }
 
+    index = (intptr_t)(entry - map->entries);
+    runtime_map_set_entry_storage(map, entry, index);
+    if (key_size != 0) {
+        kos_memset(entry->key_data, 0, key_size);
+    }
+    if (value_size != 0) {
+        kos_memset(entry->value_data, 0, value_size);
+    }
     return true;
 }
 
 static uint32_t RUNTIME_USED runtime_memhash32_impl(const void* value) {
-    uint32_t hash;
-
-    if (value == NULL) {
-        return 0;
-    }
-
-    hash = *(const uint32_t*)value;
-    hash ^= hash >> 16;
-    hash *= 0x7feb352du;
-    hash ^= hash >> 15;
-    hash *= 0x846ca68bu;
-    hash ^= hash >> 16;
-    return hash;
+    return (uint32_t)runtime_memhash32(value, 0);
 }
 
 static uint32_t RUNTIME_USED runtime_memhash8_impl(const void* value) {
-    if (value == NULL) {
-        return 0;
-    }
-    return runtime_hash_bytes((const unsigned char*)value, 1);
+    return (uint32_t)runtime_memhash8(value, 0);
 }
 
 static uint32_t RUNTIME_USED runtime_memhash16_impl(const void* value) {
-    if (value == NULL) {
-        return 0;
-    }
-    return runtime_hash_bytes((const unsigned char*)value, 2);
+    return (uint32_t)runtime_memhash16(value, 0);
 }
 
 static uint32_t RUNTIME_USED runtime_memhash64_impl(const void* value) {
-    if (value == NULL) {
-        return 0;
-    }
-    return runtime_hash_bytes((const unsigned char*)value, 8);
+    return (uint32_t)runtime_memhash64(value, 0);
 }
 
 uintptr_t runtime_memhash(const void* value, uintptr_t seed, uintptr_t size) {
-    if (value == NULL || size == 0) {
-        return seed;
-    }
-
-    return (uintptr_t)runtime_hash_bytes_seeded((const unsigned char*)value, (size_t)size, (uint32_t)seed);
+    return runtime_memhash_bytes_seeded((const unsigned char*)value, (size_t)size, seed);
 }
 
 uintptr_t runtime_memhash8(const void* value, uintptr_t seed) {
@@ -6359,119 +6715,115 @@ uintptr_t runtime_memhash16(const void* value, uintptr_t seed) {
 }
 
 uintptr_t runtime_memhash32(const void* value, uintptr_t seed) {
-    uint32_t hash;
+    uint32_t a;
+    uint32_t b;
+    uint32_t t;
+
+    runtime_hash_init();
+    a = (uint32_t)seed;
+    b = (uint32_t)(4u ^ runtime_hashkey[0]);
+    runtime_hash_mix32(a, b, &a, &b);
+
+    t = runtime_read_unaligned32(value);
+    a ^= t;
+    b ^= t;
+    runtime_hash_mix32(a, b, &a, &b);
+    runtime_hash_mix32(a, b, &a, &b);
+    return (uintptr_t)(a ^ b);
+}
+
+uintptr_t runtime_memhash64(const void* value, uintptr_t seed) {
+    uint32_t a;
+    uint32_t b;
+
+    runtime_hash_init();
+    a = (uint32_t)seed;
+    b = (uint32_t)(8u ^ runtime_hashkey[0]);
+    runtime_hash_mix32(a, b, &a, &b);
+
+    a ^= runtime_read_unaligned32(value);
+    b ^= runtime_read_unaligned32((const unsigned char*)value + 4);
+    runtime_hash_mix32(a, b, &a, &b);
+    runtime_hash_mix32(a, b, &a, &b);
+    return (uintptr_t)(a ^ b);
+}
+
+static uint32_t RUNTIME_USED runtime_strhash_impl(const void* value) {
+    return (uint32_t)runtime_strhash(value, 0);
+}
+
+static uint32_t RUNTIME_USED runtime_nilinterhash_impl(const void* value) {
+    return (uint32_t)runtime_nilinterhash(value, 0);
+}
+
+static uint32_t RUNTIME_USED runtime_interhash_impl(const void* value) {
+    return (uint32_t)runtime_interhash(value, 0);
+}
+
+static uint32_t RUNTIME_USED runtime_f32hash_impl(const void* value) {
+    return (uint32_t)runtime_f32hash(value, 0);
+}
+
+static uint32_t RUNTIME_USED runtime_f64hash_impl(const void* value) {
+    return (uint32_t)runtime_f64hash(value, 0);
+}
+
+uintptr_t runtime_strhash(const void* value, uintptr_t seed) {
+    return runtime_strhash_seeded_impl(value, seed);
+}
+
+uintptr_t runtime_nilinterhash(const void* value, uintptr_t seed) {
+    return runtime_nilinterhash_seeded_impl(value, seed);
+}
+
+uintptr_t runtime_interhash(const void* value, uintptr_t seed) {
+    return runtime_interhash_seeded_impl(value, seed);
+}
+
+uintptr_t runtime_f32hash(const void* value, uintptr_t seed) {
+    if (value == NULL) {
+        return seed;
+    }
+
+    return runtime_hash_float32_seeded(*(const float*)value, seed);
+}
+
+uintptr_t runtime_f64hash(const void* value, uintptr_t seed) {
+    if (value == NULL) {
+        return seed;
+    }
+
+    return runtime_hash_float64_seeded(*(const double*)value, seed);
+}
+
+uintptr_t runtime_c64hash(const void* value, uintptr_t seed) {
+    const float* parts;
 
     if (value == NULL) {
         return seed;
     }
 
-    hash = runtime_memhash32_impl(value);
-    hash ^= (uint32_t)seed + 0x9e3779b9u + (hash << 6) + (hash >> 2);
-    return (uintptr_t)hash;
+    parts = (const float*)value;
+    return runtime_hash_float32_seeded(parts[1], runtime_hash_float32_seeded(parts[0], seed));
 }
 
-uintptr_t runtime_memhash64(const void* value, uintptr_t seed) {
-    return runtime_memhash(value, seed, 8);
-}
-
-static uint32_t RUNTIME_USED runtime_strhash_impl(const void* value) {
-    const go_string* text;
-    uint32_t hash;
-    intptr_t index;
+uintptr_t runtime_c128hash(const void* value, uintptr_t seed) {
+    const double* parts;
 
     if (value == NULL) {
-        return 0;
+        return seed;
     }
 
-    text = (const go_string*)value;
-    if (text->str == NULL || text->len <= 0) {
-        return 0;
-    }
-
-    hash = 2166136261u;
-    for (index = 0; index < text->len; index++) {
-        hash ^= (uint32_t)(unsigned char)text->str[index];
-        hash *= 16777619u;
-    }
-
-    return hash;
+    parts = (const double*)value;
+    return runtime_hash_float64_seeded(parts[1], runtime_hash_float64_seeded(parts[0], seed));
 }
 
-static uint32_t RUNTIME_USED runtime_nilinterhash_impl(const void* value) {
-    const go_empty_interface* iface;
-    uint32_t type_hash;
-    uint32_t value_hash;
-
-    if (value == NULL) {
-        return 0;
-    }
-
-    iface = (const go_empty_interface*)value;
-    if (iface->type == NULL) {
-        return 0;
-    }
-
-    type_hash = iface->type->hash;
-    value_hash = runtime_hash_value(iface->type, iface->data);
-    return type_hash ^ (value_hash + 0x9e3779b9u + (type_hash << 6) + (type_hash >> 2));
+static uint32_t RUNTIME_USED runtime_c64hash_impl(const void* value) {
+    return (uint32_t)runtime_c64hash(value, 0);
 }
 
-static uint32_t RUNTIME_USED runtime_interhash_impl(const void* value) {
-    const go_interface* iface;
-    const go_type_descriptor* concrete_type;
-    uint32_t type_hash;
-    uint32_t value_hash;
-
-    if (value == NULL) {
-        return 0;
-    }
-
-    iface = (const go_interface*)value;
-    if (iface->methods == NULL || iface->methods->type == NULL) {
-        return 0;
-    }
-
-    concrete_type = iface->methods->type;
-    type_hash = concrete_type->hash;
-    value_hash = runtime_hash_value(concrete_type, iface->data);
-    return type_hash ^ (value_hash + 0x9e3779b9u + (type_hash << 6) + (type_hash >> 2));
-}
-
-static uint32_t runtime_hash_interface(const go_type_descriptor* descriptor, const void* data) {
-    const go_interface_type_descriptor* iface_type;
-
-    if (descriptor == NULL) {
-        return 0;
-    }
-
-    iface_type = (const go_interface_type_descriptor*)descriptor;
-    if (iface_type->method_count == 0 && iface_type->exported_method_count == 0) {
-        return runtime_nilinterhash_impl(data);
-    }
-
-    return runtime_interhash_impl(data);
-}
-
-static uint32_t RUNTIME_USED runtime_f32hash_impl(const void* value) {
-    float input;
-
-    if (value == NULL) {
-        return 0;
-    }
-
-    input = *(const float*)value;
-    return runtime_hash_float32_value(input);
-}
-
-static uint32_t RUNTIME_USED runtime_f64hash_impl(const void* value) {
-    double input;
-
-    if (value == NULL) {
-        return 0;
-    }
-
-    input = *(const double*)value;
-    return runtime_hash_float64_value(input);
+static uint32_t RUNTIME_USED runtime_c128hash_impl(const void* value) {
+    return (uint32_t)runtime_c128hash(value, 0);
 }
 
 static bool RUNTIME_USED runtime_f32equal_impl(const void* left, const void* right) {
@@ -6527,11 +6879,7 @@ static intptr_t runtime_map_find_generic(const go_map_type_descriptor* map_type,
     }
 
     key_size = runtime_map_key_size(map_type);
-    if (map_type != NULL && map_type->key_type != NULL) {
-        hash = runtime_hash_value(map_type->key_type, key);
-    } else {
-        hash = runtime_hash_bytes((const unsigned char*)key, key_size);
-    }
+    hash = runtime_map_hash_generic(map_type, map, key);
 
     mask = map->cap - 1;
     index = (intptr_t)(hash & (uint32_t)mask);
@@ -6563,7 +6911,7 @@ static intptr_t runtime_map_find_fast32(runtime_map* map, uint32_t key) {
         return -1;
     }
 
-    hash = runtime_memhash32_impl(&key);
+    hash = runtime_map_hash_fast32(map != NULL ? map->type : NULL, map, key);
     mask = map->cap - 1;
     index = (intptr_t)(hash & (uint32_t)mask);
     for (probe = 0; probe < map->cap; probe++) {
@@ -6596,7 +6944,7 @@ static intptr_t runtime_map_find_faststr(runtime_map* map, const char* key_ptr, 
 
     key.str = key_ptr;
     key.len = key_len;
-    hash = runtime_strhash_impl(&key);
+    hash = runtime_map_hash_faststr(map != NULL ? map->type : NULL, map, key_ptr, key_len);
     mask = map->cap - 1;
     index = (intptr_t)(hash & (uint32_t)mask);
     for (probe = 0; probe < map->cap; probe++) {
@@ -6639,7 +6987,7 @@ static runtime_map_entry* runtime_map_insert_fast32(runtime_map* map, const go_m
         return NULL;
     }
 
-    hash = runtime_memhash32_impl(&key);
+    hash = runtime_map_hash_fast32(map_type, map, key);
     mask = map->cap - 1;
     index = (intptr_t)(hash & (uint32_t)mask);
     tombstone = -1;
@@ -6667,7 +7015,7 @@ static runtime_map_entry* runtime_map_insert_fast32(runtime_map* map, const go_m
     previous_state = entry->state;
     key_size = runtime_map_key_size(map_type);
     value_size = runtime_map_value_size(map_type);
-    if (!runtime_map_alloc_entry_storage(entry, map_type, key_size, value_size)) {
+    if (!runtime_map_alloc_entry_storage(map, entry, map_type, key_size, value_size)) {
         return NULL;
     }
     if (previous_state == 0) {
@@ -6708,7 +7056,7 @@ static runtime_map_entry* runtime_map_insert_faststr(runtime_map* map, const go_
 
     key.str = key_ptr;
     key.len = key_len;
-    hash = runtime_strhash_impl(&key);
+    hash = runtime_map_hash_faststr(map_type, map, key_ptr, key_len);
     mask = map->cap - 1;
     index = (intptr_t)(hash & (uint32_t)mask);
     tombstone = -1;
@@ -6736,7 +7084,7 @@ static runtime_map_entry* runtime_map_insert_faststr(runtime_map* map, const go_
     previous_state = entry->state;
     key_size = runtime_map_key_size(map_type);
     value_size = runtime_map_value_size(map_type);
-    if (!runtime_map_alloc_entry_storage(entry, map_type, key_size, value_size)) {
+    if (!runtime_map_alloc_entry_storage(map, entry, map_type, key_size, value_size)) {
         return NULL;
     }
     if (previous_state == 0) {
@@ -6776,11 +7124,7 @@ static runtime_map_entry* runtime_map_insert_generic(runtime_map* map, const go_
     }
 
     key_size = runtime_map_key_size(map_type);
-    if (map_type != NULL && map_type->key_type != NULL) {
-        hash = runtime_hash_value(map_type->key_type, key);
-    } else {
-        hash = runtime_hash_bytes((const unsigned char*)key, key_size);
-    }
+    hash = runtime_map_hash_generic(map_type, map, key);
     mask = map->cap - 1;
     index = (intptr_t)(hash & (uint32_t)mask);
     tombstone = -1;
@@ -6809,7 +7153,7 @@ static runtime_map_entry* runtime_map_insert_generic(runtime_map* map, const go_
     previous_state = entry->state;
     key_size = runtime_map_key_size(map_type);
     value_size = runtime_map_value_size(map_type);
-    if (!runtime_map_alloc_entry_storage(entry, map_type, key_size, value_size)) {
+    if (!runtime_map_alloc_entry_storage(map, entry, map_type, key_size, value_size)) {
         return NULL;
     }
     if (previous_state == 0) {
@@ -6834,13 +7178,6 @@ static void runtime_map_remove_at(runtime_map* map, intptr_t index) {
         return;
     }
 
-    if (map->entries[index].key_data != NULL) {
-        runtime_gc_free_exact(map->entries[index].key_data);
-    }
-    if (map->entries[index].value_data != NULL) {
-        runtime_gc_free_exact(map->entries[index].value_data);
-    }
-
     map->entries[index].key_data = NULL;
     map->entries[index].value_data = NULL;
     map->entries[index].hash = 0;
@@ -6863,12 +7200,6 @@ void runtime_mapclear(const go_map_type_descriptor* map_type, runtime_map* map) 
 
     for (intptr_t i = 0; i < map->cap; i++) {
         runtime_map_entry* entry = &map->entries[i];
-        if (entry->key_data != NULL) {
-            runtime_gc_free_exact(entry->key_data);
-        }
-        if (entry->value_data != NULL) {
-            runtime_gc_free_exact(entry->value_data);
-        }
         entry->key_data = NULL;
         entry->value_data = NULL;
         entry->hash = 0;
@@ -6898,6 +7229,7 @@ void* runtime_makemap(const go_map_type_descriptor* map_type, intptr_t hint, voi
     }
     if (map_type != NULL) {
         map->type = map_type;
+        runtime_map_compute_layout(map, map_type);
         if (hint > 0) {
             runtime_map_reserve(map, hint);
         }
@@ -6922,6 +7254,7 @@ void* __go_construct_map(const go_map_type_descriptor* map_type,
     }
     if (map_type != NULL) {
         map->type = map_type;
+        runtime_map_compute_layout(map, map_type);
         if (count > 0) {
             runtime_map_reserve(map, (intptr_t)count);
         }
@@ -8787,23 +9120,23 @@ __asm__(".global runtime.strequal");
 __asm__(".set runtime.strequal, runtime_strequal_impl");
 
 __asm__(".global runtime.memhash32..f");
-static go_hash_function RUNTIME_USED runtime_memhash32_descriptor = runtime_memhash32_impl;
+static go_seeded_hash_function RUNTIME_USED runtime_memhash32_descriptor = runtime_memhash32;
 __asm__(".set runtime.memhash32..f, runtime_memhash32_descriptor");
 
 __asm__(".global runtime.memhash8..f");
-static go_hash_function RUNTIME_USED runtime_memhash8_descriptor = runtime_memhash8_impl;
+static go_seeded_hash_function RUNTIME_USED runtime_memhash8_descriptor = runtime_memhash8;
 __asm__(".set runtime.memhash8..f, runtime_memhash8_descriptor");
 
 __asm__(".global runtime.memhash16..f");
-static go_hash_function RUNTIME_USED runtime_memhash16_descriptor = runtime_memhash16_impl;
+static go_seeded_hash_function RUNTIME_USED runtime_memhash16_descriptor = runtime_memhash16;
 __asm__(".set runtime.memhash16..f, runtime_memhash16_descriptor");
 
 __asm__(".global runtime.memhash64..f");
-static go_hash_function RUNTIME_USED runtime_memhash64_descriptor = runtime_memhash64_impl;
+static go_seeded_hash_function RUNTIME_USED runtime_memhash64_descriptor = runtime_memhash64;
 __asm__(".set runtime.memhash64..f, runtime_memhash64_descriptor");
 
 __asm__(".global runtime.strhash..f");
-static go_hash_function RUNTIME_USED runtime_strhash_descriptor = runtime_strhash_impl;
+static go_seeded_hash_function RUNTIME_USED runtime_strhash_descriptor = runtime_strhash;
 __asm__(".set runtime.strhash..f, runtime_strhash_descriptor");
 
 __asm__(".global runtime.memhash32");
@@ -8822,21 +9155,35 @@ __asm__(".global runtime.memhash");
 __asm__(".set runtime.memhash, runtime_memhash");
 
 __asm__(".global runtime.strhash");
-__asm__(".set runtime.strhash, runtime_strhash_impl");
+__asm__(".set runtime.strhash, runtime_strhash");
 
 __asm__(".global runtime.f32hash..f");
-static go_hash_function RUNTIME_USED runtime_f32hash_descriptor = runtime_f32hash_impl;
+static go_seeded_hash_function RUNTIME_USED runtime_f32hash_descriptor = runtime_f32hash;
 __asm__(".set runtime.f32hash..f, runtime_f32hash_descriptor");
 
 __asm__(".global runtime.f64hash..f");
-static go_hash_function RUNTIME_USED runtime_f64hash_descriptor = runtime_f64hash_impl;
+static go_seeded_hash_function RUNTIME_USED runtime_f64hash_descriptor = runtime_f64hash;
 __asm__(".set runtime.f64hash..f, runtime_f64hash_descriptor");
 
+__asm__(".global runtime.c64hash..f");
+static go_seeded_hash_function RUNTIME_USED runtime_c64hash_descriptor = runtime_c64hash;
+__asm__(".set runtime.c64hash..f, runtime_c64hash_descriptor");
+
+__asm__(".global runtime.c128hash..f");
+static go_seeded_hash_function RUNTIME_USED runtime_c128hash_descriptor = runtime_c128hash;
+__asm__(".set runtime.c128hash..f, runtime_c128hash_descriptor");
+
 __asm__(".global runtime.f32hash");
-__asm__(".set runtime.f32hash, runtime_f32hash_impl");
+__asm__(".set runtime.f32hash, runtime_f32hash");
 
 __asm__(".global runtime.f64hash");
-__asm__(".set runtime.f64hash, runtime_f64hash_impl");
+__asm__(".set runtime.f64hash, runtime_f64hash");
+
+__asm__(".global runtime.c64hash");
+__asm__(".set runtime.c64hash, runtime_c64hash");
+
+__asm__(".global runtime.c128hash");
+__asm__(".set runtime.c128hash, runtime_c128hash");
 
 __asm__(".global runtime.f32equal..f");
 static go_equal_function RUNTIME_USED runtime_f32equal_descriptor = runtime_f32equal_impl;
@@ -8853,18 +9200,18 @@ __asm__(".global runtime.f64equal");
 __asm__(".set runtime.f64equal, runtime_f64equal_impl");
 
 __asm__(".global runtime.interhash..f");
-static go_hash_function RUNTIME_USED runtime_interhash_descriptor = runtime_interhash_impl;
+static go_seeded_hash_function RUNTIME_USED runtime_interhash_descriptor = runtime_interhash;
 __asm__(".set runtime.interhash..f, runtime_interhash_descriptor");
 
 __asm__(".global runtime.interhash");
-__asm__(".set runtime.interhash, runtime_interhash_impl");
+__asm__(".set runtime.interhash, runtime_interhash");
 
 __asm__(".global runtime.nilinterhash..f");
-static go_hash_function RUNTIME_USED runtime_nilinterhash_descriptor = runtime_nilinterhash_impl;
+static go_seeded_hash_function RUNTIME_USED runtime_nilinterhash_descriptor = runtime_nilinterhash;
 __asm__(".set runtime.nilinterhash..f, runtime_nilinterhash_descriptor");
 
 __asm__(".global runtime.nilinterhash");
-__asm__(".set runtime.nilinterhash, runtime_nilinterhash_impl");
+__asm__(".set runtime.nilinterhash, runtime_nilinterhash");
 
 __asm__(".global runtime.getg");
 __asm__(".set runtime.getg, runtime_getg");
