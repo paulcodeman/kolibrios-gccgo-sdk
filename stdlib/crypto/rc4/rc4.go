@@ -10,7 +10,7 @@
 package rc4
 
 import (
-	"crypto/internal/subtle"
+	subtle "crypto/internal/subtle"
 	"strconv"
 )
 

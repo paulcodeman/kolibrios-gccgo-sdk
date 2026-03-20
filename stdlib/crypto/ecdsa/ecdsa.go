@@ -31,7 +31,7 @@ import (
 	"math/big"
 
 	"golang.org/x/crypto/cryptobyte"
-	"golang.org/x/crypto/cryptobyte/asn1"
+	asn1 "golang.org/x/crypto/cryptobyte/asn1"
 )
 
 // A invertible implements fast inverse in GF(N).

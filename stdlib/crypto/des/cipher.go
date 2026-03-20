@@ -6,7 +6,7 @@ package des
 
 import (
 	"crypto/cipher"
-	"crypto/internal/subtle"
+	subtle "crypto/internal/subtle"
 	"encoding/binary"
 	"strconv"
 )

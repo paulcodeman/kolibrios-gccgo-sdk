@@ -8,10 +8,9 @@ import (
 	encoding_asn1 "encoding/asn1"
 	"fmt"
 	"math/big"
-	"reflect"
 	"time"
 
-	"golang.org/x/crypto/cryptobyte/asn1"
+	asn1 "golang.org/x/crypto/cryptobyte/asn1"
 )
 
 // This file contains ASN.1-related methods for String and Builder.
@@ -264,36 +263,82 @@ func (s *String) ReadASN1Boolean(out *bool) bool {
 	return true
 }
 
-var bigIntType = reflect.TypeOf((*big.Int)(nil)).Elem()
-
 // ReadASN1Integer decodes an ASN.1 INTEGER into out and advances. If out does
 // not point to an integer or to a big.Int, it panics. It reports whether the
 // read was successful.
 func (s *String) ReadASN1Integer(out interface{}) bool {
-	if reflect.TypeOf(out).Kind() != reflect.Ptr {
+	if out == nil {
 		panic("out is not a pointer")
 	}
-	switch reflect.ValueOf(out).Elem().Kind() {
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+
+	switch out := out.(type) {
+	case *int:
 		var i int64
-		if !s.readASN1Int64(&i) || reflect.ValueOf(out).Elem().OverflowInt(i) {
+		if !s.readASN1Int64(&i) || int64(int(i)) != i {
 			return false
 		}
-		reflect.ValueOf(out).Elem().SetInt(i)
+		*out = int(i)
 		return true
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+	case *int8:
+		var i int64
+		if !s.readASN1Int64(&i) || int64(int8(i)) != i {
+			return false
+		}
+		*out = int8(i)
+		return true
+	case *int16:
+		var i int64
+		if !s.readASN1Int64(&i) || int64(int16(i)) != i {
+			return false
+		}
+		*out = int16(i)
+		return true
+	case *int32:
+		var i int64
+		if !s.readASN1Int64(&i) || int64(int32(i)) != i {
+			return false
+		}
+		*out = int32(i)
+		return true
+	case *int64:
+		return s.readASN1Int64(out)
+	case *uint:
 		var u uint64
-		if !s.readASN1Uint64(&u) || reflect.ValueOf(out).Elem().OverflowUint(u) {
+		if !s.readASN1Uint64(&u) || uint64(uint(u)) != u {
 			return false
 		}
-		reflect.ValueOf(out).Elem().SetUint(u)
+		*out = uint(u)
 		return true
-	case reflect.Struct:
-		if reflect.TypeOf(out).Elem() == bigIntType {
-			return s.readASN1BigInt(out.(*big.Int))
+	case *uint8:
+		var u uint64
+		if !s.readASN1Uint64(&u) || uint64(uint8(u)) != u {
+			return false
 		}
+		*out = uint8(u)
+		return true
+	case *uint16:
+		var u uint64
+		if !s.readASN1Uint64(&u) || uint64(uint16(u)) != u {
+			return false
+		}
+		*out = uint16(u)
+		return true
+	case *uint32:
+		var u uint64
+		if !s.readASN1Uint64(&u) || uint64(uint32(u)) != u {
+			return false
+		}
+		*out = uint32(u)
+		return true
+	case *uint64:
+		return s.readASN1Uint64(out)
+	case *big.Int:
+		return s.readASN1BigInt(out)
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, big.Int:
+		panic("out is not a pointer")
+	default:
+		panic("out does not point to an integer type")
 	}
-	panic("out does not point to an integer type")
 }
 
 func checkASN1Integer(bytes []byte) bool {
@@ -660,7 +705,7 @@ func (s *String) SkipOptionalASN1(tag asn1.Tag) bool {
 // does not point to an integer or to a big.Int, it panics. It reports
 // whether the read was successful.
 func (s *String) ReadOptionalASN1Integer(out interface{}, tag asn1.Tag, defaultValue interface{}) bool {
-	if reflect.TypeOf(out).Kind() != reflect.Ptr {
+	if out == nil {
 		panic("out is not a pointer")
 	}
 	var present bool
@@ -669,28 +714,133 @@ func (s *String) ReadOptionalASN1Integer(out interface{}, tag asn1.Tag, defaultV
 		return false
 	}
 	if !present {
-		switch reflect.ValueOf(out).Elem().Kind() {
-		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-			reflect.ValueOf(out).Elem().Set(reflect.ValueOf(defaultValue))
-		case reflect.Struct:
-			if reflect.TypeOf(out).Elem() != bigIntType {
-				panic("invalid integer type")
-			}
-			if reflect.TypeOf(defaultValue).Kind() != reflect.Ptr ||
-				reflect.TypeOf(defaultValue).Elem() != bigIntType {
-				panic("out points to big.Int, but defaultValue does not")
-			}
-			out.(*big.Int).Set(defaultValue.(*big.Int))
-		default:
-			panic("invalid integer type")
-		}
-		return true
+		return setDefaultASN1Integer(out, defaultValue)
 	}
 	if !i.ReadASN1Integer(out) || !i.Empty() {
 		return false
 	}
 	return true
+}
+
+func setDefaultASN1Integer(out interface{}, defaultValue interface{}) bool {
+	switch out := out.(type) {
+	case *int:
+		value, ok := signedDefaultASN1Integer(defaultValue)
+		if !ok || int64(int(value)) != value {
+			panic("invalid integer type")
+		}
+		*out = int(value)
+		return true
+	case *int8:
+		value, ok := signedDefaultASN1Integer(defaultValue)
+		if !ok || int64(int8(value)) != value {
+			panic("invalid integer type")
+		}
+		*out = int8(value)
+		return true
+	case *int16:
+		value, ok := signedDefaultASN1Integer(defaultValue)
+		if !ok || int64(int16(value)) != value {
+			panic("invalid integer type")
+		}
+		*out = int16(value)
+		return true
+	case *int32:
+		value, ok := signedDefaultASN1Integer(defaultValue)
+		if !ok || int64(int32(value)) != value {
+			panic("invalid integer type")
+		}
+		*out = int32(value)
+		return true
+	case *int64:
+		value, ok := signedDefaultASN1Integer(defaultValue)
+		if !ok {
+			panic("invalid integer type")
+		}
+		*out = value
+		return true
+	case *uint:
+		value, ok := unsignedDefaultASN1Integer(defaultValue)
+		if !ok || uint64(uint(value)) != value {
+			panic("invalid integer type")
+		}
+		*out = uint(value)
+		return true
+	case *uint8:
+		value, ok := unsignedDefaultASN1Integer(defaultValue)
+		if !ok || uint64(uint8(value)) != value {
+			panic("invalid integer type")
+		}
+		*out = uint8(value)
+		return true
+	case *uint16:
+		value, ok := unsignedDefaultASN1Integer(defaultValue)
+		if !ok || uint64(uint16(value)) != value {
+			panic("invalid integer type")
+		}
+		*out = uint16(value)
+		return true
+	case *uint32:
+		value, ok := unsignedDefaultASN1Integer(defaultValue)
+		if !ok || uint64(uint32(value)) != value {
+			panic("invalid integer type")
+		}
+		*out = uint32(value)
+		return true
+	case *uint64:
+		value, ok := unsignedDefaultASN1Integer(defaultValue)
+		if !ok {
+			panic("invalid integer type")
+		}
+		*out = value
+		return true
+	case *big.Int:
+		value, ok := defaultValue.(*big.Int)
+		if !ok {
+			panic("out points to big.Int, but defaultValue does not")
+		}
+		out.Set(value)
+		return true
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, big.Int:
+		panic("out is not a pointer")
+	default:
+		panic("invalid integer type")
+	}
+}
+
+func signedDefaultASN1Integer(value interface{}) (int64, bool) {
+	switch value := value.(type) {
+	case int:
+		return int64(value), true
+	case int8:
+		return int64(value), true
+	case int16:
+		return int64(value), true
+	case int32:
+		return int64(value), true
+	case int64:
+		return value, true
+	}
+	return 0, false
+}
+
+func unsignedDefaultASN1Integer(value interface{}) (uint64, bool) {
+	switch value := value.(type) {
+	case uint:
+		return uint64(value), true
+	case uint8:
+		return uint64(value), true
+	case uint16:
+		return uint64(value), true
+	case uint32:
+		return uint64(value), true
+	case uint64:
+		return value, true
+	}
+	if signed, ok := signedDefaultASN1Integer(value); ok && signed >= 0 {
+		return uint64(signed), true
+	}
+	return 0, false
 }
 
 // ReadOptionalASN1OctetString attempts to read an optional ASN.1 OCTET STRING

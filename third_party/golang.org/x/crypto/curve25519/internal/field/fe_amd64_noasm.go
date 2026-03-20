@@ -5,7 +5,7 @@
 //go:build !amd64 || !gc || purego
 // +build !amd64 !gc purego
 
-package field
+package curvefield
 
 func feMul(v, x, y *Element) { feMulGeneric(v, x, y) }
 

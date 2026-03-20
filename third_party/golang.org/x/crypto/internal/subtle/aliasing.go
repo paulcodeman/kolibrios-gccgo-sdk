@@ -5,9 +5,9 @@
 //go:build !purego
 // +build !purego
 
-// Package subtle implements functions that are often useful in cryptographic
+// Package xsubtle implements functions that are often useful in cryptographic
 // code but require careful thought to use correctly.
-package subtle // import "golang.org/x/crypto/internal/subtle"
+package xsubtle // import "golang.org/x/crypto/internal/subtle"
 
 import "unsafe"
 

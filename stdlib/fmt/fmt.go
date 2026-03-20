@@ -2,6 +2,7 @@ package fmt
 
 import (
 	"errors"
+	"internal/reflectlite"
 	"io"
 	"os"
 )
@@ -795,11 +796,14 @@ func formatValue(value interface{}, verb byte) string {
 
 func formatValueSpec(value interface{}, spec formatSpec) string {
 	if value == nil {
-		if spec.verb == 'v' || spec.verb == 's' {
-			return "<nil>"
+		if spec.verb == 'v' || spec.verb == 's' || spec.verb == 'T' {
+			return applyFormatWidth("<nil>", spec, false)
 		}
 
 		return invalidNilVerb(spec.verb)
+	}
+	if spec.verb == 'T' {
+		return applyFormatWidth(typeName(value), spec, false)
 	}
 
 	switch typed := value.(type) {
@@ -1541,40 +1545,24 @@ func invalidWrapValue(value interface{}) string {
 		return "%!w(<nil>)"
 	}
 
-	return "%!w(" + wrapTypeName(value) + "=" + formatValue(value, 'v') + ")"
+	return "%!w(" + typeName(value) + "=" + formatValue(value, 'v') + ")"
 }
 
 func wrapTypeName(value interface{}) string {
-	switch value.(type) {
-	case string:
-		return "string"
-	case []byte:
-		return "[]byte"
-	case bool:
-		return "bool"
-	case int:
-		return "int"
-	case int8:
-		return "int8"
-	case int16:
-		return "int16"
-	case int32:
-		return "int32"
-	case int64:
-		return "int64"
-	case uint:
-		return "uint"
-	case uint8:
-		return "uint8"
-	case uint16:
-		return "uint16"
-	case uint32:
-		return "uint32"
-	case uint64:
-		return "uint64"
-	case uintptr:
-		return "uintptr"
-	}
+	return typeName(value)
+}
 
-	return "value"
+func typeName(value interface{}) string {
+	if value == nil {
+		return "<nil>"
+	}
+	typ := reflectlite.TypeOf(value)
+	if typ == nil {
+		return "value"
+	}
+	name := typ.String()
+	if name == "" {
+		return "value"
+	}
+	return name
 }

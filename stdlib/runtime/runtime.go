@@ -4,6 +4,9 @@
 // runtime API for porting convenience.
 package runtime
 
+const GOOS = "kolibrios"
+const GOARCH = "386"
+
 // Gosched yields the processor, allowing other goroutines to run.
 func Gosched() __asm__("runtime.Gosched")
 

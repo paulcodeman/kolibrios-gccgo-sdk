@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"sync"
 
 	"kos"
 )
@@ -42,6 +43,31 @@ func (d Duration) Seconds() float64 {
 	return float64(d) / float64(Second)
 }
 
+func (d Duration) String() string {
+	sign := ""
+	if d < 0 {
+		sign = "-"
+		d = -d
+	}
+
+	switch {
+	case d == 0:
+		return "0s"
+	case d%Hour == 0:
+		return sign + strconv.FormatInt(int64(d/Hour), 10) + "h"
+	case d%Minute == 0:
+		return sign + strconv.FormatInt(int64(d/Minute), 10) + "m"
+	case d%Second == 0:
+		return sign + strconv.FormatInt(int64(d/Second), 10) + "s"
+	case d%Millisecond == 0:
+		return sign + strconv.FormatInt(int64(d/Millisecond), 10) + "ms"
+	case d%Microsecond == 0:
+		return sign + strconv.FormatInt(int64(d/Microsecond), 10) + "us"
+	default:
+		return sign + strconv.FormatInt(int64(d), 10) + "ns"
+	}
+}
+
 type Month int
 
 const (
@@ -72,6 +98,11 @@ const (
 )
 
 const RFC1123 = "Mon, 02 Jan 2006 15:04:05 MST"
+const RFC3339 = "2006-01-02T15:04:05Z07:00"
+const RFC3339Nano = "2006-01-02T15:04:05.999999999Z07:00"
+const layoutASN1UTCTimeMinutes = "0601021504Z0700"
+const layoutASN1UTCTimeSeconds = "060102150405Z0700"
+const layoutASN1GeneralizedTime = "20060102150405Z0700"
 
 type Location struct {
 	name   string
@@ -176,6 +207,10 @@ func Date(year int, month Month, day int, hour int, minute int, second int, nano
 func Parse(layout string, value string) (Time, error) {
 	if layout == RFC1123 {
 		return parseRFC1123(value)
+	}
+	switch layout {
+	case layoutASN1UTCTimeMinutes, layoutASN1UTCTimeSeconds, layoutASN1GeneralizedTime:
+		return parseNumericLayout(layout, value)
 	}
 
 	return parseNumericLayout(layout, value)
@@ -298,6 +333,41 @@ func Sleep(duration Duration) {
 	}
 }
 
+type Timer struct {
+	mu      sync.Mutex
+	stopped bool
+}
+
+func AfterFunc(duration Duration, f func()) *Timer {
+	timer := &Timer{}
+	go func() {
+		Sleep(duration)
+		timer.mu.Lock()
+		stopped := timer.stopped
+		timer.mu.Unlock()
+		if !stopped {
+			f()
+		}
+	}()
+	return timer
+}
+
+func (timer *Timer) Stop() bool {
+	if timer == nil {
+		return false
+	}
+
+	timer.mu.Lock()
+	wasActive := !timer.stopped
+	timer.stopped = true
+	timer.mu.Unlock()
+	return wasActive
+}
+
+func Until(value Time) Duration {
+	return value.Sub(Now())
+}
+
 func Since(value Time) Duration {
 	return Now().Sub(value)
 }
@@ -357,6 +427,10 @@ func (value Time) Location() *Location {
 func (value Time) Zone() (name string, offset int) {
 	loc := value.Location()
 	return loc.String(), loc.offset
+}
+
+func (value Time) String() string {
+	return formatISO(value) + " " + zoneName(value.Location())
 }
 
 func (value Time) Unix() int64 {
@@ -450,8 +524,16 @@ func (value Time) Format(layout string) string {
 		return formatTimeWithZone(value)
 	case "Mon, 02 Jan 2006 15:04:05 GMT":
 		return formatRFC1123WithZone(value.UTC(), "GMT")
+	case RFC3339, RFC3339Nano:
+		return formatISOZ(value.UTC())
 	case "2006-01-02T15:04:05.000Z":
 		return formatISOZ(value.UTC())
+	case layoutASN1UTCTimeMinutes:
+		return formatCompactZoneTime(value, false, false)
+	case layoutASN1UTCTimeSeconds:
+		return formatCompactZoneTime(value, false, true)
+	case layoutASN1GeneralizedTime:
+		return formatCompactZoneTime(value, true, true)
 	case "2006-01-02 15:04:05":
 		return formatISO(value)
 	case "2006-01-02":
@@ -594,7 +676,7 @@ func civilFromDays(days int64) (year int, month Month, day int) {
 	dayOfYear := dayOfEra - (365*yearOfEra + yearOfEra/4 - yearOfEra/100)
 	monthPrime := (5*dayOfYear + 2) / 153
 
-	day = int(dayOfYear - ((153*monthPrime+2)/5) + 1)
+	day = int(dayOfYear - ((153*monthPrime + 2) / 5) + 1)
 	if monthPrime < 10 {
 		month = Month(monthPrime + 3)
 	} else {
@@ -713,6 +795,26 @@ func formatISOZ(value Time) string {
 func formatDateOnly(value Time) string {
 	year, month, day, _, _, _ := value.dateTime()
 	return pad4(year) + "-" + pad2(int(month)) + "-" + pad2(day)
+}
+
+func formatCompactZoneTime(value Time, fullYear bool, withSeconds bool) string {
+	year, month, day, hour, minute, second := value.dateTime()
+	text := ""
+	if fullYear {
+		text = pad4(year)
+	} else {
+		text = pad2(year % 100)
+	}
+	text += pad2(int(month)) + pad2(day) + pad2(hour) + pad2(minute)
+	if withSeconds {
+		text += pad2(second)
+	}
+
+	loc := value.Location()
+	if loc.offset == 0 {
+		return text + "Z"
+	}
+	return text + formatZoneOffset(loc.offset)
 }
 
 func formatTimeOnly(value Time) string {
@@ -880,6 +982,18 @@ func parseNumericLayout(layout string, value string) (Time, error) {
 			year = parsed
 			i += 4
 			j += 4
+		case strings.HasPrefix(layout[i:], "06"):
+			parsed, ok := parseFixedInt(value, j, j+2)
+			if !ok {
+				return Time{}, errors.New("time: invalid year")
+			}
+			if parsed >= 69 {
+				year = 1900 + parsed
+			} else {
+				year = 2000 + parsed
+			}
+			i += 2
+			j += 2
 		case strings.HasPrefix(layout[i:], "000"):
 			parsed, ok := parseFixedInt(value, j, j+3)
 			if !ok {
@@ -888,6 +1002,39 @@ func parseNumericLayout(layout string, value string) (Time, error) {
 			millisecond = parsed
 			i += 3
 			j += 3
+		case strings.HasPrefix(layout[i:], "Z0700"):
+			if j >= len(value) {
+				return Time{}, errors.New("time: invalid zone")
+			}
+			if value[j] == 'Z' {
+				offsetSeconds = 0
+				offsetSet = true
+				i += 5
+				j++
+				break
+			}
+			if j+5 > len(value) {
+				return Time{}, errors.New("time: invalid zone")
+			}
+			sign := value[j]
+			if sign != '+' && sign != '-' {
+				return Time{}, errors.New("time: invalid zone")
+			}
+			hours, ok := parseFixedInt(value, j+1, j+3)
+			if !ok {
+				return Time{}, errors.New("time: invalid zone hour")
+			}
+			minutes, ok := parseFixedInt(value, j+3, j+5)
+			if !ok {
+				return Time{}, errors.New("time: invalid zone minute")
+			}
+			offsetSeconds = (hours*60 + minutes) * 60
+			if sign == '-' {
+				offsetSeconds = -offsetSeconds
+			}
+			offsetSet = true
+			i += 5
+			j += 5
 		case strings.HasPrefix(layout[i:], "-0700"):
 			if j+5 > len(value) {
 				return Time{}, errors.New("time: invalid zone")

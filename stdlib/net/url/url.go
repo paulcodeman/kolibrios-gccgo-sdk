@@ -173,7 +173,7 @@ func (url *URL) EscapedPath() string {
 		return url.RawPath
 	}
 
-	return PathEscape(url.Path)
+	return escape(url.Path, escapeModeEscapedPath)
 }
 
 func (url *URL) Query() Values {
@@ -294,6 +294,7 @@ type escapeMode int
 
 const (
 	escapeModePath escapeMode = iota
+	escapeModeEscapedPath
 	escapeModeQuery
 )
 
@@ -309,7 +310,7 @@ func escape(value string, mode escapeMode) string {
 			builder.WriteByte('+')
 			continue
 		}
-		if shouldNotEscape(current) {
+		if shouldNotEscape(current, mode) {
 			builder.WriteByte(current)
 			continue
 		}
@@ -399,13 +400,21 @@ func firstIndexAny(value string, chars string) int {
 	return best
 }
 
-func shouldNotEscape(value byte) bool {
-	return isAlpha(value) ||
+func shouldNotEscape(value byte, mode escapeMode) bool {
+	if isAlpha(value) ||
 		isDigit(value) ||
 		value == '-' ||
 		value == '_' ||
 		value == '.' ||
-		value == '~'
+		value == '~' {
+		return true
+	}
+
+	if mode == escapeModeEscapedPath && value == '/' {
+		return true
+	}
+
+	return false
 }
 
 func upperHexDigit(value byte) byte {
