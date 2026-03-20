@@ -2814,6 +2814,7 @@ static const go_type_descriptor RUNTIME_USED runtime_unsafe_pointer_descriptor =
 };
 
 static int kos_memcmp(const void* left, const void* right, size_t size);
+static uint32_t runtime_read_unaligned32(const void* value);
 
 static size_t kos_strlen(const char* str) {
     const char* cursor = str;
@@ -2829,6 +2830,28 @@ static int kos_strcmp(const char* left, const char* right) {
         right++;
     }
     return (int)(*(const unsigned char*)left) - (int)(*(const unsigned char*)right);
+}
+
+static bool runtime_string_data_equal(const char* left, const char* right, size_t size) {
+    if (left == right) {
+        return true;
+    }
+    if (left == NULL || right == NULL) {
+        return false;
+    }
+    if (size == 0) {
+        return true;
+    }
+    if (size >= 32u) {
+        if (runtime_read_unaligned32(left) != runtime_read_unaligned32(right)) {
+            return false;
+        }
+        if (runtime_read_unaligned32(left + size - 4u) != runtime_read_unaligned32(right + size - 4u)) {
+            return false;
+        }
+    }
+
+    return kos_memcmp(left, right, size) == 0;
 }
 
 static bool runtime_string_equals(const go_string* left, const go_string* right) {
@@ -2851,7 +2874,7 @@ static bool runtime_string_equals(const go_string* left, const go_string* right)
     }
 
     size = (size_t)left->len;
-    return kos_memcmp(left->str, right->str, size) == 0;
+    return runtime_string_data_equal(left->str, right->str, size);
 }
 
 int runtime_cmpstring(const char* left, intptr_t left_len, const char* right, intptr_t right_len) {
@@ -6681,7 +6704,7 @@ static void* runtime_map_zero_value(runtime_map* map, const go_map_type_descript
 #define RUNTIME_MAP_MAX_LOAD_DEN 4
 
 static bool runtime_map_use_small_linear(const runtime_map* map) {
-    return map != NULL && map->cap > 0 && map->cap <= RUNTIME_MAP_MIN_CAP;
+    return map != NULL && map->cap > 0 && map->len <= RUNTIME_MAP_MIN_CAP;
 }
 
 static intptr_t runtime_map_next_power_of_two(intptr_t value) {
@@ -7033,22 +7056,28 @@ static bool runtime_map_key_equal(const go_type_descriptor* descriptor, const vo
 static intptr_t runtime_map_find_generic_linear(const go_map_type_descriptor* map_type, runtime_map* map, const void* key) {
     size_t key_size;
     intptr_t index;
+    intptr_t live_seen;
 
-    if (map == NULL || map->cap == 0) {
+    if (map == NULL || map->cap == 0 || map->len == 0) {
         return -1;
     }
 
     key_size = runtime_map_key_size(map_type);
+    live_seen = 0;
     for (index = 0; index < map->cap; index++) {
         runtime_map_entry* entry = &map->entries[index];
         if (entry->state != 1) {
             continue;
         }
+        live_seen++;
         if (runtime_map_key_equal(map_type != NULL ? map_type->key_type : NULL,
                                   entry->key_data,
                                   key,
                                   key_size)) {
             return index;
+        }
+        if (live_seen >= map->len) {
+            break;
         }
     }
 
@@ -7094,18 +7123,24 @@ static intptr_t runtime_map_find_generic(const go_map_type_descriptor* map_type,
 
 static intptr_t runtime_map_find_fast32_linear(runtime_map* map, uint32_t key) {
     intptr_t index;
+    intptr_t live_seen;
 
-    if (map == NULL || map->cap == 0) {
+    if (map == NULL || map->cap == 0 || map->len == 0) {
         return -1;
     }
 
+    live_seen = 0;
     for (index = 0; index < map->cap; index++) {
         runtime_map_entry* entry = &map->entries[index];
         if (entry->state != 1) {
             continue;
         }
+        live_seen++;
         if (*(const uint32_t*)entry->key_data == key) {
             return index;
+        }
+        if (live_seen >= map->len) {
+            break;
         }
     }
 
@@ -7147,18 +7182,24 @@ static intptr_t runtime_map_find_fast32(runtime_map* map, uint32_t key) {
 
 static intptr_t runtime_map_find_fast64_linear(runtime_map* map, uint64_t key) {
     intptr_t index;
+    intptr_t live_seen;
 
-    if (map == NULL || map->cap == 0) {
+    if (map == NULL || map->cap == 0 || map->len == 0) {
         return -1;
     }
 
+    live_seen = 0;
     for (index = 0; index < map->cap; index++) {
         runtime_map_entry* entry = &map->entries[index];
         if (entry->state != 1) {
             continue;
         }
+        live_seen++;
         if (*(const uint64_t*)entry->key_data == key) {
             return index;
+        }
+        if (live_seen >= map->len) {
+            break;
         }
     }
 
@@ -7200,24 +7241,32 @@ static intptr_t runtime_map_find_fast64(runtime_map* map, uint64_t key) {
 
 static intptr_t runtime_map_find_faststr_linear(runtime_map* map, const char* key_ptr, intptr_t key_len) {
     intptr_t index;
+    intptr_t live_seen;
 
-    if (map == NULL || map->cap == 0) {
+    if (map == NULL || map->cap == 0 || map->len == 0) {
         return -1;
     }
 
+    live_seen = 0;
     for (index = 0; index < map->cap; index++) {
         runtime_map_entry* entry = &map->entries[index];
         const go_string* stored;
         if (entry->state != 1) {
             continue;
         }
+        live_seen++;
         stored = (const go_string*)entry->key_data;
         if (stored == NULL || stored->len != key_len) {
+            if (live_seen >= map->len) {
+                break;
+            }
             continue;
         }
-        if (stored->str == key_ptr ||
-            (stored->str != NULL && key_ptr != NULL && kos_memcmp(stored->str, key_ptr, (size_t)key_len) == 0)) {
+        if (runtime_string_data_equal(stored->str, key_ptr, (size_t)key_len)) {
             return index;
+        }
+        if (live_seen >= map->len) {
+            break;
         }
     }
 
@@ -7284,16 +7333,24 @@ static runtime_map_entry* runtime_map_insert_fast32(runtime_map* map, const go_m
     }
     if (runtime_map_use_small_linear(map)) {
         intptr_t free_slot = -1;
+        intptr_t live_seen = 0;
         for (index = 0; index < map->cap; index++) {
             entry = &map->entries[index];
             if (entry->state == 1) {
+                live_seen++;
                 if (*(const uint32_t*)entry->key_data == key) {
                     return entry;
+                }
+                if (live_seen >= map->len && free_slot >= 0) {
+                    break;
                 }
                 continue;
             }
             if (free_slot < 0) {
                 free_slot = index;
+                if (live_seen >= map->len) {
+                    break;
+                }
             }
         }
         if (free_slot < 0) {
@@ -7380,16 +7437,24 @@ static runtime_map_entry* runtime_map_insert_fast64(runtime_map* map, const go_m
     }
     if (runtime_map_use_small_linear(map)) {
         intptr_t free_slot = -1;
+        intptr_t live_seen = 0;
         for (index = 0; index < map->cap; index++) {
             entry = &map->entries[index];
             if (entry->state == 1) {
+                live_seen++;
                 if (*(const uint64_t*)entry->key_data == key) {
                     return entry;
+                }
+                if (live_seen >= map->len && free_slot >= 0) {
+                    break;
                 }
                 continue;
             }
             if (free_slot < 0) {
                 free_slot = index;
+                if (live_seen >= map->len) {
+                    break;
+                }
             }
         }
         if (free_slot < 0) {
@@ -7480,22 +7545,28 @@ static runtime_map_entry* runtime_map_insert_faststr(runtime_map* map, const go_
     }
     if (runtime_map_use_small_linear(map)) {
         intptr_t free_slot = -1;
+        intptr_t live_seen = 0;
         for (index = 0; index < map->cap; index++) {
             const go_string* existing;
             entry = &map->entries[index];
             if (entry->state == 1) {
+                live_seen++;
                 existing = (const go_string*)entry->key_data;
                 if (existing != NULL &&
                     existing->len == key_len &&
-                    (existing->str == key_ptr ||
-                     (existing->str != NULL && key_ptr != NULL &&
-                      kos_memcmp(existing->str, key_ptr, (size_t)key_len) == 0))) {
+                    runtime_string_data_equal(existing->str, key_ptr, (size_t)key_len)) {
                     return entry;
+                }
+                if (live_seen >= map->len && free_slot >= 0) {
+                    break;
                 }
                 continue;
             }
             if (free_slot < 0) {
                 free_slot = index;
+                if (live_seen >= map->len) {
+                    break;
+                }
             }
         }
         if (free_slot < 0) {
@@ -7590,20 +7661,28 @@ static runtime_map_entry* runtime_map_insert_generic(runtime_map* map, const go_
     }
     if (runtime_map_use_small_linear(map)) {
         intptr_t free_slot = -1;
+        intptr_t live_seen = 0;
         key_size = runtime_map_key_size(map_type);
         for (index = 0; index < map->cap; index++) {
             entry = &map->entries[index];
             if (entry->state == 1) {
+                live_seen++;
                 if (runtime_map_key_equal(map_type != NULL ? map_type->key_type : NULL,
                                           entry->key_data,
                                           key,
                                           key_size)) {
                     return entry;
                 }
+                if (live_seen >= map->len && free_slot >= 0) {
+                    break;
+                }
                 continue;
             }
             if (free_slot < 0) {
                 free_slot = index;
+                if (live_seen >= map->len) {
+                    break;
+                }
             }
         }
         if (free_slot < 0) {
@@ -8676,7 +8755,6 @@ void runtime_gc_write_barrier(void** slot, void* ptr) {
 static bool RUNTIME_USED runtime_strequal_impl(const void* left_value, const void* right_value) {
     const go_string* left;
     const go_string* right;
-    size_t length;
 
     if (left_value == NULL || right_value == NULL) {
         return false;
@@ -8697,8 +8775,7 @@ static bool RUNTIME_USED runtime_strequal_impl(const void* left_value, const voi
         return false;
     }
 
-    length = (size_t)left->len;
-    return kos_memcmp(left->str, right->str, length) == 0;
+    return runtime_string_data_equal(left->str, right->str, (size_t)left->len);
 }
 
 static go_equal_function runtime_resolve_equal_function(const go_type_descriptor* descriptor) {
