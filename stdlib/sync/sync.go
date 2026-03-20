@@ -34,16 +34,43 @@ func (m *Mutex) Unlock() {
 	m.state = 0
 }
 
-// RWMutex is a minimal reader/writer mutex that serializes all access.
+// RWMutex is a minimal reader/writer mutex for the cooperative bootstrap
+// runtime. Read locks stay on a cheap counter path, while writers wait for
+// all readers to drain.
 type RWMutex struct {
-	mu Mutex
+	writer  uint32
+	readers uint32
 }
 
-func (rw *RWMutex) Lock()   { rw.mu.Lock() }
-func (rw *RWMutex) Unlock() { rw.mu.Unlock() }
-func (rw *RWMutex) RLock()  { rw.mu.Lock() }
+func (rw *RWMutex) Lock() {
+	for {
+		if rw.writer == 0 && rw.readers == 0 {
+			rw.writer = 1
+			return
+		}
+		yield()
+	}
+}
+
+func (rw *RWMutex) Unlock() {
+	if rw.writer == 0 {
+		panic("sync: unlock of unlocked RWMutex")
+	}
+	rw.writer = 0
+}
+
+func (rw *RWMutex) RLock() {
+	for rw.writer != 0 {
+		yield()
+	}
+	rw.readers++
+}
+
 func (rw *RWMutex) RUnlock() {
-	rw.mu.Unlock()
+	if rw.readers == 0 {
+		panic("sync: RUnlock of unlocked RWMutex")
+	}
+	rw.readers--
 }
 
 type rlocker RWMutex
