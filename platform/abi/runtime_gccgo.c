@@ -826,6 +826,8 @@ void throw(go_string message);
 size_t strlen(const char* str);
 void abort(void);
 void runtime_gc_set_stack_top(const void* ptr);
+static void* runtime_gc_alloc_noscan_tiny(size_t size);
+static void* runtime_alloc_zeroed(size_t size);
 
 // Minimal DWARF EH decoding for _Unwind_Find_FDE.
 #define DW_EH_PE_omit     0xff
@@ -5971,7 +5973,7 @@ go_string runtime_cstring_to_gostring(uint32_t ptr_addr) {
     }
 
     len = (intptr_t)kos_strlen(src);
-    out = (char*)runtime_gc_alloc_managed((size_t)len + 1, NULL, NULL, NULL, 0);
+    out = (char*)runtime_alloc_zeroed((size_t)len + 1);
     if (out == NULL) {
         result.str = NULL;
         result.len = 0;
@@ -5998,7 +6000,7 @@ go_slice runtime_copy_bytes(uint32_t ptr_addr, uint32_t size) {
         return result;
     }
 
-    out = (unsigned char*)runtime_gc_alloc_managed((size_t)size, NULL, NULL, NULL, 0);
+    out = (unsigned char*)runtime_alloc_zeroed((size_t)size);
     if (out == NULL) {
         return result;
     }
@@ -6516,6 +6518,13 @@ static size_t runtime_map_value_size(const go_map_type_descriptor* map_type) {
 }
 
 static void* runtime_alloc_zeroed(size_t size) {
+    void* memory;
+
+    memory = runtime_gc_alloc_noscan_tiny(size);
+    if (memory != NULL) {
+        return memory;
+    }
+
     return runtime_gc_alloc_managed(size, NULL, NULL, NULL, 0);
 }
 
@@ -6564,6 +6573,17 @@ static uint32_t runtime_map_hash_fast32(const go_map_type_descriptor* map_type, 
     }
 
     return (uint32_t)runtime_memhash32(&key, seed);
+}
+
+static uint32_t runtime_map_hash_fast64(const go_map_type_descriptor* map_type, runtime_map* map, uint64_t key) {
+    uintptr_t seed;
+
+    seed = (uintptr_t)runtime_map_hash_seed(map);
+    if (map_type != NULL && map_type->hasher != NULL) {
+        return (uint32_t)(*map_type->hasher)(&key, seed);
+    }
+
+    return (uint32_t)runtime_memhash64(&key, seed);
 }
 
 static uint32_t runtime_map_hash_faststr(const go_map_type_descriptor* map_type, runtime_map* map, const char* key_ptr, intptr_t key_len) {
@@ -7219,7 +7239,7 @@ static intptr_t runtime_map_find_fast64(runtime_map* map, uint64_t key) {
         return runtime_map_find_fast64_linear(map, key);
     }
 
-    hash = runtime_map_hash_generic(map != NULL ? map->type : NULL, map, &key);
+    hash = runtime_map_hash_fast64(map != NULL ? map->type : NULL, map, key);
     mask = map->cap - 1;
     index = (intptr_t)(hash & (uint32_t)mask);
     for (probe = 0; probe < map->cap; probe++) {
@@ -7472,12 +7492,12 @@ static runtime_map_entry* runtime_map_insert_fast64(runtime_map* map, const go_m
         }
         map->len++;
         *(uint64_t*)entry->key_data = key;
-        entry->hash = runtime_map_hash_generic(map_type, map, &key);
+        entry->hash = runtime_map_hash_fast64(map_type, map, key);
         entry->state = 1;
         return entry;
     }
 
-    hash = runtime_map_hash_generic(map_type, map, &key);
+    hash = runtime_map_hash_fast64(map_type, map, key);
     mask = map->cap - 1;
     index = (intptr_t)(hash & (uint32_t)mask);
     tombstone = -1;
@@ -8379,7 +8399,7 @@ go_string runtime_intstring(void* tmp, int64_t value) {
         length = 4;
     }
 
-    result = (char*)runtime_gc_alloc_managed(length + 1, NULL, NULL, NULL, 0);
+    result = (char*)runtime_alloc_zeroed(length + 1);
     if (result == NULL) {
         return out;
     }
@@ -8413,7 +8433,7 @@ go_string runtime_concatstrings(uintptr_t ignored, const go_string* strings, siz
         }
     }
 
-    result = (char*)runtime_gc_alloc_managed(total_length + 1, NULL, NULL, NULL, 0);
+    result = (char*)runtime_alloc_zeroed(total_length + 1);
     if (result == NULL) {
         out.str = NULL;
         out.len = 0;
@@ -8591,7 +8611,7 @@ go_string runtime_slicebytetostring(void* ignored, const unsigned char* src, int
         return result;
     }
 
-    out = (char*)runtime_gc_alloc_managed((size_t)len + 1, NULL, NULL, NULL, 0);
+    out = (char*)runtime_alloc_zeroed((size_t)len + 1);
     if (out == NULL) {
         result.str = NULL;
         result.len = 0;
@@ -8618,7 +8638,7 @@ go_slice runtime_stringtoslicebyte(void* ignored, const char* src, intptr_t len)
         return result;
     }
 
-    result.values = (unsigned char*)runtime_gc_alloc_managed((size_t)len, NULL, NULL, NULL, 0);
+    result.values = (unsigned char*)runtime_alloc_zeroed((size_t)len);
     if (result.values == NULL) {
         return result;
     }
@@ -8658,7 +8678,7 @@ go_slice runtime_stringtoslicerune(void* ignored, const char* src, intptr_t len)
         return result;
     }
 
-    out = (int32_t*)runtime_gc_alloc_managed((size_t)count * sizeof(int32_t), NULL, NULL, NULL, 0);
+    out = (int32_t*)runtime_alloc_zeroed((size_t)count * sizeof(int32_t));
     if (out == NULL) {
         return result;
     }
@@ -8708,7 +8728,7 @@ go_string runtime_slicerunetostring(void* ignored, const int32_t* src, intptr_t 
         }
     }
 
-    result = (char*)runtime_gc_alloc_managed(total + 1, NULL, NULL, NULL, 0);
+    result = (char*)runtime_alloc_zeroed(total + 1);
     if (result == NULL) {
         return out;
     }
@@ -9343,18 +9363,12 @@ static uintptr_t runtime_tiny_align_offset(uintptr_t offset, uintptr_t size) {
     return offset;
 }
 
-static void* runtime_newobject_tiny(const go_type_descriptor* descriptor) {
+static void* runtime_gc_alloc_noscan_tiny(size_t size) {
     runtime_m* m;
-    uintptr_t size;
     uintptr_t offset;
     void* block;
 
-    if (descriptor == NULL) {
-        return NULL;
-    }
-
-    size = descriptor->size;
-    if (descriptor->ptrdata != 0 || size == 0 || size >= RUNTIME_TINY_SIZE) {
+    if (size == 0 || size >= RUNTIME_TINY_SIZE) {
         return NULL;
     }
 
@@ -9383,6 +9397,14 @@ static void* runtime_newobject_tiny(const go_type_descriptor* descriptor) {
     }
 
     return block;
+}
+
+static void* runtime_newobject_tiny(const go_type_descriptor* descriptor) {
+    if (descriptor == NULL || descriptor->ptrdata != 0 || descriptor->size == 0) {
+        return NULL;
+    }
+
+    return runtime_gc_alloc_noscan_tiny((size_t)descriptor->size);
 }
 
 void* runtime_newobject(const go_type_descriptor* descriptor) {
