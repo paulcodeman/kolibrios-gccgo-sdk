@@ -1,5 +1,7 @@
 package kos
 
+import "unicode/utf8"
+
 type StringEncoding uint32
 type FileSystemStatus uint32
 type FileAttributes uint32
@@ -141,8 +143,9 @@ func ReadAllFile(path string) (data []byte, status FileSystemStatus) {
 
 func ReadFolder(path string, start uint32, count uint32) (result FolderReadResult, status FileSystemStatus) {
 	const folderHeaderSize = 32
+	const folderNamesEncoding = EncodingCP866
 
-	entrySize := folderEntrySize(EncodingUTF8)
+	entrySize := folderEntrySize(folderNamesEncoding)
 	buffer := make([]byte, folderHeaderSize+int(count)*entrySize)
 	pathPtr, pathAddr := stringAddress(path)
 	if pathPtr == nil {
@@ -152,7 +155,7 @@ func ReadFolder(path string, start uint32, count uint32) (result FolderReadResul
 	request := EncodedFileSystemRequest{
 		Subfunction:       fileSystemReadFolder,
 		Offset:            start,
-		OffsetHighOrFlags: uint32(EncodingUTF8),
+		OffsetHighOrFlags: uint32(folderNamesEncoding),
 		Size:              count,
 		Data:              byteSliceAddress(buffer),
 		Encoding:          EncodingUTF8,
@@ -179,7 +182,7 @@ func ReadFolder(path string, start uint32, count uint32) (result FolderReadResul
 		block := buffer[offset : offset+entrySize]
 		result.Entries = append(result.Entries, FolderEntry{
 			Info: parseFileInfoBlock(block),
-			Name: zeroTerminatedString(block[40 : 40+fileNameFieldSize(EncodingUTF8)]),
+			Name: zeroTerminatedEncodedString(block[40:40+fileNameFieldSize(folderNamesEncoding)], folderNamesEncoding),
 		})
 	}
 
@@ -202,7 +205,7 @@ func CurrentFolderWithEncoding(encoding StringEncoding) string {
 		return ""
 	}
 	if size <= len(stack) {
-		return zeroTerminatedString(stack[:size])
+		return zeroTerminatedEncodedString(stack[:size], encoding)
 	}
 
 	buffer := make([]byte, size)
@@ -214,7 +217,7 @@ func CurrentFolderWithEncoding(encoding StringEncoding) string {
 		size = len(buffer)
 	}
 
-	return zeroTerminatedString(buffer[:size])
+	return zeroTerminatedEncodedString(buffer[:size], encoding)
 }
 
 func CreateOrRewriteFile(path string, data []byte) (written uint32, status FileSystemStatus) {
@@ -453,6 +456,41 @@ func fileNameFieldSize(encoding StringEncoding) int {
 	}
 
 	return 520
+}
+
+func zeroTerminatedEncodedString(field []byte, encoding StringEncoding) string {
+	end := 0
+	for end < len(field) && field[end] != 0 {
+		end++
+	}
+
+	data := field[:end]
+	switch encoding {
+	case EncodingCP866:
+		return cp866BytesToUTF8String(data)
+	case EncodingUTF8:
+		if utf8.Valid(data) {
+			return string(data)
+		}
+		return cp866BytesToUTF8String(data)
+	default:
+		return string(data)
+	}
+}
+
+func cp866BytesToUTF8String(data []byte) string {
+	if len(data) == 0 {
+		return ""
+	}
+
+	buffer := make([]byte, 0, len(data)*2)
+	var encoded [4]byte
+	for _, value := range data {
+		size := iconvEncodeRune(encoded[:], decodeCP866Rune(value))
+		buffer = append(buffer, encoded[:size]...)
+	}
+
+	return string(buffer)
 }
 
 func parseFileInfoBlock(buffer []byte) FileInfo {

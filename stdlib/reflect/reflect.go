@@ -755,7 +755,7 @@ func (v Value) Addr() Value {
 	if v.flag&flagAddr == 0 {
 		panic("reflect.Value.Addr of unaddressable value")
 	}
-	return Value{}
+	return Value{typ: ptrTo(v.typ), ptr: v.ptr, flag: v.flag&flagRO | flag(Pointer)}
 }
 
 func (v Value) Elem() Value {
@@ -1048,17 +1048,51 @@ func (v Value) OverflowUint(x uint64) bool {
 
 func (v Value) OverflowFloat(x float64) bool { return false }
 
-func Zero(t Type) Value { return Value{} }
-
-func New(t Type) Value {
-	return Value{}
+func Zero(t Type) Value {
+	if t == nil {
+		panic("reflect: Zero(nil)")
+	}
+	rt := t.(*rtype)
+	fl := flag(rt.Kind())
+	if ifaceIndir(rt) {
+		return Value{typ: rt, ptr: runtimeNewObject(rt), flag: fl | flagIndir}
+	}
+	return Value{typ: rt, flag: fl}
 }
 
-func MakeSlice(t Type, len, cap int) Value                 { return Value{} }
+func New(t Type) Value {
+	if t == nil {
+		panic("reflect: New(nil)")
+	}
+	rt := t.(*rtype)
+	return Value{typ: ptrTo(rt), ptr: runtimeNewObject(rt), flag: flag(Pointer)}
+}
+
+func MakeSlice(t Type, len, cap int) Value {
+	if t == nil {
+		panic("reflect: MakeSlice(nil)")
+	}
+	rt := t.(*rtype)
+	if rt.Kind() != Slice {
+		panic("reflect: MakeSlice of non-slice type " + rt.String())
+	}
+	st := (*sliceType)(unsafe.Pointer(rt))
+	headerPtr := runtimeNewObject(rt)
+	header := (*unsafeheader.Slice)(headerPtr)
+	header.Data = runtimeMakeSlice(st.elem, len, cap)
+	header.Len = len
+	header.Cap = cap
+	return Value{typ: rt, ptr: headerPtr, flag: flag(Slice) | flagIndir}
+}
 func MakeMap(t Type) Value                                 { return Value{} }
 func MakeMapWithSize(t Type, n int) Value                  { return Value{} }
 func MakeFunc(t Type, fn func(args []Value) []Value) Value { return Value{} }
-func PtrTo(t Type) Type                                    { return &rtype{kind: uint8(Pointer)} }
+func PtrTo(t Type) Type {
+	if t == nil {
+		panic("reflect: PtrTo(nil)")
+	}
+	return ptrTo(t.(*rtype))
+}
 func PointerTo(t Type) Type                                { return PtrTo(t) }
 func SliceOf(t Type) Type                                  { return &rtype{kind: uint8(Slice)} }
 func MapOf(key, elem Type) Type                            { return &rtype{kind: uint8(Map)} }
@@ -1072,9 +1106,40 @@ func Indirect(v Value) Value {
 	return v.Elem()
 }
 
-func DeepEqual(x, y interface{}) bool { return x == y }
+func DeepEqual(x, y interface{}) bool {
+	vx := ValueOf(x)
+	vy := ValueOf(y)
+	if !vx.IsValid() || !vy.IsValid() {
+		return !vx.IsValid() && !vy.IsValid()
+	}
+	if vx.typ != vy.typ {
+		return false
+	}
+	return deepValueEqual(vx, vy)
+}
 
-func Copy(dst, src Value) int { return 0 }
+func Copy(dst, src Value) int {
+	dstData, dstLen, dstElem := copyData(dst)
+	var srcData unsafe.Pointer
+	var srcLen int
+	var srcElem *rtype
+	switch src.kind() {
+	case String:
+		if dst.kind() != Slice || dstElem.Kind() != Uint8 {
+			panic("reflect: Copy from string requires []byte destination")
+		}
+		sh := (*unsafeheader.String)(src.ptr)
+		srcData = sh.Data
+		srcLen = sh.Len
+		srcElem = dstElem
+	default:
+		srcData, srcLen, srcElem = copyData(src)
+		if dstElem != srcElem {
+			panic("reflect: Copy of incompatible types")
+		}
+	}
+	return runtimeTypedSliceCopy(dstElem, dstData, dstLen, srcData, srcLen)
+}
 
 func ValueOfPtr(ptr unsafe.Pointer) Value { return Value{} }
 
@@ -1085,3 +1150,117 @@ func (it *MapIter) Key() Value   { return Value{} }
 func (it *MapIter) Value() Value { return Value{} }
 
 func (v Value) MapRange() *MapIter { return &MapIter{} }
+
+func ptrTo(t *rtype) *rtype {
+	if t == nil {
+		return nil
+	}
+	if t.ptrToThis != nil {
+		return t.ptrToThis
+	}
+	s := "*" + t.String()
+	align := uint8(unsafe.Alignof(uintptr(0)))
+	base := &ptrType{
+		rtype: rtype{
+			size:       unsafe.Sizeof(uintptr(0)),
+			ptrdata:    unsafe.Sizeof(uintptr(0)),
+			align:      align,
+			fieldAlign: align,
+			kind:       uint8(Pointer) | kindDirectIface,
+			string:     &s,
+		},
+		elem: t,
+	}
+	return &base.rtype
+}
+
+func copyData(v Value) (unsafe.Pointer, int, *rtype) {
+	switch v.kind() {
+	case Slice:
+		h := (*unsafeheader.Slice)(v.ptr)
+		return h.Data, h.Len, (*sliceType)(unsafe.Pointer(v.typ)).elem
+	case Array:
+		return v.ptr, v.Len(), (*arrayType)(unsafe.Pointer(v.typ)).elem
+	default:
+		panic("reflect: Copy of non-slice/array value")
+	}
+}
+
+func deepValueEqual(x, y Value) bool {
+	switch x.kind() {
+	case Invalid:
+		return true
+	case Bool:
+		return x.Bool() == y.Bool()
+	case Int, Int8, Int16, Int32, Int64:
+		return x.Int() == y.Int()
+	case Uint, Uint8, Uint16, Uint32, Uint64, Uintptr:
+		return x.Uint() == y.Uint()
+	case Float32, Float64:
+		return x.Float() == y.Float()
+	case String:
+		return x.String() == y.String()
+	case Pointer, UnsafePointer:
+		if x.IsNil() || y.IsNil() {
+			return x.IsNil() == y.IsNil()
+		}
+		if x.ptr == y.ptr {
+			return true
+		}
+		return deepValueEqual(x.Elem(), y.Elem())
+	case Interface:
+		if x.IsNil() || y.IsNil() {
+			return x.IsNil() == y.IsNil()
+		}
+		return deepValueEqual(x.Elem(), y.Elem())
+	case Slice:
+		if x.IsNil() || y.IsNil() {
+			return x.IsNil() == y.IsNil()
+		}
+		xh := (*unsafeheader.Slice)(x.ptr)
+		yh := (*unsafeheader.Slice)(y.ptr)
+		if xh.Data == yh.Data && xh.Len == yh.Len {
+			return true
+		}
+		if xh.Len != yh.Len {
+			return false
+		}
+		for i := 0; i < xh.Len; i++ {
+			if !deepValueEqual(x.Index(i), y.Index(i)) {
+				return false
+			}
+		}
+		return true
+	case Array:
+		if x.Len() != y.Len() {
+			return false
+		}
+		for i := 0; i < x.Len(); i++ {
+			if !deepValueEqual(x.Index(i), y.Index(i)) {
+				return false
+			}
+		}
+		return true
+	case Struct:
+		if x.NumField() != y.NumField() {
+			return false
+		}
+		for i := 0; i < x.NumField(); i++ {
+			if !deepValueEqual(x.Field(i), y.Field(i)) {
+				return false
+			}
+		}
+		return true
+	case Func:
+		return x.IsNil() && y.IsNil()
+	default:
+		if x.typ.Comparable() {
+			return x.Interface() == y.Interface()
+		}
+		return false
+	}
+}
+
+func runtimeNewObject(t *rtype) unsafe.Pointer __asm__("runtime.newobject")
+func runtimeMakeSlice(t *rtype, len int, cap int) unsafe.Pointer __asm__("runtime.makeslice")
+func runtimeTypedSliceCopy(t *rtype, dst unsafe.Pointer, dstLen int, src unsafe.Pointer, srcLen int) int __asm__("runtime.typedslicecopy")

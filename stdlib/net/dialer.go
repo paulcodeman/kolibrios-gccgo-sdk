@@ -2,7 +2,6 @@ package net
 
 import (
 	"context"
-	"errors"
 	"time"
 )
 
@@ -72,5 +71,5 @@ func (d *Dialer) effectiveTimeout(ctx context.Context, network string) (time.Dur
 }
 
 func Listen(network, address string) (Listener, error) {
-	return nil, &OpError{Op: "listen", Net: network, Err: errors.New("listen not supported")}
+	return listenTCP(network, address)
 }

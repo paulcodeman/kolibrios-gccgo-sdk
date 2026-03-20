@@ -479,15 +479,39 @@ func Environ() []string {
 
 func Stat(name string) (FileInfo, error) {
 	info, status := kos.GetPathInfo(name)
-	if status != kos.FileSystemOK {
-		return nil, wrapPathError("stat", name, status)
+	if status == kos.FileSystemOK {
+		return fileInfo{
+			name: baseName(name),
+			path: path.Clean(name),
+			raw:  info,
+		}, nil
+	}
+
+	cleaned := path.Clean(name)
+	if rootInfo, ok := statVolumeRoot(cleaned); ok {
+		return rootInfo, nil
+	}
+
+	return nil, wrapPathError("stat", name, status)
+}
+
+func statVolumeRoot(name string) (FileInfo, bool) {
+	if !isVolumeRootPath(name) {
+		return nil, false
+	}
+
+	_, status := kos.ReadFolder(name, 0, 1)
+	if status != kos.FileSystemOK && status != kos.FileSystemEOF {
+		return nil, false
 	}
 
 	return fileInfo{
 		name: baseName(name),
-		path: path.Clean(name),
-		raw:  info,
-	}, nil
+		path: name,
+		raw: kos.FileInfo{
+			Attributes: kos.FileAttributeDirectory,
+		},
+	}, true
 }
 
 func isVolumeRootPath(name string) bool {
