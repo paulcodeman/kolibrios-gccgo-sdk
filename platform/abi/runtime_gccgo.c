@@ -6724,7 +6724,7 @@ static void* runtime_map_zero_value(runtime_map* map, const go_map_type_descript
 #define RUNTIME_MAP_MAX_LOAD_DEN 4
 
 static bool runtime_map_use_small_linear(const runtime_map* map) {
-    return map != NULL && map->cap > 0 && map->len <= RUNTIME_MAP_MIN_CAP;
+    return map != NULL && map->cap > 0 && map->cap <= RUNTIME_MAP_MIN_CAP;
 }
 
 static intptr_t runtime_map_next_power_of_two(intptr_t value) {
