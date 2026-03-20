@@ -62,6 +62,8 @@ struct runtime_m {
     runtime_g* park_g;
     runtime_g* enqg;
     uint32_t exit_check_counter;
+    uintptr_t tiny;
+    uint32_t tinyoffset;
     runtime_pool_node* pool_local_lists[RUNTIME_POOL_LOCAL_CLASS_COUNT];
     uint8_t pool_local_counts[RUNTIME_POOL_LOCAL_CLASS_COUNT];
     uint32_t pool_local_bytes;

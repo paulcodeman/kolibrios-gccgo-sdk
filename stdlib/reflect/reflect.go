@@ -158,19 +158,36 @@ type mapType struct {
 	flags      uint32
 }
 
+type runtimeMapEntry struct {
+	keyData   unsafe.Pointer
+	valueData unsafe.Pointer
+	hash      uint32
+	state     uint8
+	padding   [3]byte
+}
+
 type runtimeMap struct {
-	len       int
-	entries   unsafe.Pointer
-	used      int
-	cap       int
-	typ       unsafe.Pointer
-	zeroValue unsafe.Pointer
+	len         int
+	entries     *runtimeMapEntry
+	storage     unsafe.Pointer
+	used        int
+	cap         int
+	hashSeed    uint32
+	typ         unsafe.Pointer
+	zeroValue   unsafe.Pointer
+	valueOffset uintptr
+	entryStride uintptr
 }
 
 type runtimeMapIterator struct {
 	key   unsafe.Pointer
 	value unsafe.Pointer
 	state unsafe.Pointer
+}
+
+type runtimeMapaccess2Result struct {
+	value unsafe.Pointer
+	ok    uint32
 }
 
 type ptrType struct {
@@ -571,7 +588,12 @@ func (t *rtype) In(i int) Type                           { return nil }
 func (t *rtype) NumOut() int                             { return 0 }
 func (t *rtype) Out(i int) Type                          { return nil }
 func (t *rtype) IsVariadic() bool                        { return false }
-func (t *rtype) Key() Type                               { return nil }
+func (t *rtype) Key() Type {
+	if t.Kind() != Map {
+		panic("reflect: Key of non-map type " + t.String())
+	}
+	return toType((*mapType)(unsafe.Pointer(t)).key)
+}
 func (t *rtype) Implements(u Type) bool                  { return false }
 func (t *rtype) AssignableTo(u Type) bool                { return t == u }
 func (t *rtype) ConvertibleTo(u Type) bool               { return t == u }
@@ -932,15 +954,92 @@ func (v Value) UnsafePointer() unsafe.Pointer {
 func (v Value) Convert(t Type) Value           { return Value{} }
 func (v Value) Call(in []Value) []Value        { return nil }
 func (v Value) CallSlice(in []Value) []Value   { return nil }
-func (v Value) MapKeys() []Value               { return nil }
-func (v Value) MapIndex(key Value) Value       { return Value{} }
-func (v Value) SetMapIndex(key, value Value)   {}
+func (v Value) MapKeys() []Value {
+	v.flag.mustBe(Map, "reflect.Value.MapKeys")
+	tt := (*mapType)(unsafe.Pointer(v.typ))
+	fl := v.flag.ro() | flag(tt.key.Kind())
+	keys := make([]Value, 0, v.Len())
+	var it runtimeMapIterator
+	runtimeMapiterinit(unsafe.Pointer(v.typ), rawValuePointer(v), &it)
+	for it.key != nil {
+		keys = append(keys, copyVal(tt.key, fl, it.key))
+		runtimeMapiternext(&it)
+	}
+	return keys
+}
+
+func (v Value) MapIndex(key Value) Value {
+	v.flag.mustBe(Map, "reflect.Value.MapIndex")
+	tt := (*mapType)(unsafe.Pointer(v.typ))
+	key = assignToType("reflect.Value.MapIndex", key, tt.key)
+	result := runtimeMapaccess2(unsafe.Pointer(v.typ), rawValuePointer(v), valueDataPointer(key))
+	if result.ok == 0 {
+		return Value{}
+	}
+	fl := (v.flag | key.flag).ro() | flag(tt.elem.Kind())
+	return copyVal(tt.elem, fl, result.value)
+}
+
+func (v Value) SetMapIndex(key, value Value) {
+	v.flag.mustBe(Map, "reflect.Value.SetMapIndex")
+	if v.flag&flagRO != 0 {
+		panic("reflect: reflect.Value.SetMapIndex using value obtained using unexported field")
+	}
+	tt := (*mapType)(unsafe.Pointer(v.typ))
+	key = assignToType("reflect.Value.SetMapIndex", key, tt.key)
+	keyPtr := valueDataPointer(key)
+	if !value.IsValid() {
+		runtimeMapdelete(unsafe.Pointer(v.typ), rawValuePointer(v), keyPtr)
+		return
+	}
+	if value.flag&flagRO != 0 {
+		panic("reflect: reflect.Value.SetMapIndex using value obtained using unexported field")
+	}
+	value = assignToType("reflect.Value.SetMapIndex", value, tt.elem)
+	dst := runtimeMapassign(unsafe.Pointer(v.typ), rawValuePointer(v), keyPtr)
+	runtimeTypedmemmove(tt.elem, dst, valueDataPointer(value))
+}
 
 func rawValuePointer(v Value) unsafe.Pointer {
 	if v.flag&flagIndir != 0 && !ifaceIndir(v.typ) {
 		return *(*unsafe.Pointer)(v.ptr)
 	}
 	return v.ptr
+}
+
+func valueDataPointer(v Value) unsafe.Pointer {
+	if v.flag&flagIndir != 0 {
+		return v.ptr
+	}
+	return unsafe.Pointer(&v.ptr)
+}
+
+func copyVal(typ *rtype, fl flag, ptr unsafe.Pointer) Value {
+	if ifaceIndir(typ) {
+		dst := runtimeNewObject(typ)
+		runtimeTypedmemmove(typ, dst, ptr)
+		return Value{typ: typ, ptr: dst, flag: fl | flagIndir}
+	}
+	return Value{typ: typ, ptr: *(*unsafe.Pointer)(ptr), flag: fl}
+}
+
+func assignToType(context string, v Value, dst *rtype) Value {
+	if !v.IsValid() {
+		panic(context + ": zero Value")
+	}
+	if v.typ == dst {
+		fl := v.flag&(flagAddr|flagIndir) | v.flag.ro() | flag(dst.Kind())
+		return Value{typ: dst, ptr: v.ptr, flag: fl}
+	}
+	if dst.Kind() == Interface {
+		it := (*interfaceType)(unsafe.Pointer(dst))
+		if len(it.methods) == 0 {
+			target := runtimeNewObject(dst)
+			*(*interface{})(target) = v.Interface()
+			return Value{typ: dst, ptr: target, flag: flag(Interface) | flagIndir}
+		}
+	}
+	panic(context + ": value of type " + v.typ.String() + " is not assignable to type " + dst.String())
 }
 
 func (v Value) Set(x Value) {
@@ -1140,8 +1239,18 @@ func MakeSlice(t Type, len, cap int) Value {
 	header.Cap = cap
 	return Value{typ: rt, ptr: headerPtr, flag: flag(Slice) | flagIndir}
 }
-func MakeMap(t Type) Value                                 { return Value{} }
-func MakeMapWithSize(t Type, n int) Value                  { return Value{} }
+func MakeMap(t Type) Value                                 { return MakeMapWithSize(t, 0) }
+func MakeMapWithSize(t Type, n int) Value {
+	if t == nil {
+		panic("reflect: MakeMapWithSize(nil)")
+	}
+	rt := t.(*rtype)
+	if rt.Kind() != Map {
+		panic("reflect: MakeMapWithSize of non-map type " + rt.String())
+	}
+	m := runtimeMakemap(rt, n, nil)
+	return Value{typ: rt, ptr: unsafe.Pointer(&m), flag: flag(Map) | flagIndir}
+}
 func MakeFunc(t Type, fn func(args []Value) []Value) Value { return Value{} }
 func PtrTo(t Type) Type {
 	if t == nil {
@@ -1221,20 +1330,20 @@ func (it *MapIter) Key() Value {
 	if it == nil || !it.started || it.iter.key == nil {
 		return Value{}
 	}
-	return Value{typ: it.typ.key, ptr: it.iter.key, flag: flag(it.typ.key.Kind()) | flagIndir}
+	return copyVal(it.typ.key, flag(it.typ.key.Kind()), it.iter.key)
 }
 
 func (it *MapIter) Value() Value {
 	if it == nil || !it.started || it.iter.value == nil {
 		return Value{}
 	}
-	return Value{typ: it.typ.elem, ptr: it.iter.value, flag: flag(it.typ.elem.Kind()) | flagIndir}
+	return copyVal(it.typ.elem, flag(it.typ.elem.Kind()), it.iter.value)
 }
 
 func (v Value) MapRange() *MapIter {
 	v.flag.mustBe(Map, "reflect.Value.MapRange")
 	it := &MapIter{typ: (*mapType)(unsafe.Pointer(v.typ))}
-	runtimeMapiterinit(nil, rawValuePointer(v), &it.iter)
+	runtimeMapiterinit(unsafe.Pointer(v.typ), rawValuePointer(v), &it.iter)
 	return it
 }
 
@@ -1350,6 +1459,11 @@ func deepValueEqual(x, y Value) bool {
 
 func runtimeNewObject(t *rtype) unsafe.Pointer __asm__("runtime.newobject")
 func runtimeMakeSlice(t *rtype, len int, cap int) unsafe.Pointer __asm__("runtime.makeslice")
+func runtimeMakemap(t *rtype, hint int, ignored unsafe.Pointer) unsafe.Pointer __asm__("runtime.makemap")
+func runtimeMapaccess2(mapType unsafe.Pointer, m unsafe.Pointer, key unsafe.Pointer) runtimeMapaccess2Result __asm__("runtime.mapaccess2")
+func runtimeMapassign(mapType unsafe.Pointer, m unsafe.Pointer, key unsafe.Pointer) unsafe.Pointer __asm__("runtime.mapassign")
+func runtimeMapdelete(mapType unsafe.Pointer, m unsafe.Pointer, key unsafe.Pointer) __asm__("runtime.mapdelete")
+func runtimeTypedmemmove(t *rtype, dst unsafe.Pointer, src unsafe.Pointer) __asm__("runtime.typedmemmove")
 func runtimeTypedSliceCopy(t *rtype, dst unsafe.Pointer, dstLen int, src unsafe.Pointer, srcLen int) int __asm__("runtime.typedslicecopy")
 func runtimeMapiterinit(mapType unsafe.Pointer, m unsafe.Pointer, it *runtimeMapIterator) __asm__("runtime.mapiterinit")
 func runtimeMapiternext(it *runtimeMapIterator) __asm__("runtime.mapiternext")

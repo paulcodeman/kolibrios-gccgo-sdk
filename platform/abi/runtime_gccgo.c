@@ -625,6 +625,30 @@ typedef bool (*go_equal_function)(const void* left, const void* right);
 typedef uint32_t (*go_hash_function)(const void* value);
 typedef uintptr_t (*go_seeded_hash_function)(const void* value, uintptr_t seed);
 
+#define RUNTIME_ITAB_INIT_SIZE 512u
+#define RUNTIME_ITAB_ENTRY_MISSING 1u
+#define RUNTIME_ITAB_ENTRY_READY 2u
+
+typedef struct {
+    const go_interface_type_descriptor* inter;
+    const go_type_descriptor* concrete;
+    go_interface_method_table* methods;
+    uint8_t state;
+    uint8_t padding[3];
+} runtime_itab_cache_entry;
+
+typedef struct {
+    uintptr_t size;
+    uintptr_t count;
+    runtime_itab_cache_entry* entries[];
+} runtime_itab_cache_table;
+
+typedef struct {
+    uintptr_t size;
+    uintptr_t count;
+    runtime_itab_cache_entry* entries[RUNTIME_ITAB_INIT_SIZE];
+} runtime_itab_cache_init_table;
+
 typedef struct {
     go_type_descriptor common;
     const go_type_descriptor* key_type;
@@ -750,6 +774,14 @@ static uint8_t runtime_g_initialized = 0;
 static runtime_mutex runtime_sched_lock;
 static runtime_mutex runtime_m_lock;
 static runtime_mutex runtime_gc_lock;
+
+static runtime_itab_cache_init_table runtime_itab_cache_init = {
+    RUNTIME_ITAB_INIT_SIZE,
+    0,
+    { NULL }
+};
+static runtime_itab_cache_table* runtime_itab_cache = (runtime_itab_cache_table*)&runtime_itab_cache_init;
+static runtime_mutex runtime_itab_lock;
 
 #define RUNTIME_MAX_THREAD_SLOTS 256u
 static runtime_m* runtime_m_by_slot[RUNTIME_MAX_THREAD_SLOTS + 1];
@@ -1025,6 +1057,8 @@ static void runtime_init_g0(void) {
     runtime_m0.park_g = NULL;
     runtime_m0.enqg = NULL;
     runtime_m0.exit_check_counter = 0;
+    runtime_m0.tiny = 0;
+    runtime_m0.tinyoffset = 0;
     runtime_g0.m = &runtime_m0;
     runtime_g0.lockedm = &runtime_m0;
     runtime_g0.entrysp = 0;
@@ -1427,6 +1461,8 @@ void runtime_m_start(runtime_m_start_record* start) {
     m->park_g = NULL;
     m->enqg = NULL;
     m->exit_check_counter = 0;
+    m->tiny = 0;
+    m->tinyoffset = 0;
     {
         uint32_t slot = runtime_kolibri_current_thread_slot();
         if (slot == 0) {
@@ -2677,6 +2713,7 @@ struct runtime_gc_header {
 #define GO_TYPE_KIND_COMPLEX64 0x0Fu
 #define GO_TYPE_KIND_COMPLEX128 0x10u
 
+#define RUNTIME_TINY_SIZE 16u
 #define RUNTIME_GC_PAGE_SHIFT 12u
 #define RUNTIME_GC_PAGE_SIZE (1u << RUNTIME_GC_PAGE_SHIFT)
 #define RUNTIME_GC_PAGE_MASK (RUNTIME_GC_PAGE_SIZE - 1u)
@@ -3994,6 +4031,14 @@ static inline void runtime_atomic_store_uintptr(uintptr_t* value, uintptr_t next
     __atomic_store_n(value, next, __ATOMIC_RELEASE);
 }
 
+static inline void* runtime_atomic_load_ptr(void* const* value) {
+    return __atomic_load_n(value, __ATOMIC_ACQUIRE);
+}
+
+static inline void runtime_atomic_store_ptr(void** value, void* next) {
+    __atomic_store_n(value, next, __ATOMIC_RELEASE);
+}
+
 static inline runtime_g* runtime_atomic_load_g(runtime_g* const* value) {
     return __atomic_load_n(value, __ATOMIC_ACQUIRE);
 }
@@ -5045,6 +5090,16 @@ static void runtime_gc_mark_defers(void) {
     }
 }
 
+static void runtime_gc_mark_m_caches(void) {
+    runtime_m* m;
+
+    for (m = runtime_allm; m != NULL; m = m->next) {
+        if (m->tiny != 0) {
+            runtime_gc_mark_pointer((const void*)m->tiny);
+        }
+    }
+}
+
 static void runtime_gc_clamp_stack_range(runtime_g* g, uintptr_t* start, uintptr_t* end) {
     uintptr_t low = 0;
     uintptr_t high = 0;
@@ -5077,6 +5132,7 @@ __attribute__((noinline)) static void runtime_gc_mark_roots_and_stack(void) {
     runtime_gc_scan_conservative_words(registers, sizeof(registers));
     runtime_gc_mark_registered_roots();
     runtime_gc_mark_defers();
+    runtime_gc_mark_m_caches();
     runtime_g* current = runtime_getg();
     for (g = runtime_allg; g != NULL; g = g->all_next) {
         uintptr_t marker;
@@ -5176,9 +5232,18 @@ static void runtime_gc_collect_impl_locked(void) {
 }
 
 static void runtime_gc_collect_impl(void) {
+    if (!runtime_world_stopping && runtime_atomic_load_u32(&runtime_m_count) <= 1u) {
+        runtime_gc_collect_impl_locked();
+        return;
+    }
+
     runtime_lock_mutex(&runtime_gc_lock);
     runtime_gc_collect_impl_locked();
     runtime_unlock_mutex(&runtime_gc_lock);
+}
+
+static bool runtime_gc_single_thread_fast_path(void) {
+    return !runtime_world_stopping && runtime_atomic_load_u32(&runtime_m_count) <= 1u;
 }
 
 static void runtime_gc_maybe_collect_locked(size_t requested_size) {
@@ -5211,6 +5276,7 @@ static void* runtime_gc_alloc_managed(size_t size, const go_type_descriptor* des
     runtime_gc_header* header;
     size_t payload_size;
     void* payload;
+    bool single_thread_fast_path;
 
     (void)aux;
 
@@ -5219,13 +5285,25 @@ static void* runtime_gc_alloc_managed(size_t size, const go_type_descriptor* des
         runtime_panicmem();
     }
 
-    runtime_lock_mutex(&runtime_gc_lock);
-    runtime_gc_maybe_collect_locked(payload_size);
-    runtime_unlock_mutex(&runtime_gc_lock);
-
+    single_thread_fast_path = runtime_gc_single_thread_fast_path();
     header = (runtime_gc_header*)runtime_pool_malloc(sizeof(runtime_gc_header) + payload_size);
     if (header == NULL) {
-        runtime_panicmem();
+        if (single_thread_fast_path) {
+            runtime_gc_collect_impl_locked();
+            runtime_gc_scrub_registers();
+            runtime_gc_collect_impl_locked();
+        } else {
+            runtime_lock_mutex(&runtime_gc_lock);
+            runtime_gc_collect_impl_locked();
+            runtime_gc_scrub_registers();
+            runtime_gc_collect_impl_locked();
+            runtime_unlock_mutex(&runtime_gc_lock);
+        }
+
+        header = (runtime_gc_header*)runtime_pool_malloc(sizeof(runtime_gc_header) + payload_size);
+        if (header == NULL) {
+            runtime_panicmem();
+        }
     }
     header->descriptor = descriptor;
     header->scan = scan;
@@ -5237,11 +5315,19 @@ static void* runtime_gc_alloc_managed(size_t size, const go_type_descriptor* des
     payload = runtime_gc_payload(header);
     kos_memset(payload, 0, payload_size);
 
-    runtime_lock_mutex(&runtime_gc_lock);
-    runtime_gc_alloc_count++;
-    runtime_gc_alloc_bytes += payload_size;
-    runtime_gc_link_allocation(header);
-    runtime_unlock_mutex(&runtime_gc_lock);
+    if (single_thread_fast_path) {
+        runtime_gc_maybe_collect_locked(payload_size);
+        runtime_gc_alloc_count++;
+        runtime_gc_alloc_bytes += payload_size;
+        runtime_gc_link_allocation(header);
+    } else {
+        runtime_lock_mutex(&runtime_gc_lock);
+        runtime_gc_maybe_collect_locked(payload_size);
+        runtime_gc_alloc_count++;
+        runtime_gc_alloc_bytes += payload_size;
+        runtime_gc_link_allocation(header);
+        runtime_unlock_mutex(&runtime_gc_lock);
+    }
     return payload;
 }
 
@@ -5322,6 +5408,19 @@ static void runtime_gc_free_exact(void* ptr) {
         return;
     }
 
+    if (runtime_gc_single_thread_fast_path()) {
+        header = runtime_gc_find_exact_header(ptr);
+        if (header == NULL) {
+            free(ptr);
+            return;
+        }
+
+        runtime_gc_unlink_allocation(header);
+        runtime_pool_free(header);
+        runtime_gc_update_threshold();
+        return;
+    }
+
     runtime_lock_mutex(&runtime_gc_lock);
     header = runtime_gc_find_exact_header(ptr);
     if (header == NULL) {
@@ -5337,6 +5436,13 @@ static void runtime_gc_free_exact(void* ptr) {
 }
 
 void runtime_force_gc(void) {
+    if (runtime_gc_single_thread_fast_path()) {
+        runtime_gc_collect_impl_locked();
+        runtime_gc_scrub_registers();
+        runtime_gc_collect_impl_locked();
+        return;
+    }
+
     runtime_lock_mutex(&runtime_gc_lock);
     runtime_gc_collect_impl_locked();
     runtime_gc_scrub_registers();
@@ -5346,6 +5452,28 @@ void runtime_force_gc(void) {
 
 void runtime_gc_poll(void) {
     uint64_t alloc_delta;
+
+    if (runtime_gc_single_thread_fast_path()) {
+        if (!runtime_gc_enabled || runtime_gc_running) {
+            return;
+        }
+        if (!runtime_gc_poll_retry && runtime_gc_live_bytes < runtime_gc_threshold) {
+            alloc_delta = runtime_gc_alloc_bytes - runtime_gc_last_collect_alloc_bytes;
+            if (alloc_delta == 0) {
+                return;
+            }
+            if (runtime_gc_poll_skip_count < RUNTIME_GC_SOFT_POLL_INTERVAL &&
+                alloc_delta < RUNTIME_GC_SOFT_POLL_ALLOC_BYTES) {
+                runtime_gc_poll_skip_count++;
+                return;
+            }
+        }
+
+        runtime_gc_collect_impl_locked();
+        runtime_gc_scrub_registers();
+        runtime_gc_collect_impl_locked();
+        return;
+    }
 
     runtime_lock_mutex(&runtime_gc_lock);
     if (!runtime_gc_enabled || runtime_gc_running) {
@@ -6521,6 +6649,10 @@ static void* runtime_map_zero_value(runtime_map* map, const go_map_type_descript
 #define RUNTIME_MAP_MAX_LOAD_NUM 3
 #define RUNTIME_MAP_MAX_LOAD_DEN 4
 
+static bool runtime_map_use_small_linear(const runtime_map* map) {
+    return map != NULL && map->cap > 0 && map->cap <= RUNTIME_MAP_MIN_CAP;
+}
+
 static intptr_t runtime_map_next_power_of_two(intptr_t value) {
     intptr_t out;
 
@@ -6867,6 +6999,31 @@ static bool runtime_map_key_equal(const go_type_descriptor* descriptor, const vo
     return kos_memcmp(left, right, key_size) == 0;
 }
 
+static intptr_t runtime_map_find_generic_linear(const go_map_type_descriptor* map_type, runtime_map* map, const void* key) {
+    size_t key_size;
+    intptr_t index;
+
+    if (map == NULL || map->cap == 0) {
+        return -1;
+    }
+
+    key_size = runtime_map_key_size(map_type);
+    for (index = 0; index < map->cap; index++) {
+        runtime_map_entry* entry = &map->entries[index];
+        if (entry->state != 1) {
+            continue;
+        }
+        if (runtime_map_key_equal(map_type != NULL ? map_type->key_type : NULL,
+                                  entry->key_data,
+                                  key,
+                                  key_size)) {
+            return index;
+        }
+    }
+
+    return -1;
+}
+
 static intptr_t runtime_map_find_generic(const go_map_type_descriptor* map_type, runtime_map* map, const void* key) {
     size_t key_size;
     uint32_t hash;
@@ -6876,6 +7033,9 @@ static intptr_t runtime_map_find_generic(const go_map_type_descriptor* map_type,
 
     if (map == NULL || map->cap == 0) {
         return -1;
+    }
+    if (runtime_map_use_small_linear(map)) {
+        return runtime_map_find_generic_linear(map_type, map, key);
     }
 
     key_size = runtime_map_key_size(map_type);
@@ -6901,6 +7061,26 @@ static intptr_t runtime_map_find_generic(const go_map_type_descriptor* map_type,
     return -1;
 }
 
+static intptr_t runtime_map_find_fast32_linear(runtime_map* map, uint32_t key) {
+    intptr_t index;
+
+    if (map == NULL || map->cap == 0) {
+        return -1;
+    }
+
+    for (index = 0; index < map->cap; index++) {
+        runtime_map_entry* entry = &map->entries[index];
+        if (entry->state != 1) {
+            continue;
+        }
+        if (*(const uint32_t*)entry->key_data == key) {
+            return index;
+        }
+    }
+
+    return -1;
+}
+
 static intptr_t runtime_map_find_fast32(runtime_map* map, uint32_t key) {
     uint32_t hash;
     intptr_t mask;
@@ -6909,6 +7089,9 @@ static intptr_t runtime_map_find_fast32(runtime_map* map, uint32_t key) {
 
     if (map == NULL || map->cap == 0) {
         return -1;
+    }
+    if (runtime_map_use_small_linear(map)) {
+        return runtime_map_find_fast32_linear(map, key);
     }
 
     hash = runtime_map_hash_fast32(map != NULL ? map->type : NULL, map, key);
@@ -6931,6 +7114,85 @@ static intptr_t runtime_map_find_fast32(runtime_map* map, uint32_t key) {
     return -1;
 }
 
+static intptr_t runtime_map_find_fast64_linear(runtime_map* map, uint64_t key) {
+    intptr_t index;
+
+    if (map == NULL || map->cap == 0) {
+        return -1;
+    }
+
+    for (index = 0; index < map->cap; index++) {
+        runtime_map_entry* entry = &map->entries[index];
+        if (entry->state != 1) {
+            continue;
+        }
+        if (*(const uint64_t*)entry->key_data == key) {
+            return index;
+        }
+    }
+
+    return -1;
+}
+
+static intptr_t runtime_map_find_fast64(runtime_map* map, uint64_t key) {
+    uint32_t hash;
+    intptr_t mask;
+    intptr_t index;
+    intptr_t probe;
+
+    if (map == NULL || map->cap == 0) {
+        return -1;
+    }
+    if (runtime_map_use_small_linear(map)) {
+        return runtime_map_find_fast64_linear(map, key);
+    }
+
+    hash = runtime_map_hash_generic(map != NULL ? map->type : NULL, map, &key);
+    mask = map->cap - 1;
+    index = (intptr_t)(hash & (uint32_t)mask);
+    for (probe = 0; probe < map->cap; probe++) {
+        runtime_map_entry* entry = &map->entries[index];
+        if (entry->state == 0) {
+            return -1;
+        }
+        if (entry->state == 1 && entry->hash == hash) {
+            const uint64_t* stored = (const uint64_t*)entry->key_data;
+            if (stored != NULL && stored[0] == key) {
+                return index;
+            }
+        }
+        index = (index + 1) & mask;
+    }
+
+    return -1;
+}
+
+static intptr_t runtime_map_find_faststr_linear(runtime_map* map, const char* key_ptr, intptr_t key_len) {
+    intptr_t index;
+
+    if (map == NULL || map->cap == 0) {
+        return -1;
+    }
+
+    for (index = 0; index < map->cap; index++) {
+        runtime_map_entry* entry = &map->entries[index];
+        const go_string* stored;
+        if (entry->state != 1) {
+            continue;
+        }
+        stored = (const go_string*)entry->key_data;
+        if (stored == NULL || stored->len != key_len) {
+            continue;
+        }
+        if (stored->str == key_ptr ||
+            (stored->str != NULL && key_ptr != NULL && kos_memcmp(stored->str, key_ptr, (size_t)key_len) == 0)) {
+            return index;
+        }
+    }
+
+    return -1;
+}
+
 static intptr_t runtime_map_find_faststr(runtime_map* map, const char* key_ptr, intptr_t key_len) {
     go_string key;
     uint32_t hash;
@@ -6940,6 +7202,9 @@ static intptr_t runtime_map_find_faststr(runtime_map* map, const char* key_ptr, 
 
     if (map == NULL || map->cap == 0) {
         return -1;
+    }
+    if (runtime_map_use_small_linear(map)) {
+        return runtime_map_find_faststr_linear(map, key_ptr, key_len);
     }
 
     key.str = key_ptr;
@@ -6986,6 +7251,39 @@ static runtime_map_entry* runtime_map_insert_fast32(runtime_map* map, const go_m
     if (map->cap == 0) {
         return NULL;
     }
+    if (runtime_map_use_small_linear(map)) {
+        intptr_t free_slot = -1;
+        for (index = 0; index < map->cap; index++) {
+            entry = &map->entries[index];
+            if (entry->state == 1) {
+                if (*(const uint32_t*)entry->key_data == key) {
+                    return entry;
+                }
+                continue;
+            }
+            if (free_slot < 0) {
+                free_slot = index;
+            }
+        }
+        if (free_slot < 0) {
+            return NULL;
+        }
+        entry = &map->entries[free_slot];
+        previous_state = entry->state;
+        key_size = runtime_map_key_size(map_type);
+        value_size = runtime_map_value_size(map_type);
+        if (!runtime_map_alloc_entry_storage(map, entry, map_type, key_size, value_size)) {
+            return NULL;
+        }
+        if (previous_state == 0) {
+            map->used++;
+        }
+        map->len++;
+        *(uint32_t*)entry->key_data = key;
+        entry->hash = runtime_map_hash_fast32(map_type, map, key);
+        entry->state = 1;
+        return entry;
+    }
 
     hash = runtime_map_hash_fast32(map_type, map, key);
     mask = map->cap - 1;
@@ -7029,6 +7327,102 @@ static runtime_map_entry* runtime_map_insert_fast32(runtime_map* map, const go_m
     return entry;
 }
 
+static runtime_map_entry* runtime_map_insert_fast64(runtime_map* map, const go_map_type_descriptor* map_type, uint64_t key) {
+    runtime_map_entry* entry;
+    size_t key_size;
+    size_t value_size;
+    uint32_t hash;
+    intptr_t mask;
+    intptr_t index;
+    intptr_t probe;
+    intptr_t tombstone;
+    uint8_t previous_state;
+
+    if (map == NULL || !runtime_map_bind_type(map, map_type)) {
+        return NULL;
+    }
+    if (!runtime_map_reserve(map, map->len + 1)) {
+        return NULL;
+    }
+    if (map->cap == 0) {
+        return NULL;
+    }
+    if (runtime_map_use_small_linear(map)) {
+        intptr_t free_slot = -1;
+        for (index = 0; index < map->cap; index++) {
+            entry = &map->entries[index];
+            if (entry->state == 1) {
+                if (*(const uint64_t*)entry->key_data == key) {
+                    return entry;
+                }
+                continue;
+            }
+            if (free_slot < 0) {
+                free_slot = index;
+            }
+        }
+        if (free_slot < 0) {
+            return NULL;
+        }
+        entry = &map->entries[free_slot];
+        previous_state = entry->state;
+        key_size = runtime_map_key_size(map_type);
+        value_size = runtime_map_value_size(map_type);
+        if (!runtime_map_alloc_entry_storage(map, entry, map_type, key_size, value_size)) {
+            return NULL;
+        }
+        if (previous_state == 0) {
+            map->used++;
+        }
+        map->len++;
+        *(uint64_t*)entry->key_data = key;
+        entry->hash = runtime_map_hash_generic(map_type, map, &key);
+        entry->state = 1;
+        return entry;
+    }
+
+    hash = runtime_map_hash_generic(map_type, map, &key);
+    mask = map->cap - 1;
+    index = (intptr_t)(hash & (uint32_t)mask);
+    tombstone = -1;
+    for (probe = 0; probe < map->cap; probe++) {
+        entry = &map->entries[index];
+        if (entry->state == 0) {
+            if (tombstone >= 0) {
+                entry = &map->entries[tombstone];
+            }
+            break;
+        }
+        if (entry->state == 2) {
+            if (tombstone < 0) {
+                tombstone = index;
+            }
+        } else if (entry->hash == hash) {
+            const uint64_t* stored = (const uint64_t*)entry->key_data;
+            if (stored != NULL && stored[0] == key) {
+                return entry;
+            }
+        }
+        index = (index + 1) & mask;
+    }
+
+    previous_state = entry->state;
+    key_size = runtime_map_key_size(map_type);
+    value_size = runtime_map_value_size(map_type);
+    if (!runtime_map_alloc_entry_storage(map, entry, map_type, key_size, value_size)) {
+        return NULL;
+    }
+    if (previous_state == 0) {
+        map->used++;
+    }
+    map->len++;
+
+    *(uint64_t*)entry->key_data = key;
+    entry->hash = hash;
+    entry->state = 1;
+    return entry;
+}
+
 static runtime_map_entry* runtime_map_insert_faststr(runtime_map* map, const go_map_type_descriptor* map_type, const char* key_ptr, intptr_t key_len) {
     runtime_map_entry* entry;
     go_string* stored;
@@ -7052,6 +7446,47 @@ static runtime_map_entry* runtime_map_insert_faststr(runtime_map* map, const go_
 
     if (map->cap == 0) {
         return NULL;
+    }
+    if (runtime_map_use_small_linear(map)) {
+        intptr_t free_slot = -1;
+        for (index = 0; index < map->cap; index++) {
+            const go_string* existing;
+            entry = &map->entries[index];
+            if (entry->state == 1) {
+                existing = (const go_string*)entry->key_data;
+                if (existing != NULL &&
+                    existing->len == key_len &&
+                    (existing->str == key_ptr ||
+                     (existing->str != NULL && key_ptr != NULL &&
+                      kos_memcmp(existing->str, key_ptr, (size_t)key_len) == 0))) {
+                    return entry;
+                }
+                continue;
+            }
+            if (free_slot < 0) {
+                free_slot = index;
+            }
+        }
+        if (free_slot < 0) {
+            return NULL;
+        }
+        entry = &map->entries[free_slot];
+        previous_state = entry->state;
+        key_size = runtime_map_key_size(map_type);
+        value_size = runtime_map_value_size(map_type);
+        if (!runtime_map_alloc_entry_storage(map, entry, map_type, key_size, value_size)) {
+            return NULL;
+        }
+        if (previous_state == 0) {
+            map->used++;
+        }
+        map->len++;
+        stored = (go_string*)entry->key_data;
+        stored->str = key_ptr;
+        stored->len = key_len;
+        entry->hash = runtime_map_hash_faststr(map_type, map, key_ptr, key_len);
+        entry->state = 1;
+        return entry;
     }
 
     key.str = key_ptr;
@@ -7121,6 +7556,48 @@ static runtime_map_entry* runtime_map_insert_generic(runtime_map* map, const go_
 
     if (map->cap == 0) {
         return NULL;
+    }
+    if (runtime_map_use_small_linear(map)) {
+        intptr_t free_slot = -1;
+        key_size = runtime_map_key_size(map_type);
+        for (index = 0; index < map->cap; index++) {
+            entry = &map->entries[index];
+            if (entry->state == 1) {
+                if (runtime_map_key_equal(map_type != NULL ? map_type->key_type : NULL,
+                                          entry->key_data,
+                                          key,
+                                          key_size)) {
+                    return entry;
+                }
+                continue;
+            }
+            if (free_slot < 0) {
+                free_slot = index;
+            }
+        }
+        if (free_slot < 0) {
+            return NULL;
+        }
+        entry = &map->entries[free_slot];
+        previous_state = entry->state;
+        value_size = runtime_map_value_size(map_type);
+        if (!runtime_map_alloc_entry_storage(map, entry, map_type, key_size, value_size)) {
+            return NULL;
+        }
+        if (previous_state == 0) {
+            map->used++;
+        }
+        map->len++;
+        if (key_size != 0) {
+            if (map_type != NULL && map_type->key_type != NULL) {
+                runtime_typedmemmove(map_type->key_type, entry->key_data, key);
+            } else {
+                kos_memcpy(entry->key_data, key, key_size);
+            }
+        }
+        entry->hash = runtime_map_hash_generic(map_type, map, key);
+        entry->state = 1;
+        return entry;
     }
 
     key_size = runtime_map_key_size(map_type);
@@ -7308,6 +7785,23 @@ static bool runtime_map_key_is_fast32(const go_map_type_descriptor* map_type) {
     return map_type->key_type->size == 4 && kind <= 0x0Cu;
 }
 
+static bool runtime_map_key_is_fast64(const go_map_type_descriptor* map_type) {
+    uint8_t kind;
+
+    if (map_type == NULL || map_type->key_type == NULL) {
+        return false;
+    }
+
+    kind = map_type->key_type->kind & GO_TYPE_KIND_MASK;
+    if (kind == GO_TYPE_KIND_STRING || kind == GO_TYPE_KIND_FLOAT32 ||
+        kind == GO_TYPE_KIND_FLOAT64 || kind == GO_TYPE_KIND_COMPLEX64 ||
+        kind == GO_TYPE_KIND_COMPLEX128) {
+        return false;
+    }
+
+    return map_type->key_type->size == 8 && kind <= 0x0Cu;
+}
+
 void* runtime_mapassign(const go_map_type_descriptor* map_type, runtime_map* map, const void* key) {
     intptr_t index;
     runtime_map_entry* entry;
@@ -7326,6 +7820,11 @@ void* runtime_mapassign(const go_map_type_descriptor* map_type, runtime_map* map
             uint32_t key32 = 0;
             kos_memcpy(&key32, key, sizeof(uint32_t));
             return runtime_mapassign__fast32(map_type, map, key32);
+        }
+        if (runtime_map_key_is_fast64(map_type)) {
+            uint64_t key64 = 0;
+            kos_memcpy(&key64, key, sizeof(uint64_t));
+            return runtime_mapassign__fast64(map_type, map, key64);
         }
     }
 
@@ -7368,7 +7867,24 @@ void* runtime_mapassign__fast32ptr(const go_map_type_descriptor* map_type, runti
 }
 
 void* runtime_mapassign__fast64(const go_map_type_descriptor* map_type, runtime_map* map, uint64_t key) {
-    return runtime_mapassign(map_type, map, &key);
+    intptr_t index;
+    runtime_map_entry* entry;
+
+    if (map == NULL) {
+        runtime_fail_simple("assignment to nil map");
+    }
+
+    index = runtime_map_find_fast64(map, key);
+    if (index >= 0) {
+        return map->entries[index].value_data;
+    }
+
+    entry = runtime_map_insert_fast64(map, map_type, key);
+    if (entry == NULL) {
+        runtime_panicmem();
+    }
+
+    return entry->value_data;
 }
 
 void* runtime_mapassign__faststr(const go_map_type_descriptor* map_type, runtime_map* map, const char* key_ptr, intptr_t key_len) {
@@ -7410,6 +7926,11 @@ void* runtime_mapaccess1(const go_map_type_descriptor* map_type, runtime_map* ma
             kos_memcpy(&key32, key, sizeof(uint32_t));
             return runtime_mapaccess1__fast32(map_type, map, key32);
         }
+        if (runtime_map_key_is_fast64(map_type)) {
+            uint64_t key64 = 0;
+            kos_memcpy(&key64, key, sizeof(uint64_t));
+            return runtime_mapaccess1__fast64(map_type, map, key64);
+        }
     }
 
     index = runtime_map_find_generic(map_type, map, key);
@@ -7436,7 +7957,14 @@ void* runtime_mapaccess1__fast32ptr(const go_map_type_descriptor* map_type, runt
 }
 
 void* runtime_mapaccess1__fast64(const go_map_type_descriptor* map_type, runtime_map* map, uint64_t key) {
-    return runtime_mapaccess1(map_type, map, &key);
+    intptr_t index;
+
+    index = runtime_map_find_fast64(map, key);
+    if (index >= 0) {
+        return map->entries[index].value_data;
+    }
+
+    return runtime_map_zero_value(map, map_type);
 }
 
 void* runtime_mapaccess1__faststr(const go_map_type_descriptor* map_type, runtime_map* map, const char* key_ptr, intptr_t key_len) {
@@ -7472,6 +8000,11 @@ go_mapaccess2_result runtime_mapaccess2(const go_map_type_descriptor* map_type, 
             kos_memcpy(&key32, key, sizeof(uint32_t));
             return runtime_mapaccess2__fast32(map_type, map, key32);
         }
+        if (runtime_map_key_is_fast64(map_type)) {
+            uint64_t key64 = 0;
+            kos_memcpy(&key64, key, sizeof(uint64_t));
+            return runtime_mapaccess2__fast64(map_type, map, key64);
+        }
     }
 
     index = runtime_map_find_generic(map_type, map, key);
@@ -7506,7 +8039,19 @@ go_mapaccess2_result runtime_mapaccess2__fast32ptr(const go_map_type_descriptor*
 }
 
 go_mapaccess2_result runtime_mapaccess2__fast64(const go_map_type_descriptor* map_type, runtime_map* map, uint64_t key) {
-    return runtime_mapaccess2(map_type, map, &key);
+    go_mapaccess2_result result;
+    intptr_t index;
+
+    result.ok = 0;
+    index = runtime_map_find_fast64(map, key);
+    if (index >= 0) {
+        result.value = map->entries[index].value_data;
+        result.ok = 1;
+        return result;
+    }
+
+    result.value = runtime_map_zero_value(map, map_type);
+    return result;
 }
 
 go_mapaccess2_result runtime_mapaccess2__faststr(const go_map_type_descriptor* map_type, runtime_map* map, const char* key_ptr, intptr_t key_len) {
@@ -7545,6 +8090,12 @@ void runtime_mapdelete(const go_map_type_descriptor* map_type, runtime_map* map,
             runtime_mapdelete__fast32(map_type, map, key32);
             return;
         }
+        if (runtime_map_key_is_fast64(map_type)) {
+            uint64_t key64 = 0;
+            kos_memcpy(&key64, key, sizeof(uint64_t));
+            runtime_mapdelete__fast64(map_type, map, key64);
+            return;
+        }
     }
 
     index = runtime_map_find_generic(map_type, map, key);
@@ -7569,7 +8120,14 @@ void runtime_mapdelete__fast32ptr(const go_map_type_descriptor* map_type, runtim
 }
 
 void runtime_mapdelete__fast64(const go_map_type_descriptor* map_type, runtime_map* map, uint64_t key) {
-    runtime_mapdelete(map_type, map, &key);
+    intptr_t index;
+
+    (void)map_type;
+
+    index = runtime_map_find_fast64(map, key);
+    if (index >= 0) {
+        runtime_map_remove_at(map, index);
+    }
 }
 
 void runtime_mapdelete__faststr(const go_map_type_descriptor* map_type, runtime_map* map, const char* key_ptr, intptr_t key_len) {
@@ -8165,7 +8723,133 @@ static const go_named_type_method_descriptor* runtime_find_named_method(const go
     return NULL;
 }
 
-static go_interface_method_table* runtime_build_interface_method_table(const go_interface_type_descriptor* target_interface, const go_type_descriptor* source_type) {
+static uintptr_t runtime_itab_hash(const go_interface_type_descriptor* target_interface, const go_type_descriptor* source_type) {
+    uint32_t left_hash = 0;
+    uint32_t right_hash = 0;
+
+    if (target_interface != NULL) {
+        left_hash = target_interface->common.hash;
+    }
+    if (source_type != NULL) {
+        right_hash = source_type->hash;
+    }
+
+    return (uintptr_t)(left_hash ^ right_hash);
+}
+
+static runtime_itab_cache_entry* runtime_itab_find_in_table(const runtime_itab_cache_table* table, const go_interface_type_descriptor* target_interface, const go_type_descriptor* source_type) {
+    uintptr_t mask;
+    uintptr_t hash;
+    uintptr_t step;
+
+    if (table == NULL || table->size == 0) {
+        return NULL;
+    }
+
+    mask = table->size - 1;
+    hash = runtime_itab_hash(target_interface, source_type) & mask;
+    for (step = 1; ; step++) {
+        runtime_itab_cache_entry* entry = (runtime_itab_cache_entry*)runtime_atomic_load_ptr((void* const*)&table->entries[hash]);
+        if (entry == NULL) {
+            return NULL;
+        }
+        if (entry->inter == target_interface && entry->concrete == source_type) {
+            return entry;
+        }
+        hash = (hash + step) & mask;
+    }
+}
+
+static bool runtime_itab_insert_entry_into_table(runtime_itab_cache_table* table, runtime_itab_cache_entry* entry) {
+    uintptr_t mask;
+    uintptr_t hash;
+    uintptr_t step;
+
+    if (table == NULL || entry == NULL || table->size == 0) {
+        return false;
+    }
+
+    mask = table->size - 1;
+    hash = runtime_itab_hash(entry->inter, entry->concrete) & mask;
+    for (step = 1; ; step++) {
+        runtime_itab_cache_entry* current = table->entries[hash];
+        if (current == NULL) {
+            runtime_atomic_store_ptr((void**)&table->entries[hash], entry);
+            table->count++;
+            return true;
+        }
+        if (current->inter == entry->inter && current->concrete == entry->concrete) {
+            return true;
+        }
+        hash = (hash + step) & mask;
+    }
+}
+
+static runtime_itab_cache_table* runtime_itab_alloc_table(uintptr_t size) {
+    runtime_itab_cache_table* table;
+    size_t alloc_size;
+
+    if (size == 0 || size > (uintptr_t)-1 / sizeof(runtime_itab_cache_entry*)) {
+        return NULL;
+    }
+    if (sizeof(runtime_itab_cache_table) > (size_t)-1 - (size_t)size * sizeof(runtime_itab_cache_entry*)) {
+        return NULL;
+    }
+
+    alloc_size = sizeof(runtime_itab_cache_table) + (size_t)size * sizeof(runtime_itab_cache_entry*);
+    table = (runtime_itab_cache_table*)runtime_pool_malloc(alloc_size);
+    if (table == NULL) {
+        return NULL;
+    }
+    kos_memset(table, 0, alloc_size);
+    table->size = size;
+    return table;
+}
+
+static bool runtime_itab_grow_locked(void) {
+    runtime_itab_cache_table* old_table;
+    runtime_itab_cache_table* new_table;
+    uintptr_t old_size;
+    uintptr_t new_size;
+    uintptr_t index;
+
+    old_table = runtime_itab_cache;
+    old_size = old_table != NULL ? old_table->size : 0;
+    if (old_table == NULL || old_size == 0 || old_size > (uintptr_t)-1 / 2) {
+        return false;
+    }
+
+    new_size = old_size * 2;
+    new_table = runtime_itab_alloc_table(new_size);
+    if (new_table == NULL) {
+        return false;
+    }
+
+    for (index = 0; index < old_size; index++) {
+        runtime_itab_cache_entry* entry = old_table->entries[index];
+        if (entry != NULL) {
+            runtime_itab_insert_entry_into_table(new_table, entry);
+        }
+    }
+
+    runtime_atomic_store_ptr((void**)&runtime_itab_cache, new_table);
+    return true;
+}
+
+static bool runtime_itab_maybe_grow_locked(void) {
+    runtime_itab_cache_table* table;
+
+    table = runtime_itab_cache;
+    if (table == NULL || table->size == 0) {
+        return false;
+    }
+    if (table->count * 4 < table->size * 3) {
+        return true;
+    }
+    return runtime_itab_grow_locked();
+}
+
+static go_interface_method_table* runtime_create_interface_method_table(const go_interface_type_descriptor* target_interface, const go_type_descriptor* source_type) {
     const go_interface_method_descriptor* target_methods;
     const go_named_type_method_descriptor* source_method;
     const go_uncommon_type* uncommon;
@@ -8181,10 +8865,11 @@ static go_interface_method_table* runtime_build_interface_method_table(const go_
     }
 
     size = sizeof(void*) + (uintptr_t)target_interface->method_count * sizeof(void*);
-    table_entries = (void**)runtime_gc_alloc_managed((size_t)size, NULL, NULL, NULL, 0);
+    table_entries = (void**)runtime_pool_malloc((size_t)size);
     if (table_entries == NULL) {
         return NULL;
     }
+    kos_memset(table_entries, 0, (size_t)size);
 
     table_entries[0] = (void*)source_type;
     if (target_interface->method_count == 0 || target_interface->methods == NULL) {
@@ -8196,7 +8881,7 @@ static go_interface_method_table* runtime_build_interface_method_table(const go_
     for (index = 0; index < (uintptr_t)target_interface->method_count; index++) {
         source_method = runtime_find_named_method(uncommon, target_methods + index);
         if (source_method == NULL || source_method->function == NULL) {
-            runtime_gc_free_exact(table_entries);
+            runtime_pool_free(table_entries);
             return NULL;
         }
 
@@ -8204,6 +8889,63 @@ static go_interface_method_table* runtime_build_interface_method_table(const go_
     }
 
     return (go_interface_method_table*)table_entries;
+}
+
+static go_interface_method_table* runtime_get_interface_method_table(const go_interface_type_descriptor* target_interface, const go_type_descriptor* source_type, bool* known_missing) {
+    runtime_itab_cache_table* table;
+    runtime_itab_cache_entry* entry;
+    go_interface_method_table* methods;
+
+    if (known_missing != NULL) {
+        *known_missing = false;
+    }
+    if (target_interface == NULL || source_type == NULL) {
+        return NULL;
+    }
+    if ((target_interface->common.kind & GO_TYPE_KIND_MASK) != GO_TYPE_KIND_INTERFACE) {
+        return NULL;
+    }
+
+    table = (runtime_itab_cache_table*)runtime_atomic_load_ptr((void* const*)&runtime_itab_cache);
+    entry = runtime_itab_find_in_table(table, target_interface, source_type);
+    if (entry != NULL) {
+        methods = entry->state == RUNTIME_ITAB_ENTRY_READY ? entry->methods : NULL;
+        if (methods == NULL && known_missing != NULL && entry->state == RUNTIME_ITAB_ENTRY_MISSING) {
+            *known_missing = true;
+        }
+        return methods;
+    }
+
+    runtime_lock_mutex(&runtime_itab_lock);
+    table = runtime_itab_cache;
+    entry = runtime_itab_find_in_table(table, target_interface, source_type);
+    if (entry != NULL) {
+        methods = entry->state == RUNTIME_ITAB_ENTRY_READY ? entry->methods : NULL;
+        if (methods == NULL && known_missing != NULL && entry->state == RUNTIME_ITAB_ENTRY_MISSING) {
+            *known_missing = true;
+        }
+        runtime_unlock_mutex(&runtime_itab_lock);
+        return methods;
+    }
+
+    methods = runtime_create_interface_method_table(target_interface, source_type);
+    if (runtime_itab_maybe_grow_locked()) {
+        entry = (runtime_itab_cache_entry*)runtime_pool_malloc(sizeof(runtime_itab_cache_entry));
+        if (entry != NULL) {
+            kos_memset(entry, 0, sizeof(runtime_itab_cache_entry));
+            entry->inter = target_interface;
+            entry->concrete = source_type;
+            entry->methods = methods;
+            entry->state = methods != NULL ? RUNTIME_ITAB_ENTRY_READY : RUNTIME_ITAB_ENTRY_MISSING;
+            runtime_itab_insert_entry_into_table(runtime_itab_cache, entry);
+        }
+    }
+    runtime_unlock_mutex(&runtime_itab_lock);
+
+    if (methods == NULL && known_missing != NULL) {
+        *known_missing = true;
+    }
+    return methods;
 }
 
 static void runtime_zero_typed_value(const go_type_descriptor* descriptor, void* dest) {
@@ -8343,8 +9085,6 @@ go_mapaccess2_result runtime_ifaceI2T2P(const go_type_descriptor* target_type, c
 }
 
 bool runtime_ifaceT2Ip(const go_type_descriptor* target_type, const go_type_descriptor* source_type) {
-    go_interface_method_table* methods;
-
     if (target_type == NULL || source_type == NULL) {
         return false;
     }
@@ -8352,13 +9092,7 @@ bool runtime_ifaceT2Ip(const go_type_descriptor* target_type, const go_type_desc
         return false;
     }
 
-    methods = runtime_build_interface_method_table((const go_interface_type_descriptor*)target_type, source_type);
-    if (methods == NULL) {
-        return false;
-    }
-
-    runtime_gc_free_exact(methods);
-    return true;
+    return runtime_get_interface_method_table((const go_interface_type_descriptor*)target_type, source_type, NULL) != NULL;
 }
 
 go_interface_method_table* runtime_assertitab(const go_type_descriptor* target_type, const go_type_descriptor* source_type) {
@@ -8374,7 +9108,7 @@ go_interface_method_table* runtime_assertitab(const go_type_descriptor* target_t
         runtime_fail_simple("interface assertion on nil value");
     }
 
-    methods = runtime_build_interface_method_table((const go_interface_type_descriptor*)target_type, source_type);
+    methods = runtime_get_interface_method_table((const go_interface_type_descriptor*)target_type, source_type, NULL);
     if (methods == NULL) {
         runtime_fail_pair("interface assertion failed", "want", runtime_pointer_value((void*)target_type), "have", runtime_pointer_value((void*)source_type));
     }
@@ -8401,7 +9135,7 @@ go_interface_assert_result runtime_ifaceE2I2(const go_type_descriptor* target_ty
         return result;
     }
 
-    result.value.methods = runtime_build_interface_method_table((const go_interface_type_descriptor*)target_type, source_type);
+    result.value.methods = runtime_get_interface_method_table((const go_interface_type_descriptor*)target_type, source_type, NULL);
     if (result.value.methods == NULL) {
         return result;
     }
@@ -8478,8 +9212,78 @@ int memcmp(const void* left, const void* right, size_t size) {
     return kos_memcmp(left, right, size);
 }
 
+static uintptr_t runtime_align_up_pow2(uintptr_t value, uintptr_t align) {
+    if (align <= 1u) {
+        return value;
+    }
+    return (value + align - 1u) & ~(align - 1u);
+}
+
+static uintptr_t runtime_tiny_align_offset(uintptr_t offset, uintptr_t size) {
+    if ((size & 7u) == 0) {
+        return runtime_align_up_pow2(offset, 8u);
+    }
+    if (sizeof(void*) == 4u && size == 12u) {
+        return runtime_align_up_pow2(offset, 8u);
+    }
+    if ((size & 3u) == 0) {
+        return runtime_align_up_pow2(offset, 4u);
+    }
+    if ((size & 1u) == 0) {
+        return runtime_align_up_pow2(offset, 2u);
+    }
+    return offset;
+}
+
+static void* runtime_newobject_tiny(const go_type_descriptor* descriptor) {
+    runtime_m* m;
+    uintptr_t size;
+    uintptr_t offset;
+    void* block;
+
+    if (descriptor == NULL) {
+        return NULL;
+    }
+
+    size = descriptor->size;
+    if (descriptor->ptrdata != 0 || size == 0 || size >= RUNTIME_TINY_SIZE) {
+        return NULL;
+    }
+
+    m = runtime_getm();
+    if (m == NULL) {
+        return NULL;
+    }
+
+    if (m->tiny != 0) {
+        offset = runtime_tiny_align_offset((uintptr_t)m->tinyoffset, size);
+        if (offset + size <= RUNTIME_TINY_SIZE) {
+            void* result = (void*)(m->tiny + offset);
+            m->tinyoffset = (uint32_t)(offset + size);
+            return result;
+        }
+    }
+
+    block = runtime_gc_alloc_managed(RUNTIME_TINY_SIZE, NULL, NULL, NULL, 0);
+    if (block == NULL) {
+        return NULL;
+    }
+
+    if (m->tiny == 0 || size < (uintptr_t)m->tinyoffset) {
+        m->tiny = (uintptr_t)block;
+        m->tinyoffset = (uint32_t)size;
+    }
+
+    return block;
+}
+
 void* runtime_newobject(const go_type_descriptor* descriptor) {
     void* memory;
+
+    memory = runtime_newobject_tiny(descriptor);
+    if (memory != NULL) {
+        return memory;
+    }
 
     memory = runtime_gc_alloc_object(descriptor);
     if (memory == NULL) {
