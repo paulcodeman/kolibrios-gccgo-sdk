@@ -595,6 +595,37 @@ static void* runtime_fixalloc_alloc(runtime_fixalloc* allocator) {
     return result;
 }
 
+static void* runtime_fixalloc_try_alloc_list(runtime_fixalloc* allocator) {
+    runtime_pool_node* node;
+    bool fast_path;
+    void* result;
+
+    if (allocator == NULL || allocator->size == 0) {
+        return NULL;
+    }
+
+    fast_path = !runtime_world_stopping && runtime_atomic_load_u32(&runtime_m_count) <= 1u;
+    if (!fast_path) {
+        runtime_lock_mutex(&allocator->lock);
+    }
+    node = allocator->list;
+    if (node != NULL) {
+        allocator->list = node->next;
+    }
+    if (!fast_path) {
+        runtime_unlock_mutex(&allocator->lock);
+    }
+    if (node == NULL) {
+        return NULL;
+    }
+
+    result = (void*)node;
+    if (allocator->zero) {
+        kos_memset(result, 0, allocator->size);
+    }
+    return result;
+}
+
 static void runtime_fixalloc_free(runtime_fixalloc* allocator, void* ptr) {
     runtime_pool_node* node;
     bool fast_path;
@@ -6127,12 +6158,15 @@ static void* runtime_gc_alloc_managed(size_t size, const go_type_descriptor* des
     if (class_index >= 0) {
         if (m != NULL) {
             header = (runtime_gc_header*)runtime_gc_small_alloc_local(m, class_index);
-            if (header == NULL) {
-                header = (runtime_gc_header*)runtime_gc_small_alloc_local_chunk(m, class_index, class_size);
-            }
-            if (header == NULL) {
-                header = (runtime_gc_header*)runtime_gc_small_refill_local_chunk(m, class_index, class_size);
-            }
+        }
+        if (header == NULL) {
+            header = (runtime_gc_header*)runtime_fixalloc_try_alloc_list(&runtime_gc_small_fixallocs[class_index]);
+        }
+        if (header == NULL && m != NULL) {
+            header = (runtime_gc_header*)runtime_gc_small_alloc_local_chunk(m, class_index, class_size);
+        }
+        if (header == NULL && m != NULL) {
+            header = (runtime_gc_header*)runtime_gc_small_refill_local_chunk(m, class_index, class_size);
         }
         if (header == NULL) {
             header = (runtime_gc_header*)runtime_fixalloc_alloc(&runtime_gc_small_fixallocs[class_index]);
@@ -6156,12 +6190,15 @@ static void* runtime_gc_alloc_managed(size_t size, const go_type_descriptor* des
         if (class_index >= 0) {
             if (m != NULL) {
                 header = (runtime_gc_header*)runtime_gc_small_alloc_local(m, class_index);
-                if (header == NULL) {
-                    header = (runtime_gc_header*)runtime_gc_small_alloc_local_chunk(m, class_index, class_size);
-                }
-                if (header == NULL) {
-                    header = (runtime_gc_header*)runtime_gc_small_refill_local_chunk(m, class_index, class_size);
-                }
+            }
+            if (header == NULL) {
+                header = (runtime_gc_header*)runtime_fixalloc_try_alloc_list(&runtime_gc_small_fixallocs[class_index]);
+            }
+            if (header == NULL && m != NULL) {
+                header = (runtime_gc_header*)runtime_gc_small_alloc_local_chunk(m, class_index, class_size);
+            }
+            if (header == NULL && m != NULL) {
+                header = (runtime_gc_header*)runtime_gc_small_refill_local_chunk(m, class_index, class_size);
             }
             if (header == NULL) {
                 header = (runtime_gc_header*)runtime_fixalloc_alloc(&runtime_gc_small_fixallocs[class_index]);
