@@ -200,6 +200,8 @@ typedef struct runtime_fixalloc {
 typedef struct runtime_gc_small_central {
     runtime_pool_node* list;
     uint32_t count;
+    uintptr_t chunk_cursor;
+    uint32_t chunk_remaining;
     runtime_mutex lock;
 } runtime_gc_small_central;
 
@@ -839,9 +841,49 @@ static void runtime_gc_small_central_push_chain(uint32_t class_index, runtime_po
     }
 }
 
+static void* runtime_gc_small_central_alloc_locked(runtime_gc_small_central* central, int class_index, size_t class_size) {
+    runtime_pool_node* node;
+
+    if (central == NULL || class_index < 0 || (uint32_t)class_index >= RUNTIME_GC_SMALL_CLASS_COUNT || class_size == 0) {
+        return NULL;
+    }
+
+    node = central->list;
+    if (node != NULL) {
+        central->list = node->next;
+        if (central->count > 0u) {
+            central->count--;
+        }
+        return (void*)node;
+    }
+
+    if ((size_t)central->chunk_remaining < class_size || central->chunk_cursor == 0) {
+        size_t chunk_size;
+        void* chunk;
+
+        chunk_size = runtime_pool_fixalloc_chunk_size(class_size);
+        chunk = runtime_persistent_alloc(chunk_size, RUNTIME_GC_PAGE_SIZE);
+        if (chunk == NULL) {
+            return NULL;
+        }
+        if (runtime_gc_small_chunk_register((uintptr_t)chunk, chunk_size, class_size, (uint16_t)class_index) == NULL) {
+            return NULL;
+        }
+        central->chunk_cursor = (uintptr_t)chunk + class_size;
+        central->chunk_remaining = (uint32_t)(chunk_size - class_size);
+        return chunk;
+    }
+
+    node = (runtime_pool_node*)central->chunk_cursor;
+    central->chunk_cursor += class_size;
+    central->chunk_remaining -= (uint32_t)class_size;
+    return (void*)node;
+}
+
 static void* runtime_gc_small_central_alloc(int class_index) {
     runtime_gc_small_central* central;
-    runtime_pool_node* node;
+    size_t class_size;
+    void* result;
     bool fast_path;
 
     if (class_index < 0 || (uint32_t)class_index >= RUNTIME_GC_SMALL_CLASS_COUNT) {
@@ -849,21 +891,16 @@ static void* runtime_gc_small_central_alloc(int class_index) {
     }
 
     central = &runtime_gc_small_centrals[class_index];
+    class_size = runtime_gc_small_class_size((uint32_t)class_index);
     fast_path = !runtime_world_stopping && runtime_atomic_load_u32(&runtime_m_count) <= 1u;
     if (!fast_path) {
         runtime_lock_mutex(&central->lock);
     }
-    node = central->list;
-    if (node != NULL) {
-        central->list = node->next;
-        if (central->count > 0u) {
-            central->count--;
-        }
-    }
+    result = runtime_gc_small_central_alloc_locked(central, class_index, class_size);
     if (!fast_path) {
         runtime_unlock_mutex(&central->lock);
     }
-    return (void*)node;
+    return result;
 }
 
 static void* runtime_pool_alloc_fixalloc_locked(int class_index, size_t class_size) {
@@ -980,24 +1017,14 @@ static void* runtime_gc_small_refill_local_free(runtime_m* m, int class_index, s
         runtime_lock_mutex(&central->lock);
     }
 
-    node = central->list;
-    if (node != NULL) {
-        central->list = node->next;
-        if (central->count > 0u) {
-            central->count--;
-        }
-    }
+    node = (runtime_pool_node*)runtime_gc_small_central_alloc_locked(central, class_index, class_size);
 
     while (local_cap > 0 && m->gc_small_local_counts[class_index] < local_cap) {
         runtime_pool_node* cached;
 
-        cached = central->list;
+        cached = (runtime_pool_node*)runtime_gc_small_central_alloc_locked(central, class_index, class_size);
         if (cached == NULL) {
             break;
-        }
-        central->list = cached->next;
-        if (central->count > 0u) {
-            central->count--;
         }
         cached->next = m->gc_small_local_lists[class_index];
         m->gc_small_local_lists[class_index] = cached;
@@ -6739,12 +6766,6 @@ static void* runtime_gc_alloc_managed(size_t size, const go_type_descriptor* des
         if (header == NULL) {
             header = (runtime_gc_header*)runtime_fixalloc_try_alloc_list(&runtime_gc_small_fixallocs[class_index]);
         }
-        if (header == NULL && m != NULL) {
-            header = (runtime_gc_header*)runtime_gc_small_alloc_local_chunk(m, class_index, class_size);
-        }
-        if (header == NULL && m != NULL) {
-            header = (runtime_gc_header*)runtime_gc_small_refill_local_chunk(m, class_index, class_size);
-        }
         if (header == NULL) {
             header = (runtime_gc_header*)runtime_fixalloc_alloc(&runtime_gc_small_fixallocs[class_index]);
         }
@@ -6776,12 +6797,6 @@ static void* runtime_gc_alloc_managed(size_t size, const go_type_descriptor* des
             }
             if (header == NULL) {
                 header = (runtime_gc_header*)runtime_fixalloc_try_alloc_list(&runtime_gc_small_fixallocs[class_index]);
-            }
-            if (header == NULL && m != NULL) {
-                header = (runtime_gc_header*)runtime_gc_small_alloc_local_chunk(m, class_index, class_size);
-            }
-            if (header == NULL && m != NULL) {
-                header = (runtime_gc_header*)runtime_gc_small_refill_local_chunk(m, class_index, class_size);
             }
             if (header == NULL) {
                 header = (runtime_gc_header*)runtime_fixalloc_alloc(&runtime_gc_small_fixallocs[class_index]);
@@ -8307,6 +8322,38 @@ static bool runtime_map_reserve(runtime_map* map, intptr_t needed) {
     return true;
 }
 
+static bool runtime_map_reserve_needed(runtime_map* map, intptr_t needed) {
+    intptr_t desired;
+
+    if (map == NULL || needed < 0) {
+        return true;
+    }
+
+    desired = map->cap;
+    if (desired < RUNTIME_MAP_MIN_CAP) {
+        desired = RUNTIME_MAP_MIN_CAP;
+    }
+
+    while (desired > 0 && desired * RUNTIME_MAP_MAX_LOAD_NUM < needed * RUNTIME_MAP_MAX_LOAD_DEN) {
+        if (desired > INTPTR_MAX / 2) {
+            break;
+        }
+        desired <<= 1;
+    }
+
+    if (map->cap == 0) {
+        return true;
+    }
+    if (desired != map->cap) {
+        return true;
+    }
+    if (map->used > map->len * 2) {
+        return true;
+    }
+
+    return false;
+}
+
 static bool runtime_map_alloc_entry_storage(runtime_map* map,
                                             runtime_map_entry* entry,
                                             const go_map_type_descriptor* map_type,
@@ -8787,13 +8834,16 @@ static runtime_map_entry* runtime_map_insert_fast32(runtime_map* map, const go_m
         return NULL;
     }
 
-    if (!runtime_map_reserve(map, map->len + 1)) {
-        return NULL;
+retry:
+    if (map->cap == 0) {
+        if (!runtime_map_reserve(map, map->len + 1)) {
+            return NULL;
+        }
+        if (map->cap == 0) {
+            return NULL;
+        }
     }
 
-    if (map->cap == 0) {
-        return NULL;
-    }
     if (runtime_map_use_small_linear(map)) {
         intptr_t free_slot = -1;
         intptr_t live_seen = 0;
@@ -8815,6 +8865,18 @@ static runtime_map_entry* runtime_map_insert_fast32(runtime_map* map, const go_m
                     break;
                 }
             }
+        }
+        if (free_slot < 0) {
+            if (!runtime_map_reserve(map, map->len + 1)) {
+                return NULL;
+            }
+            goto retry;
+        }
+        if (runtime_map_reserve_needed(map, map->len + 1)) {
+            if (!runtime_map_reserve(map, map->len + 1)) {
+                return NULL;
+            }
+            goto retry;
         }
         if (free_slot < 0) {
             return NULL;
@@ -8840,6 +8902,7 @@ static runtime_map_entry* runtime_map_insert_fast32(runtime_map* map, const go_m
     mask = map->cap - 1;
     index = (intptr_t)(hash & (uint32_t)mask);
     tombstone = -1;
+    entry = NULL;
     for (probe = 0; probe < map->cap; probe++) {
         entry = &map->entries[index];
         if (entry->state == 0) {
@@ -8859,6 +8922,17 @@ static runtime_map_entry* runtime_map_insert_fast32(runtime_map* map, const go_m
             }
         }
         index = (index + 1) & mask;
+        entry = NULL;
+    }
+
+    if (entry == NULL && tombstone >= 0) {
+        entry = &map->entries[tombstone];
+    }
+    if (entry == NULL || runtime_map_reserve_needed(map, map->len + 1)) {
+        if (!runtime_map_reserve(map, map->len + 1)) {
+            return NULL;
+        }
+        goto retry;
     }
 
     previous_state = entry->state;
@@ -8892,12 +8966,17 @@ static runtime_map_entry* runtime_map_insert_fast64(runtime_map* map, const go_m
     if (map == NULL || !runtime_map_bind_type(map, map_type)) {
         return NULL;
     }
-    if (!runtime_map_reserve(map, map->len + 1)) {
-        return NULL;
-    }
+
+retry:
     if (map->cap == 0) {
-        return NULL;
+        if (!runtime_map_reserve(map, map->len + 1)) {
+            return NULL;
+        }
+        if (map->cap == 0) {
+            return NULL;
+        }
     }
+
     if (runtime_map_use_small_linear(map)) {
         intptr_t free_slot = -1;
         intptr_t live_seen = 0;
@@ -8919,6 +8998,18 @@ static runtime_map_entry* runtime_map_insert_fast64(runtime_map* map, const go_m
                     break;
                 }
             }
+        }
+        if (free_slot < 0) {
+            if (!runtime_map_reserve(map, map->len + 1)) {
+                return NULL;
+            }
+            goto retry;
+        }
+        if (runtime_map_reserve_needed(map, map->len + 1)) {
+            if (!runtime_map_reserve(map, map->len + 1)) {
+                return NULL;
+            }
+            goto retry;
         }
         if (free_slot < 0) {
             return NULL;
@@ -8944,6 +9035,7 @@ static runtime_map_entry* runtime_map_insert_fast64(runtime_map* map, const go_m
     mask = map->cap - 1;
     index = (intptr_t)(hash & (uint32_t)mask);
     tombstone = -1;
+    entry = NULL;
     for (probe = 0; probe < map->cap; probe++) {
         entry = &map->entries[index];
         if (entry->state == 0) {
@@ -8963,6 +9055,17 @@ static runtime_map_entry* runtime_map_insert_fast64(runtime_map* map, const go_m
             }
         }
         index = (index + 1) & mask;
+        entry = NULL;
+    }
+
+    if (entry == NULL && tombstone >= 0) {
+        entry = &map->entries[tombstone];
+    }
+    if (entry == NULL || runtime_map_reserve_needed(map, map->len + 1)) {
+        if (!runtime_map_reserve(map, map->len + 1)) {
+            return NULL;
+        }
+        goto retry;
     }
 
     previous_state = entry->state;
@@ -8999,13 +9102,16 @@ static runtime_map_entry* runtime_map_insert_faststr(runtime_map* map, const go_
         return NULL;
     }
 
-    if (!runtime_map_reserve(map, map->len + 1)) {
-        return NULL;
+retry:
+    if (map->cap == 0) {
+        if (!runtime_map_reserve(map, map->len + 1)) {
+            return NULL;
+        }
+        if (map->cap == 0) {
+            return NULL;
+        }
     }
 
-    if (map->cap == 0) {
-        return NULL;
-    }
     if (runtime_map_use_small_linear(map)) {
         intptr_t free_slot = -1;
         intptr_t live_seen = 0;
@@ -9031,6 +9137,18 @@ static runtime_map_entry* runtime_map_insert_faststr(runtime_map* map, const go_
                     break;
                 }
             }
+        }
+        if (free_slot < 0) {
+            if (!runtime_map_reserve(map, map->len + 1)) {
+                return NULL;
+            }
+            goto retry;
+        }
+        if (runtime_map_reserve_needed(map, map->len + 1)) {
+            if (!runtime_map_reserve(map, map->len + 1)) {
+                return NULL;
+            }
+            goto retry;
         }
         if (free_slot < 0) {
             return NULL;
@@ -9060,6 +9178,7 @@ static runtime_map_entry* runtime_map_insert_faststr(runtime_map* map, const go_
     mask = map->cap - 1;
     index = (intptr_t)(hash & (uint32_t)mask);
     tombstone = -1;
+    entry = NULL;
     for (probe = 0; probe < map->cap; probe++) {
         entry = &map->entries[index];
         if (entry->state == 0) {
@@ -9079,6 +9198,17 @@ static runtime_map_entry* runtime_map_insert_faststr(runtime_map* map, const go_
             }
         }
         index = (index + 1) & mask;
+        entry = NULL;
+    }
+
+    if (entry == NULL && tombstone >= 0) {
+        entry = &map->entries[tombstone];
+    }
+    if (entry == NULL || runtime_map_reserve_needed(map, map->len + 1)) {
+        if (!runtime_map_reserve(map, map->len + 1)) {
+            return NULL;
+        }
+        goto retry;
     }
 
     previous_state = entry->state;
@@ -9115,13 +9245,16 @@ static runtime_map_entry* runtime_map_insert_generic(runtime_map* map, const go_
         return NULL;
     }
 
-    if (!runtime_map_reserve(map, map->len + 1)) {
-        return NULL;
+retry:
+    if (map->cap == 0) {
+        if (!runtime_map_reserve(map, map->len + 1)) {
+            return NULL;
+        }
+        if (map->cap == 0) {
+            return NULL;
+        }
     }
 
-    if (map->cap == 0) {
-        return NULL;
-    }
     if (runtime_map_use_small_linear(map)) {
         intptr_t free_slot = -1;
         intptr_t live_seen = 0;
@@ -9147,6 +9280,18 @@ static runtime_map_entry* runtime_map_insert_generic(runtime_map* map, const go_
                     break;
                 }
             }
+        }
+        if (free_slot < 0) {
+            if (!runtime_map_reserve(map, map->len + 1)) {
+                return NULL;
+            }
+            goto retry;
+        }
+        if (runtime_map_reserve_needed(map, map->len + 1)) {
+            if (!runtime_map_reserve(map, map->len + 1)) {
+                return NULL;
+            }
+            goto retry;
         }
         if (free_slot < 0) {
             return NULL;
@@ -9178,6 +9323,7 @@ static runtime_map_entry* runtime_map_insert_generic(runtime_map* map, const go_
     mask = map->cap - 1;
     index = (intptr_t)(hash & (uint32_t)mask);
     tombstone = -1;
+    entry = NULL;
     for (probe = 0; probe < map->cap; probe++) {
         entry = &map->entries[index];
         if (entry->state == 0) {
@@ -9198,6 +9344,17 @@ static runtime_map_entry* runtime_map_insert_generic(runtime_map* map, const go_
             return entry;
         }
         index = (index + 1) & mask;
+        entry = NULL;
+    }
+
+    if (entry == NULL && tombstone >= 0) {
+        entry = &map->entries[tombstone];
+    }
+    if (entry == NULL || runtime_map_reserve_needed(map, map->len + 1)) {
+        if (!runtime_map_reserve(map, map->len + 1)) {
+            return NULL;
+        }
+        goto retry;
     }
 
     previous_state = entry->state;
@@ -9376,7 +9533,6 @@ static bool runtime_map_key_is_fast64(const go_map_type_descriptor* map_type) {
 }
 
 void* runtime_mapassign(const go_map_type_descriptor* map_type, runtime_map* map, const void* key) {
-    intptr_t index;
     runtime_map_entry* entry;
 
     if (map == NULL) {
@@ -9401,11 +9557,6 @@ void* runtime_mapassign(const go_map_type_descriptor* map_type, runtime_map* map
         }
     }
 
-    index = runtime_map_find_generic(map_type, map, key);
-    if (index >= 0) {
-        return map->entries[index].value_data;
-    }
-
     entry = runtime_map_insert_generic(map, map_type, key);
     if (entry == NULL) {
         runtime_panicmem();
@@ -9415,16 +9566,10 @@ void* runtime_mapassign(const go_map_type_descriptor* map_type, runtime_map* map
 }
 
 void* runtime_mapassign__fast32(const go_map_type_descriptor* map_type, runtime_map* map, uint32_t key) {
-    intptr_t index;
     runtime_map_entry* entry;
 
     if (map == NULL) {
         runtime_fail_simple("assignment to nil map");
-    }
-
-    index = runtime_map_find_fast32(map, key);
-    if (index >= 0) {
-        return map->entries[index].value_data;
     }
 
     entry = runtime_map_insert_fast32(map, map_type, key);
@@ -9440,16 +9585,10 @@ void* runtime_mapassign__fast32ptr(const go_map_type_descriptor* map_type, runti
 }
 
 void* runtime_mapassign__fast64(const go_map_type_descriptor* map_type, runtime_map* map, uint64_t key) {
-    intptr_t index;
     runtime_map_entry* entry;
 
     if (map == NULL) {
         runtime_fail_simple("assignment to nil map");
-    }
-
-    index = runtime_map_find_fast64(map, key);
-    if (index >= 0) {
-        return map->entries[index].value_data;
     }
 
     entry = runtime_map_insert_fast64(map, map_type, key);
@@ -9461,16 +9600,10 @@ void* runtime_mapassign__fast64(const go_map_type_descriptor* map_type, runtime_
 }
 
 void* runtime_mapassign__faststr(const go_map_type_descriptor* map_type, runtime_map* map, const char* key_ptr, intptr_t key_len) {
-    intptr_t index;
     runtime_map_entry* entry;
 
     if (map == NULL) {
         runtime_fail_simple("assignment to nil map");
-    }
-
-    index = runtime_map_find_faststr(map, key_ptr, key_len);
-    if (index >= 0) {
-        return map->entries[index].value_data;
     }
 
     entry = runtime_map_insert_faststr(map, map_type, key_ptr, key_len);
