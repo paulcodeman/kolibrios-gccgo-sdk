@@ -5718,6 +5718,19 @@ static void runtime_gc_update_heap_bounds_on_alloc(runtime_gc_header* header) {
     }
 }
 
+static void runtime_gc_update_heap_bounds_on_small_chunk(const runtime_gc_small_chunk* chunk) {
+    if (chunk == NULL || chunk->base == 0 || chunk->limit <= chunk->base) {
+        return;
+    }
+
+    if (runtime_gc_heap_min == 0 || chunk->base < runtime_gc_heap_min) {
+        runtime_gc_heap_min = chunk->base;
+    }
+    if (chunk->limit > runtime_gc_heap_max) {
+        runtime_gc_heap_max = chunk->limit;
+    }
+}
+
 static void runtime_gc_recompute_heap_bounds(void) {
     runtime_gc_header* current;
     uint32_t class_index;
@@ -5982,6 +5995,7 @@ static void runtime_gc_small_chunk_note_alloc(runtime_gc_header* header) {
         runtime_gc_small_chunk_cache_header(header, chunk);
         if (chunk->allocated == 0u) {
             runtime_gc_small_chunk_activate(chunk);
+            runtime_gc_update_heap_bounds_on_small_chunk(chunk);
         }
         runtime_gc_small_chunk_set_alloc(chunk, slot_index);
         chunk->allocated++;
@@ -6091,7 +6105,6 @@ static void runtime_gc_link_allocation(runtime_gc_header* header) {
         runtime_gc_live_bytes += header->size;
         runtime_gc_live_objects++;
         runtime_gc_small_chunk_note_alloc(header);
-        runtime_gc_update_heap_bounds_on_alloc(header);
         return;
     }
 

@@ -438,7 +438,6 @@ func (sampler *phaseSampler) maybe(index int) {
 	if index%sampler.sampleEvery != 0 {
 		return
 	}
-	kos.PollRuntimeGCRaw()
 	sampler.sample()
 }
 
@@ -461,14 +460,14 @@ func (sampler *phaseSampler) sample() {
 }
 
 func workloadPlainLoop(iterations int, sampler *phaseSampler) {
-	value := iterations
-	for value > 0 {
-		value--
+	sum := 0
+	for i := 0; i < iterations; i++ {
+		sum += (i & 3)
 	}
 	if sampler != nil {
 		sampler.sample()
 	}
-	sinkInt = value
+	sinkInt = sum
 }
 
 func workloadAllocSmall(iterations int, sampler *phaseSampler) {
