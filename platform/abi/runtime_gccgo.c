@@ -165,7 +165,7 @@ int pthread_setspecific(pthread_key_t key, const void* value) {
 #define RUNTIME_GC_PAGE_SHIFT 12u
 #define RUNTIME_GC_PAGE_SIZE (1u << RUNTIME_GC_PAGE_SHIFT)
 #define RUNTIME_GC_PAGE_MASK (RUNTIME_GC_PAGE_SIZE - 1u)
-#define RUNTIME_GC_SMALL_EMPTY_KEEP 1u
+#define RUNTIME_GC_SMALL_EMPTY_KEEP 8u
 #define RUNTIME_GC_PAGE_BUCKETS 4096u
 #define RUNTIME_GC_SMALL_PAGE_L1_BITS 10u
 #define RUNTIME_GC_SMALL_PAGE_L2_BITS 10u
@@ -1360,6 +1360,21 @@ static void runtime_gc_small_reclaim_empty_chunks_locked(void) {
         uint32_t kept_count;
 
         central = &runtime_gc_small_centrals[class_index];
+        for (chunk = runtime_gc_small_chunks[class_index]; chunk != NULL; chunk = chunk->all_next) {
+            if (chunk->base == 0 ||
+                chunk->allocated != 0u ||
+                !chunk->reclaimable ||
+                chunk->empty_cached ||
+                central->empty_count >= RUNTIME_GC_SMALL_EMPTY_KEEP) {
+                continue;
+            }
+
+            chunk->empty_cached = 1u;
+            chunk->empty_next = central->empty_list;
+            central->empty_list = chunk;
+            central->empty_count++;
+        }
+
         kept_head = NULL;
         kept_tail = NULL;
         kept_count = 0u;
@@ -1371,8 +1386,7 @@ static void runtime_gc_small_reclaim_empty_chunks_locked(void) {
             owner = runtime_gc_small_page_lookup((uintptr_t)node);
             if (owner != NULL &&
                 owner->alloc_class == class_index &&
-                owner->reclaimable &&
-                owner->allocated == 0u) {
+                owner->empty_cached) {
                 node = next;
                 continue;
             }
@@ -1389,41 +1403,6 @@ static void runtime_gc_small_reclaim_empty_chunks_locked(void) {
         }
         central->list = kept_head;
         central->count = kept_count;
-
-        for (chunk = runtime_gc_small_chunks[class_index]; chunk != NULL; chunk = chunk->all_next) {
-            if (chunk->base == 0 ||
-                chunk->allocated != 0u ||
-                !chunk->reclaimable ||
-                chunk->empty_cached) {
-                continue;
-            }
-
-            chunk->empty_cached = 1u;
-            chunk->empty_next = central->empty_list;
-            central->empty_list = chunk;
-            central->empty_count++;
-        }
-
-        while (central->empty_count > RUNTIME_GC_SMALL_EMPTY_KEEP &&
-               central->empty_list != NULL) {
-            runtime_gc_small_chunk* released;
-
-            released = central->empty_list;
-            central->empty_list = released->empty_next;
-            released->empty_next = NULL;
-            released->empty_cached = 0u;
-            if (central->empty_count > 0u) {
-                central->empty_count--;
-            }
-
-            runtime_gc_small_chunk_unregister(released);
-            runtime_gc_small_chunk_detach_from_all(class_index, released);
-            runtime_free_aligned((void*)released->base);
-            released->base = 0;
-            released->limit = 0;
-            released->allocated = 0u;
-            released->slot_count = 0u;
-        }
     }
 }
 
