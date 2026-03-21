@@ -6978,6 +6978,7 @@ static void runtime_gc_maybe_collect_locked(size_t requested_size) {
 
 static void* runtime_gc_alloc_managed(size_t size, const go_type_descriptor* descriptor, runtime_gc_scan_fn scan, void* aux, uintptr_t count) {
     runtime_gc_header* header;
+    runtime_gc_small_chunk* small_chunk;
     size_t payload_size;
     size_t total_size;
     size_t class_size;
@@ -7057,18 +7058,30 @@ static void* runtime_gc_alloc_managed(size_t size, const go_type_descriptor* des
     header->scan = scan;
     header->size = (uintptr_t)payload_size;
     header->aux = count;
-    header->page_entries = NULL;
     header->alloc_class = class_index >= 0 ? (uint16_t)class_index : RUNTIME_GC_ALLOC_CLASS_POOL;
     header->marked = 0;
     header->reserved = 0;
 
-    if (class_index >= 0 && runtime_gc_small_page_lookup((uintptr_t)header) == NULL) {
-        if (runtime_gc_small_chunk_register((uintptr_t)header,
-                                            runtime_pool_fixalloc_chunk_size(class_size),
-                                            class_size,
-                                            (uint16_t)class_index) == NULL) {
-            runtime_panicmem();
+    if (class_index >= 0) {
+        small_chunk = (runtime_gc_small_chunk*)header->page_entries;
+        if (small_chunk == NULL ||
+            small_chunk->alloc_class != (uint16_t)class_index ||
+            (uintptr_t)header < small_chunk->base ||
+            (uintptr_t)header >= small_chunk->limit) {
+            small_chunk = runtime_gc_small_page_lookup((uintptr_t)header);
+            if (small_chunk == NULL) {
+                small_chunk = runtime_gc_small_chunk_register((uintptr_t)header,
+                                                              runtime_pool_fixalloc_chunk_size(class_size),
+                                                              class_size,
+                                                              (uint16_t)class_index);
+                if (small_chunk == NULL) {
+                    runtime_panicmem();
+                }
+            }
+            header->page_entries = (runtime_gc_page_entry*)small_chunk;
         }
+    } else {
+        header->page_entries = NULL;
     }
 
     payload = runtime_gc_payload(header);
