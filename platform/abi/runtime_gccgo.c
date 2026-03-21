@@ -198,10 +198,13 @@ typedef struct runtime_fixalloc {
 } runtime_fixalloc;
 
 typedef struct runtime_gc_small_chunk {
+    struct runtime_gc_small_chunk* next;
+    struct runtime_gc_small_chunk* prev;
     uintptr_t base;
     uintptr_t limit;
     uintptr_t object_size;
     uint16_t alloc_class;
+    uint16_t allocated;
 } runtime_gc_small_chunk;
 
 static runtime_pool_node* runtime_pool_free_lists[RUNTIME_POOL_CLASS_COUNT];
@@ -217,6 +220,7 @@ static size_t runtime_persistent_limit = 0;
 static runtime_fixalloc runtime_sudog_fixalloc;
 static runtime_fixalloc runtime_gc_page_entry_fixalloc;
 static runtime_fixalloc runtime_gc_small_fixallocs[RUNTIME_GC_SMALL_CLASS_COUNT];
+static runtime_gc_small_chunk* runtime_gc_small_chunks[RUNTIME_GC_SMALL_CLASS_COUNT];
 static runtime_gc_small_chunk** runtime_gc_small_page_l1[RUNTIME_GC_SMALL_PAGE_L1_COUNT];
 static bool runtime_pool_release_global_locked(void* ptr, size_t class_size, int class_index);
 static runtime_m* runtime_allm;
@@ -411,10 +415,13 @@ static runtime_gc_small_chunk* runtime_gc_small_chunk_register(uintptr_t base, s
     if (chunk == NULL) {
         return NULL;
     }
+    chunk->next = NULL;
+    chunk->prev = NULL;
     chunk->base = base;
     chunk->limit = base + chunk_size;
     chunk->object_size = object_size;
     chunk->alloc_class = alloc_class;
+    chunk->allocated = 0;
 
     page = runtime_gc_page_base(base);
     last_page = runtime_gc_page_base(base + chunk_size - 1u);
@@ -432,6 +439,14 @@ static runtime_gc_small_chunk* runtime_gc_small_chunk_register(uintptr_t base, s
             break;
         }
         page += (uintptr_t)RUNTIME_GC_PAGE_SIZE;
+    }
+
+    if (alloc_class < RUNTIME_GC_SMALL_CLASS_COUNT) {
+        chunk->next = runtime_gc_small_chunks[alloc_class];
+        if (chunk->next != NULL) {
+            chunk->next->prev = chunk;
+        }
+        runtime_gc_small_chunks[alloc_class] = chunk;
     }
 
     return chunk;
@@ -5501,6 +5516,7 @@ static void runtime_gc_update_heap_bounds_on_alloc(runtime_gc_header* header) {
 
 static void runtime_gc_recompute_heap_bounds(void) {
     runtime_gc_header* current;
+    uint32_t class_index;
 
     runtime_gc_heap_min = 0;
     runtime_gc_heap_max = 0;
@@ -5522,6 +5538,22 @@ static void runtime_gc_recompute_heap_bounds(void) {
         }
         if (end > runtime_gc_heap_max) {
             runtime_gc_heap_max = end;
+        }
+    }
+
+    for (class_index = 0; class_index < RUNTIME_GC_SMALL_CLASS_COUNT; class_index++) {
+        runtime_gc_small_chunk* chunk;
+
+        for (chunk = runtime_gc_small_chunks[class_index]; chunk != NULL; chunk = chunk->next) {
+            if (chunk->allocated == 0u) {
+                continue;
+            }
+            if (runtime_gc_heap_min == 0 || chunk->base < runtime_gc_heap_min) {
+                runtime_gc_heap_min = chunk->base;
+            }
+            if (chunk->limit > runtime_gc_heap_max) {
+                runtime_gc_heap_max = chunk->limit;
+            }
         }
     }
 }
@@ -5698,6 +5730,37 @@ static runtime_gc_header* runtime_gc_small_chunk_lookup(const void* address) {
     return header;
 }
 
+static bool runtime_gc_header_is_small(const runtime_gc_header* header) {
+    return header != NULL &&
+           header->alloc_class != RUNTIME_GC_ALLOC_CLASS_POOL &&
+           header->alloc_class < RUNTIME_GC_SMALL_CLASS_COUNT;
+}
+
+static runtime_gc_small_chunk* runtime_gc_small_chunk_for_header(const runtime_gc_header* header) {
+    if (!runtime_gc_header_is_small(header)) {
+        return NULL;
+    }
+    return runtime_gc_small_page_lookup((uintptr_t)header);
+}
+
+static void runtime_gc_small_chunk_note_alloc(runtime_gc_header* header) {
+    runtime_gc_small_chunk* chunk;
+
+    chunk = runtime_gc_small_chunk_for_header(header);
+    if (chunk != NULL && chunk->allocated < 0xFFFFu) {
+        chunk->allocated++;
+    }
+}
+
+static void runtime_gc_small_chunk_note_free(runtime_gc_header* header) {
+    runtime_gc_small_chunk* chunk;
+
+    chunk = runtime_gc_small_chunk_for_header(header);
+    if (chunk != NULL && chunk->allocated > 0u) {
+        chunk->allocated--;
+    }
+}
+
 static uintptr_t runtime_gc_min_uintptr(uintptr_t left, uintptr_t right) {
     if (left < right) {
         return left;
@@ -5776,6 +5839,16 @@ static void runtime_gc_link_allocation(runtime_gc_header* header) {
     }
 
     header->reserved = 1u;
+    header->next = NULL;
+    header->prev = NULL;
+    if (runtime_gc_header_is_small(header)) {
+        runtime_gc_live_bytes += header->size;
+        runtime_gc_live_objects++;
+        runtime_gc_small_chunk_note_alloc(header);
+        runtime_gc_update_heap_bounds_on_alloc(header);
+        return;
+    }
+
     header->prev = NULL;
     header->next = runtime_gc_objects;
     if (runtime_gc_objects != NULL) {
@@ -5794,6 +5867,21 @@ static void runtime_gc_unlink_allocation(runtime_gc_header* header) {
     }
 
     header->reserved = 0u;
+    if (runtime_gc_header_is_small(header)) {
+        runtime_gc_small_chunk_note_free(header);
+        if (runtime_gc_live_bytes >= header->size) {
+            runtime_gc_live_bytes -= header->size;
+        } else {
+            runtime_gc_live_bytes = 0;
+        }
+        if (runtime_gc_live_objects > 0) {
+            runtime_gc_live_objects--;
+        }
+        header->next = NULL;
+        header->prev = NULL;
+        return;
+    }
+
     runtime_gc_index_remove(header);
     if (header->prev != NULL) {
         header->prev->next = header->next;
@@ -6233,6 +6321,40 @@ static void runtime_gc_release_header(runtime_gc_header* header) {
     runtime_pool_free(header);
 }
 
+/*
+ * Sweep small-object chunks separately from runtime_gc_objects. This is the
+ * closest analogue we currently have to libgo's span-local sweep path and
+ * avoids routing every small managed object through the global object list.
+ */
+static void runtime_gc_sweep_small_chunks_locked(void) {
+    uint32_t class_index;
+
+    for (class_index = 0; class_index < RUNTIME_GC_SMALL_CLASS_COUNT; class_index++) {
+        runtime_gc_small_chunk* chunk;
+
+        for (chunk = runtime_gc_small_chunks[class_index]; chunk != NULL; chunk = chunk->next) {
+            uintptr_t slot;
+
+            if (chunk->allocated == 0u || chunk->object_size == 0u) {
+                continue;
+            }
+
+            for (slot = chunk->base; slot + chunk->object_size <= chunk->limit; slot += chunk->object_size) {
+                runtime_gc_header* header;
+
+                header = (runtime_gc_header*)slot;
+                if (header->reserved == 0u || header->alloc_class != class_index) {
+                    continue;
+                }
+                if (header->marked != runtime_gc_mark_token) {
+                    runtime_gc_unlink_allocation(header);
+                    runtime_gc_release_header(header);
+                }
+            }
+        }
+    }
+}
+
 static void runtime_gc_collect_impl_locked(void) {
     runtime_gc_header* current;
     runtime_gc_header* next;
@@ -6256,6 +6378,7 @@ static void runtime_gc_collect_impl_locked(void) {
         }
         current = next;
     }
+    runtime_gc_sweep_small_chunks_locked();
     runtime_gc_small_collect_locked();
     runtime_lock_mutex(&runtime_pool_lock);
     runtime_pool_collect_locked();
