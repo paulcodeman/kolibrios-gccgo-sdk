@@ -198,8 +198,9 @@ typedef struct runtime_fixalloc {
 } runtime_fixalloc;
 
 typedef struct runtime_gc_small_chunk {
-    struct runtime_gc_small_chunk* next;
-    struct runtime_gc_small_chunk* prev;
+    struct runtime_gc_small_chunk* all_next;
+    struct runtime_gc_small_chunk* active_next;
+    struct runtime_gc_small_chunk* active_prev;
     uintptr_t base;
     uintptr_t limit;
     uintptr_t object_size;
@@ -224,6 +225,7 @@ static runtime_fixalloc runtime_sudog_fixalloc;
 static runtime_fixalloc runtime_gc_page_entry_fixalloc;
 static runtime_fixalloc runtime_gc_small_fixallocs[RUNTIME_GC_SMALL_CLASS_COUNT];
 static runtime_gc_small_chunk* runtime_gc_small_chunks[RUNTIME_GC_SMALL_CLASS_COUNT];
+static runtime_gc_small_chunk* runtime_gc_small_active_chunks[RUNTIME_GC_SMALL_CLASS_COUNT];
 static runtime_gc_small_chunk** runtime_gc_small_page_l1[RUNTIME_GC_SMALL_PAGE_L1_COUNT];
 static bool runtime_pool_release_global_locked(void* ptr, size_t class_size, int class_index);
 static runtime_m* runtime_allm;
@@ -433,6 +435,51 @@ static void runtime_gc_small_chunk_clear_alloc(runtime_gc_small_chunk* chunk, ui
     chunk->alloc_bits[slot_index >> 3u] &= (uint8_t)~(1u << (slot_index & 7u));
 }
 
+static void runtime_gc_small_chunk_activate(runtime_gc_small_chunk* chunk) {
+    uint16_t alloc_class;
+
+    if (chunk == NULL) {
+        return;
+    }
+    alloc_class = chunk->alloc_class;
+    if (alloc_class >= RUNTIME_GC_SMALL_CLASS_COUNT || chunk->active_prev != NULL ||
+        runtime_gc_small_active_chunks[alloc_class] == chunk) {
+        return;
+    }
+
+    chunk->active_next = runtime_gc_small_active_chunks[alloc_class];
+    if (chunk->active_next != NULL) {
+        chunk->active_next->active_prev = chunk;
+    }
+    chunk->active_prev = NULL;
+    runtime_gc_small_active_chunks[alloc_class] = chunk;
+}
+
+static void runtime_gc_small_chunk_deactivate(runtime_gc_small_chunk* chunk) {
+    uint16_t alloc_class;
+
+    if (chunk == NULL) {
+        return;
+    }
+    alloc_class = chunk->alloc_class;
+    if (alloc_class >= RUNTIME_GC_SMALL_CLASS_COUNT) {
+        return;
+    }
+
+    if (chunk->active_prev != NULL) {
+        chunk->active_prev->active_next = chunk->active_next;
+    } else if (runtime_gc_small_active_chunks[alloc_class] == chunk) {
+        runtime_gc_small_active_chunks[alloc_class] = chunk->active_next;
+    } else {
+        return;
+    }
+    if (chunk->active_next != NULL) {
+        chunk->active_next->active_prev = chunk->active_prev;
+    }
+    chunk->active_next = NULL;
+    chunk->active_prev = NULL;
+}
+
 static runtime_gc_small_chunk* runtime_gc_small_chunk_register(uintptr_t base, size_t chunk_size, size_t object_size, uint16_t alloc_class) {
     runtime_gc_small_chunk* chunk;
     size_t slot_count;
@@ -457,8 +504,9 @@ static runtime_gc_small_chunk* runtime_gc_small_chunk_register(uintptr_t base, s
     if (chunk->alloc_bits == NULL) {
         return NULL;
     }
-    chunk->next = NULL;
-    chunk->prev = NULL;
+    chunk->all_next = NULL;
+    chunk->active_next = NULL;
+    chunk->active_prev = NULL;
     chunk->base = base;
     chunk->limit = base + chunk_size;
     chunk->object_size = object_size;
@@ -486,10 +534,7 @@ static runtime_gc_small_chunk* runtime_gc_small_chunk_register(uintptr_t base, s
     }
 
     if (alloc_class < RUNTIME_GC_SMALL_CLASS_COUNT) {
-        chunk->next = runtime_gc_small_chunks[alloc_class];
-        if (chunk->next != NULL) {
-            chunk->next->prev = chunk;
-        }
+        chunk->all_next = runtime_gc_small_chunks[alloc_class];
         runtime_gc_small_chunks[alloc_class] = chunk;
     }
 
@@ -5588,10 +5633,7 @@ static void runtime_gc_recompute_heap_bounds(void) {
     for (class_index = 0; class_index < RUNTIME_GC_SMALL_CLASS_COUNT; class_index++) {
         runtime_gc_small_chunk* chunk;
 
-        for (chunk = runtime_gc_small_chunks[class_index]; chunk != NULL; chunk = chunk->next) {
-            if (chunk->allocated == 0u) {
-                continue;
-            }
+        for (chunk = runtime_gc_small_active_chunks[class_index]; chunk != NULL; chunk = chunk->active_next) {
             if (runtime_gc_heap_min == 0 || chunk->base < runtime_gc_heap_min) {
                 runtime_gc_heap_min = chunk->base;
             }
@@ -5783,11 +5825,33 @@ static bool runtime_gc_header_is_small(const runtime_gc_header* header) {
            header->alloc_class < RUNTIME_GC_SMALL_CLASS_COUNT;
 }
 
+static void runtime_gc_small_chunk_cache_header(runtime_gc_header* header, runtime_gc_small_chunk* chunk) {
+    if (header == NULL || chunk == NULL) {
+        return;
+    }
+    header->page_entries = (runtime_gc_page_entry*)chunk;
+}
+
 static runtime_gc_small_chunk* runtime_gc_small_chunk_for_header(const runtime_gc_header* header) {
+    runtime_gc_small_chunk* chunk;
+
     if (!runtime_gc_header_is_small(header)) {
         return NULL;
     }
-    return runtime_gc_small_page_lookup((uintptr_t)header);
+
+    chunk = (runtime_gc_small_chunk*)header->page_entries;
+    if (chunk != NULL &&
+        chunk->alloc_class == header->alloc_class &&
+        (uintptr_t)header >= chunk->base &&
+        (uintptr_t)header < chunk->limit) {
+        return chunk;
+    }
+
+    chunk = runtime_gc_small_page_lookup((uintptr_t)header);
+    if (chunk != NULL) {
+        runtime_gc_small_chunk_cache_header((runtime_gc_header*)header, chunk);
+    }
+    return chunk;
 }
 
 static void runtime_gc_small_chunk_note_alloc(runtime_gc_header* header) {
@@ -5800,6 +5864,10 @@ static void runtime_gc_small_chunk_note_alloc(runtime_gc_header* header) {
         slot_index != (uintptr_t)-1 &&
         !runtime_gc_small_chunk_test_alloc(chunk, slot_index) &&
         chunk->allocated < 0xFFFFu) {
+        runtime_gc_small_chunk_cache_header(header, chunk);
+        if (chunk->allocated == 0u) {
+            runtime_gc_small_chunk_activate(chunk);
+        }
         runtime_gc_small_chunk_set_alloc(chunk, slot_index);
         chunk->allocated++;
     }
@@ -5815,8 +5883,12 @@ static void runtime_gc_small_chunk_note_free(runtime_gc_header* header) {
         slot_index != (uintptr_t)-1 &&
         runtime_gc_small_chunk_test_alloc(chunk, slot_index) &&
         chunk->allocated > 0u) {
+        runtime_gc_small_chunk_cache_header(header, chunk);
         runtime_gc_small_chunk_clear_alloc(chunk, slot_index);
         chunk->allocated--;
+        if (chunk->allocated == 0u) {
+            runtime_gc_small_chunk_deactivate(chunk);
+        }
     }
 }
 
@@ -6406,11 +6478,14 @@ static void runtime_gc_sweep_small_chunks_locked(void) {
     for (class_index = 0; class_index < RUNTIME_GC_SMALL_CLASS_COUNT; class_index++) {
         runtime_gc_small_chunk* chunk;
 
-        for (chunk = runtime_gc_small_chunks[class_index]; chunk != NULL; chunk = chunk->next) {
+        for (chunk = runtime_gc_small_active_chunks[class_index]; chunk != NULL;) {
             uintptr_t byte_index;
             uintptr_t bitmap_bytes;
+            runtime_gc_small_chunk* next_chunk;
 
+            next_chunk = chunk->active_next;
             if (chunk->allocated == 0u || chunk->object_size == 0u) {
+                chunk = next_chunk;
                 continue;
             }
 
@@ -6452,6 +6527,7 @@ static void runtime_gc_sweep_small_chunks_locked(void) {
                     }
                 }
             }
+            chunk = next_chunk;
         }
     }
 
