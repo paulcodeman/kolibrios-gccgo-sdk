@@ -560,7 +560,7 @@ func (c *Certificate) isValid(certType int, currentChain []*Certificate, opts *V
 
 	if len(currentChain) > 0 {
 		child := currentChain[len(currentChain)-1]
-		if !bytes.Equal(child.RawIssuer, c.RawSubject) {
+		if !rawDistinguishedNamesEqual(child.RawIssuer, c.RawSubject) {
 			return CertificateInvalidError{c, NameMismatch, ""}
 		}
 	}

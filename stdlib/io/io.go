@@ -88,6 +88,11 @@ type ReadCloser interface {
 	Closer
 }
 
+type LimitedReader struct {
+	R Reader
+	N int64
+}
+
 type WriteCloser interface {
 	Writer
 	Closer
@@ -102,6 +107,8 @@ const (
 	SeekCurrent = 1
 	SeekEnd     = 2
 )
+
+func LimitReader(r Reader, n int64) Reader { return &LimitedReader{r, n} }
 
 func ReadAll(r Reader) ([]byte, error) {
 	data := make([]byte, 0, 512)
@@ -121,6 +128,18 @@ func ReadAll(r Reader) ([]byte, error) {
 			return data, err
 		}
 	}
+}
+
+func (limited *LimitedReader) Read(p []byte) (n int, err error) {
+	if limited.N <= 0 {
+		return 0, EOF
+	}
+	if int64(len(p)) > limited.N {
+		p = p[0:limited.N]
+	}
+	n, err = limited.R.Read(p)
+	limited.N -= int64(n)
+	return
 }
 
 func ReadAtLeast(r Reader, buf []byte, min int) (n int, err error) {

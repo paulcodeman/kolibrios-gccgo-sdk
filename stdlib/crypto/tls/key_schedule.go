@@ -13,7 +13,6 @@ import (
 	"math/big"
 
 	"golang.org/x/crypto/cryptobyte"
-	"golang.org/x/crypto/curve25519"
 	"golang.org/x/crypto/hkdf"
 )
 
@@ -111,15 +110,7 @@ type ecdheParameters interface {
 
 func generateECDHEParameters(rand io.Reader, curveID CurveID) (ecdheParameters, error) {
 	if curveID == X25519 {
-		privateKey := make([]byte, curve25519.ScalarSize)
-		if _, err := io.ReadFull(rand, privateKey); err != nil {
-			return nil, err
-		}
-		publicKey, err := curve25519.X25519(privateKey, curve25519.Basepoint)
-		if err != nil {
-			return nil, err
-		}
-		return &x25519Parameters{privateKey: privateKey, publicKey: publicKey}, nil
+		return nil, errors.New("tls: X25519 is unavailable in this build")
 	}
 
 	curve, ok := curveForCurveID(curveID)
@@ -175,25 +166,4 @@ func (p *nistParameters) SharedKey(peerPublicKey []byte) []byte {
 	xShared, _ := curve.ScalarMult(x, y, p.privateKey)
 	sharedKey := make([]byte, (curve.Params().BitSize+7)/8)
 	return xShared.FillBytes(sharedKey)
-}
-
-type x25519Parameters struct {
-	privateKey []byte
-	publicKey  []byte
-}
-
-func (p *x25519Parameters) CurveID() CurveID {
-	return X25519
-}
-
-func (p *x25519Parameters) PublicKey() []byte {
-	return p.publicKey[:]
-}
-
-func (p *x25519Parameters) SharedKey(peerPublicKey []byte) []byte {
-	sharedKey, err := curve25519.X25519(p.privateKey, peerPublicKey)
-	if err != nil {
-		return nil
-	}
-	return sharedKey
 }

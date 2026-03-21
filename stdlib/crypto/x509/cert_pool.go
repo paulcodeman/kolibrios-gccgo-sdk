@@ -9,6 +9,8 @@ import (
 	"crypto/sha256"
 	"encoding/pem"
 	"sync"
+
+	"golang.org/x/crypto/cryptobyte"
 )
 
 type sum224 [sha256.Size224]byte
@@ -146,6 +148,32 @@ func (s *CertPool) findPotentialParents(cert *Certificate) []*Certificate {
 		}
 	}
 
+	if len(matchingKeyID)+len(oneKeyID)+len(mismatchKeyID) == 0 {
+		// Some chains use semantically equivalent issuer/subject names whose
+		// DER encoding differs. Fall back to a canonical DN comparison so
+		// verification can still find the parent certificate.
+		for index := 0; index < len(s.lazyCerts); index++ {
+			candidate, err := s.cert(index)
+			if err != nil {
+				continue
+			}
+			if !rawDistinguishedNamesEqual(cert.RawIssuer, candidate.RawSubject) {
+				continue
+			}
+
+			kidMatch := bytes.Equal(candidate.SubjectKeyId, cert.AuthorityKeyId)
+			switch {
+			case kidMatch:
+				matchingKeyID = append(matchingKeyID, candidate)
+			case (len(candidate.SubjectKeyId) == 0 && len(cert.AuthorityKeyId) > 0) ||
+				(len(candidate.SubjectKeyId) > 0 && len(cert.AuthorityKeyId) == 0):
+				oneKeyID = append(oneKeyID, candidate)
+			default:
+				mismatchKeyID = append(mismatchKeyID, candidate)
+			}
+		}
+	}
+
 	found := len(matchingKeyID) + len(oneKeyID) + len(mismatchKeyID)
 	if found == 0 {
 		return nil
@@ -155,6 +183,23 @@ func (s *CertPool) findPotentialParents(cert *Certificate) []*Certificate {
 	candidates = append(candidates, oneKeyID...)
 	candidates = append(candidates, mismatchKeyID...)
 	return candidates
+}
+
+func rawDistinguishedNamesEqual(left, right []byte) bool {
+	if bytes.Equal(left, right) {
+		return true
+	}
+
+	leftName, err := parseName(cryptobyte.String(left))
+	if err != nil {
+		return false
+	}
+	rightName, err := parseName(cryptobyte.String(right))
+	if err != nil {
+		return false
+	}
+
+	return leftName.String() == rightName.String()
 }
 
 func (s *CertPool) contains(cert *Certificate) bool {

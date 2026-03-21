@@ -1,77 +1,84 @@
 package main
 
 import (
-	"bufio"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
+	urlpkg "net/url"
 	"os"
-	"runtime"
 	"strings"
 
 	"kos"
-	"net"
-	"net/url"
 )
 
 const (
 	httpsDemoTitle    = "KolibriOS HTTPS Demo"
 	defaultHTTPSURL   = "https://example.com/"
 	bodyPreviewLength = 512
+	localCABundlePath = "./ca-bundle.pem"
 )
 
 var httpsIPCBuffer [4096]byte
-var httpsStage = "startup"
 
 func main() {
-	setHTTPSStage("startup")
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
 	console, ok := kos.OpenConsole(httpsDemoTitle)
 	if !ok {
-		kos.DebugString("https demo: failed to open /sys/lib/console.obj")
+		kos.DebugString("https demo: failed to open /sys/lib/console.obj\n")
 		os.Exit(1)
 		return
 	}
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			_, _ = fmt.Printf("PANIC at stage %q: %T %v\n", httpsStage, recovered, recovered)
-			waitForExit(console)
-			os.Exit(2)
-		}
-	}()
 
-	setHTTPSStage("register IPC buffer")
 	kos.RegisterIPCBuffer(httpsIPCBuffer[:])
 	kos.SwapEventMask(kos.DefaultEventMask | kos.EventMaskIPC | kos.EventMaskNetwork)
 
-	setHTTPSStage("resolve arguments")
+	rootPath, ok := configureLocalCABundle()
+	if ok {
+		_, _ = fmt.Printf("TLS roots: %s\n", rootPath)
+	}
+	rootCAs, rootErr := loadRootPool(rootPath)
+	if rootErr != nil {
+		_, _ = fmt.Printf("TLS root load failed: %v\n", rootErr)
+	}
+
 	target := defaultHTTPSURL
+	insecure := false
 	if len(os.Args) > 1 && strings.TrimSpace(os.Args[1]) != "" {
-		target = os.Args[1]
+		for index := 1; index < len(os.Args); index++ {
+			argument := strings.TrimSpace(os.Args[index])
+			if argument == "" {
+				continue
+			}
+			if argument == "--insecure" {
+				insecure = true
+				continue
+			}
+			target = argument
+		}
 	}
 
 	_, _ = fmt.Printf("HTTPS target: %s\n", target)
-	if tid, ok := kos.CurrentThreadID(); ok {
-		_, _ = fmt.Printf("Current thread id: 0x%X\n", tid)
+	if insecure {
+		_, _ = fmt.Println("TLS verification: disabled by --insecure")
 	}
-	if slot, ok := kos.CurrentThreadSlotIndex(); ok {
-		_, _ = fmt.Printf("Current thread slot: %d\n", slot)
-	}
-	setHTTPSStage("fetch HTTPS")
-	result, err := fetchHTTPS(target)
+	result, err := fetchHTTPS(target, insecure, rootCAs)
 	if err != nil {
 		_, _ = fmt.Printf("HTTPS request failed: %v\n", err)
+		printTLSDiagnostics(target, rootPath, rootCAs)
+		_, _ = fmt.Println("Hint: set SSL_CERT_FILE to a PEM bundle if certificate verification cannot find roots.")
+		_, _ = fmt.Printf("Hint: this example also auto-loads %s when present.\n", localCABundlePath)
+		_, _ = fmt.Println("Hint: use --insecure only for testing when you intentionally want to skip verification.")
 		waitForExit(console)
 		os.Exit(1)
 		return
 	}
 
-	_, _ = fmt.Printf("Connected to %s using %s / %s\n", result.ServerName, tlsVersion(result.Version), tls.CipherSuiteName(result.CipherSuite))
 	_, _ = fmt.Printf("Status: %s\n", result.StatusLine)
-	for _, header := range result.Headers {
-		_, _ = fmt.Println(header)
+	for index := 0; index < len(result.Headers); index++ {
+		_, _ = fmt.Println(result.Headers[index])
 	}
 	if result.BodyPreview != "" {
 		_, _ = fmt.Println("")
@@ -84,88 +91,48 @@ func main() {
 }
 
 type fetchResult struct {
-	ServerName  string
-	Version     uint16
-	CipherSuite uint16
 	StatusLine  string
 	Headers     []string
 	BodyPreview string
 }
 
-func fetchHTTPS(rawTarget string) (*fetchResult, error) {
-	setHTTPSStage("normalize URL")
-	target, err := normalizeHTTPSURL(rawTarget)
+func fetchHTTPS(rawTarget string, insecure bool, rootCAs *x509.CertPool) (*fetchResult, error) {
+	request, err := http.NewRequest(http.MethodGet, normalizeHTTPSURL(rawTarget), nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Accept", "*/*")
+
+	client := http.DefaultClient
+	if insecure || rootCAs != nil {
+		config := &tls.Config{
+			InsecureSkipVerify: insecure,
+			RootCAs:            rootCAs,
+		}
+		client = &http.Client{
+			Transport: &http.Transport{TLSClientConfig: config},
+		}
+	}
+
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+
+	bodyPreview, err := readBodyPreview(response.Body, bodyPreviewLength)
 	if err != nil {
 		return nil, err
 	}
 
-	setHTTPSStage("resolve target")
-	serverName, dialAddress, requestHost, requestPath, err := resolveTarget(target)
-	if err != nil {
-		return nil, err
-	}
-
-	setHTTPSStage("TCP dial")
-	rawConn, err := net.Dial("tcp", dialAddress)
-	if err != nil {
-		return nil, err
-	}
-
-	setHTTPSStage("TLS client")
-	conn := tls.Client(rawConn, &tls.Config{
-		ServerName:         serverName,
-		InsecureSkipVerify: true,
-	})
-	defer conn.Close()
-
-	setHTTPSStage("TLS handshake")
-	if err := conn.Handshake(); err != nil {
-		return nil, err
-	}
-
-	setHTTPSStage("write HTTP request")
-	request := "GET " + requestPath + " HTTP/1.1\r\n" +
-		"Host: " + requestHost + "\r\n" +
-		"User-Agent: kolibrios-gccgo-sdk/https-example\r\n" +
-		"Connection: close\r\n" +
-		"Accept: */*\r\n\r\n"
-
-	if _, err := conn.Write([]byte(request)); err != nil {
-		return nil, err
-	}
-
-	reader := bufio.NewReader(conn)
-	setHTTPSStage("read status line")
-	statusLine, err := readHeaderLine(reader)
-	if err != nil {
-		return nil, err
-	}
-
-	setHTTPSStage("read headers")
-	headers, err := readHeaders(reader)
-	if err != nil {
-		return nil, err
-	}
-
-	setHTTPSStage("read body preview")
-	bodyPreview, err := readBodyPreview(reader, bodyPreviewLength)
-	if err != nil {
-		return nil, err
-	}
-
-	setHTTPSStage("collect TLS state")
-	state := conn.ConnectionState()
 	return &fetchResult{
-		ServerName:  serverName,
-		Version:     state.Version,
-		CipherSuite: state.CipherSuite,
-		StatusLine:  statusLine,
-		Headers:     headers,
+		StatusLine:  response.Status,
+		Headers:     flattenHeaders(response.Header),
 		BodyPreview: bodyPreview,
 	}, nil
 }
 
-func normalizeHTTPSURL(value string) (*url.URL, error) {
+func normalizeHTTPSURL(value string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		value = defaultHTTPSURL
@@ -173,68 +140,192 @@ func normalizeHTTPSURL(value string) (*url.URL, error) {
 	if !strings.Contains(value, "://") {
 		value = "https://" + value
 	}
+	return value
+}
 
-	target, err := url.Parse(value)
+func configureLocalCABundle() (string, bool) {
+	if os.Getenv("SSL_CERT_FILE") != "" {
+		return os.Getenv("SSL_CERT_FILE"), true
+	}
+
+	if _, err := os.Stat(localCABundlePath); err != nil {
+		return "", false
+	}
+	if err := os.Setenv("SSL_CERT_FILE", localCABundlePath); err != nil {
+		return "", false
+	}
+	return localCABundlePath, true
+}
+
+func loadRootPool(path string) (*x509.CertPool, error) {
+	if path == "" {
+		return nil, nil
+	}
+
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	if target.Scheme != "https" {
-		return nil, fmt.Errorf("https demo only supports https:// URLs")
-	}
-	if target.Host == "" {
-		return nil, fmt.Errorf("missing host in URL")
-	}
 
-	return target, nil
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(data) {
+		return nil, fmt.Errorf("no certificates parsed from %s", path)
+	}
+	return pool, nil
 }
 
-func resolveTarget(target *url.URL) (serverName string, dialAddress string, requestHost string, requestPath string, err error) {
-	requestHost = target.Host
-	requestPath = target.EscapedPath()
-	if requestPath == "" {
-		requestPath = "/"
-	}
-	if target.RawQuery != "" {
-		requestPath += "?" + target.RawQuery
-	}
-
-	serverName = requestHost
-	dialAddress = requestHost
-	if host, port, splitErr := net.SplitHostPort(requestHost); splitErr == nil {
-		serverName = host
-		dialAddress = net.JoinHostPort(host, port)
-		return serverName, dialAddress, requestHost, requestPath, nil
-	}
-
-	serverName = requestHost
-	dialAddress = net.JoinHostPort(requestHost, "443")
-	return serverName, dialAddress, requestHost, requestPath, nil
+type tlsDiagnostics struct {
+	ServerName       string
+	DialAddress      string
+	PeerCertificates []*x509.Certificate
+	VerifyErr        error
 }
 
-func readHeaderLine(reader *bufio.Reader) (string, error) {
-	line, err := reader.ReadString('\n')
+func printTLSDiagnostics(rawTarget string, rootPath string, rootCAs *x509.CertPool) {
+	diagnostics, err := collectTLSDiagnostics(rawTarget, rootCAs)
 	if err != nil {
-		return "", err
+		_, _ = fmt.Printf("TLS diagnostics failed: %v\n", err)
+		return
 	}
-	return trimLine(line), nil
+
+	_, _ = fmt.Printf("TLS diagnostics: server=%s addr=%s peer_certs=%d\n",
+		diagnostics.ServerName, diagnostics.DialAddress, len(diagnostics.PeerCertificates))
+	for index := 0; index < len(diagnostics.PeerCertificates); index++ {
+		cert := diagnostics.PeerCertificates[index]
+		_, _ = fmt.Printf("  cert[%d] subject=%s\n", index, cert.Subject.String())
+		_, _ = fmt.Printf("  cert[%d] issuer=%s\n", index, cert.Issuer.String())
+	}
+	if diagnostics.VerifyErr != nil {
+		_, _ = fmt.Printf("TLS manual verify failed: %v\n", diagnostics.VerifyErr)
+	} else {
+		_, _ = fmt.Println("TLS manual verify: ok")
+	}
+	printRootBundleDiagnostics(rootPath, diagnostics)
 }
 
-func readHeaders(reader *bufio.Reader) ([]string, error) {
-	var headers []string
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			return nil, err
-		}
-		line = trimLine(line)
-		if line == "" {
-			return headers, nil
-		}
-		headers = append(headers, line)
+func collectTLSDiagnostics(rawTarget string, rootCAs *x509.CertPool) (*tlsDiagnostics, error) {
+	parsedURL, err := urlpkg.Parse(normalizeHTTPSURL(rawTarget))
+	if err != nil {
+		return nil, err
 	}
+
+	serverName, dialAddress, err := resolveTLSDiagnosticTarget(parsedURL)
+	if err != nil {
+		return nil, err
+	}
+
+	conn, err := tls.Dial("tcp", dialAddress, &tls.Config{
+		ServerName:         serverName,
+		InsecureSkipVerify: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	state := conn.ConnectionState()
+	diagnostics := &tlsDiagnostics{
+		ServerName:       serverName,
+		DialAddress:      dialAddress,
+		PeerCertificates: state.PeerCertificates,
+	}
+	if len(state.PeerCertificates) == 0 {
+		return diagnostics, nil
+	}
+
+	options := x509.VerifyOptions{
+		Roots:         rootCAs,
+		DNSName:       serverName,
+		Intermediates: x509.NewCertPool(),
+	}
+	for index := 1; index < len(state.PeerCertificates); index++ {
+		options.Intermediates.AddCert(state.PeerCertificates[index])
+	}
+	_, diagnostics.VerifyErr = state.PeerCertificates[0].Verify(options)
+	return diagnostics, nil
 }
 
-func readBodyPreview(reader *bufio.Reader, limit int) (string, error) {
+func resolveTLSDiagnosticTarget(target *urlpkg.URL) (serverName string, dialAddress string, err error) {
+	if target == nil {
+		return "", "", fmt.Errorf("missing URL")
+	}
+	host := strings.TrimSpace(target.Host)
+	if host == "" {
+		return "", "", fmt.Errorf("missing host")
+	}
+	if resolvedHost, port, splitErr := net.SplitHostPort(host); splitErr == nil {
+		return resolvedHost, net.JoinHostPort(resolvedHost, port), nil
+	}
+	serverName = host
+	if len(serverName) >= 2 && serverName[0] == '[' && serverName[len(serverName)-1] == ']' {
+		serverName = serverName[1 : len(serverName)-1]
+	}
+	return serverName, net.JoinHostPort(serverName, "443"), nil
+}
+
+func printRootBundleDiagnostics(rootPath string, diagnostics *tlsDiagnostics) {
+	if rootPath == "" || diagnostics == nil || len(diagnostics.PeerCertificates) == 0 {
+		return
+	}
+
+	data, err := os.ReadFile(rootPath)
+	if err != nil {
+		_, _ = fmt.Printf("TLS root bundle read failed: %v\n", err)
+		return
+	}
+
+	totalBlocks := 0
+	parsedCerts := 0
+	matchCount := 0
+	lastPeer := diagnostics.PeerCertificates[len(diagnostics.PeerCertificates)-1]
+	issuerText := lastPeer.Issuer.String()
+	raw := data
+
+	for len(raw) > 0 {
+		var block *pem.Block
+		block, raw = pem.Decode(raw)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" || len(block.Headers) != 0 {
+			continue
+		}
+
+		totalBlocks++
+		root, parseErr := x509.ParseCertificate(block.Bytes)
+		if parseErr != nil {
+			continue
+		}
+		parsedCerts++
+		if root.Subject.String() != issuerText {
+			continue
+		}
+
+		matchCount++
+		_, _ = fmt.Printf("TLS root candidate[%d] subject=%s\n", matchCount-1, root.Subject.String())
+		_, _ = fmt.Printf("TLS root candidate[%d] issuer=%s\n", matchCount-1, root.Issuer.String())
+		if err := lastPeer.CheckSignatureFrom(root); err != nil {
+			_, _ = fmt.Printf("TLS root candidate[%d] signature check failed: %v\n", matchCount-1, err)
+		} else {
+			_, _ = fmt.Printf("TLS root candidate[%d] signature check: ok\n", matchCount-1)
+		}
+	}
+
+	_, _ = fmt.Printf("TLS root bundle diagnostics: pem_blocks=%d parsed=%d matches_for_last_issuer=%d\n",
+		totalBlocks, parsedCerts, matchCount)
+}
+
+func flattenHeaders(header http.Header) []string {
+	lines := make([]string, 0, len(header))
+	for key, values := range header {
+		for index := 0; index < len(values); index++ {
+			lines = append(lines, key+": "+values[index])
+		}
+	}
+	return lines
+}
+
+func readBodyPreview(reader io.Reader, limit int) (string, error) {
 	buffer := make([]byte, limit)
 	n, err := reader.Read(buffer)
 	if err != nil && err != io.EOF {
@@ -243,41 +334,7 @@ func readBodyPreview(reader *bufio.Reader, limit int) (string, error) {
 	return strings.TrimSpace(string(buffer[:n])), nil
 }
 
-func setHTTPSStage(stage string) {
-	httpsStage = stage
-	kos.DebugString("https demo stage: " + stage + "\n")
-}
-
-func trimLine(line string) string {
-	line = strings.TrimSuffix(line, "\n")
-	line = strings.TrimSuffix(line, "\r")
-	return line
-}
-
-func tlsVersion(version uint16) string {
-	switch version {
-	case tls.VersionTLS10:
-		return "TLS1.0"
-	case tls.VersionTLS11:
-		return "TLS1.1"
-	case tls.VersionTLS12:
-		return "TLS1.2"
-	case tls.VersionTLS13:
-		return "TLS1.3"
-	default:
-		return fmt.Sprintf("0x%04x", version)
-	}
-}
-
 func waitForExit(console kos.Console) {
-	if console.SupportsInput() {
-		_, _ = fmt.Println("")
-		_, _ = fmt.Println("Press any key to close.")
-		console.Getch()
-		return
-	}
-
-	_, _ = fmt.Println("")
-	_, _ = fmt.Println("Input export missing, closing in five seconds.")
-	kos.SleepSeconds(5)
+	_, _ = fmt.Print("\nPress any key to exit...")
+	console.Getch()
 }
