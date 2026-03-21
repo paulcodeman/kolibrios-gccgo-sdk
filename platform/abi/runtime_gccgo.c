@@ -165,6 +165,7 @@ int pthread_setspecific(pthread_key_t key, const void* value) {
 #define RUNTIME_GC_PAGE_SHIFT 12u
 #define RUNTIME_GC_PAGE_SIZE (1u << RUNTIME_GC_PAGE_SHIFT)
 #define RUNTIME_GC_PAGE_MASK (RUNTIME_GC_PAGE_SIZE - 1u)
+#define RUNTIME_GC_SMALL_EMPTY_KEEP 1u
 #define RUNTIME_GC_PAGE_BUCKETS 4096u
 #define RUNTIME_GC_SMALL_PAGE_L1_BITS 10u
 #define RUNTIME_GC_SMALL_PAGE_L2_BITS 10u
@@ -202,6 +203,9 @@ typedef struct runtime_gc_small_central {
     uint32_t count;
     uintptr_t chunk_cursor;
     uint32_t chunk_remaining;
+    struct runtime_gc_small_chunk* empty_list;
+    uint16_t empty_count;
+    uint16_t reserved0;
     runtime_mutex lock;
 } runtime_gc_small_central;
 
@@ -209,6 +213,7 @@ typedef struct runtime_gc_small_chunk {
     struct runtime_gc_small_chunk* all_next;
     struct runtime_gc_small_chunk* active_next;
     struct runtime_gc_small_chunk* active_prev;
+    struct runtime_gc_small_chunk* empty_next;
     uintptr_t base;
     uintptr_t limit;
     uintptr_t object_size;
@@ -216,7 +221,9 @@ typedef struct runtime_gc_small_chunk {
     uint16_t alloc_class;
     uint16_t allocated;
     uint16_t slot_count;
-    uint16_t reserved0;
+    uint8_t empty_cached;
+    uint8_t reclaimable;
+    uint8_t reserved0;
 } runtime_gc_small_chunk;
 
 static runtime_pool_node* runtime_pool_free_lists[RUNTIME_POOL_CLASS_COUNT];
@@ -516,13 +523,16 @@ static runtime_gc_small_chunk* runtime_gc_small_chunk_register(uintptr_t base, s
     chunk->all_next = NULL;
     chunk->active_next = NULL;
     chunk->active_prev = NULL;
+    chunk->empty_next = NULL;
     chunk->base = base;
     chunk->limit = base + chunk_size;
     chunk->object_size = object_size;
     chunk->alloc_class = alloc_class;
     chunk->allocated = 0;
     chunk->slot_count = (uint16_t)slot_count;
-    chunk->reserved0 = 0;
+    chunk->empty_cached = 0u;
+    chunk->reclaimable = 0u;
+    chunk->reserved0 = 0u;
 
     page = runtime_gc_page_base(base);
     last_page = runtime_gc_page_base(base + chunk_size - 1u);
@@ -565,6 +575,49 @@ static size_t runtime_persistent_normalize_align(size_t align) {
         out <<= 1u;
     }
     return out < align ? align : out;
+}
+
+typedef struct runtime_aligned_alloc_header {
+    void* raw;
+} runtime_aligned_alloc_header;
+
+static void* runtime_alloc_aligned_zeroed(size_t size, size_t align) {
+    size_t alloc_size;
+    void* raw;
+    uintptr_t start;
+    runtime_aligned_alloc_header* header;
+
+    if (size == 0) {
+        return NULL;
+    }
+
+    align = runtime_persistent_normalize_align(align);
+    if (size > (size_t)-1 - align - sizeof(runtime_aligned_alloc_header)) {
+        return NULL;
+    }
+
+    alloc_size = size + align + sizeof(runtime_aligned_alloc_header);
+    raw = malloc(alloc_size);
+    if (raw == NULL) {
+        return NULL;
+    }
+
+    start = runtime_align_up_pow2((uintptr_t)raw + sizeof(runtime_aligned_alloc_header), (uintptr_t)align);
+    header = (runtime_aligned_alloc_header*)(start - sizeof(runtime_aligned_alloc_header));
+    header->raw = raw;
+    kos_memset((void*)start, 0, size);
+    return (void*)start;
+}
+
+static void runtime_free_aligned(void* ptr) {
+    runtime_aligned_alloc_header* header;
+
+    if (ptr == NULL) {
+        return;
+    }
+
+    header = (runtime_aligned_alloc_header*)((uintptr_t)ptr - sizeof(runtime_aligned_alloc_header));
+    free(header->raw);
 }
 
 static void* runtime_persistent_alloc(size_t size, size_t align) {
@@ -811,17 +864,14 @@ static void runtime_fixalloc_free(runtime_fixalloc* allocator, void* ptr) {
     }
 }
 
-static void runtime_gc_small_central_push_chain(uint32_t class_index, runtime_pool_node* head) {
-    runtime_gc_small_central* central;
+static void runtime_gc_small_central_push_chain_locked(runtime_gc_small_central* central, runtime_pool_node* head) {
     runtime_pool_node* tail;
     uint32_t count;
-    bool fast_path;
 
-    if (head == NULL || class_index >= RUNTIME_GC_SMALL_CLASS_COUNT) {
+    if (central == NULL || head == NULL) {
         return;
     }
 
-    central = &runtime_gc_small_centrals[class_index];
     tail = head;
     count = 1u;
     while (tail->next != NULL) {
@@ -829,19 +879,88 @@ static void runtime_gc_small_central_push_chain(uint32_t class_index, runtime_po
         count++;
     }
 
+    tail->next = central->list;
+    central->list = head;
+    central->count += count;
+}
+
+static void runtime_gc_small_central_push_chain(uint32_t class_index, runtime_pool_node* head) {
+    runtime_gc_small_central* central;
+    bool fast_path;
+
+    if (head == NULL || class_index >= RUNTIME_GC_SMALL_CLASS_COUNT) {
+        return;
+    }
+
+    central = &runtime_gc_small_centrals[class_index];
+
     fast_path = !runtime_world_stopping && runtime_atomic_load_u32(&runtime_m_count) <= 1u;
     if (!fast_path) {
         runtime_lock_mutex(&central->lock);
     }
-    tail->next = central->list;
-    central->list = head;
-    central->count += count;
+    runtime_gc_small_central_push_chain_locked(central, head);
     if (!fast_path) {
         runtime_unlock_mutex(&central->lock);
     }
 }
 
+static void runtime_gc_small_chunk_unregister(runtime_gc_small_chunk* chunk) {
+    uintptr_t page;
+    uintptr_t last_page;
+
+    if (chunk == NULL || chunk->base == 0 || chunk->limit <= chunk->base) {
+        return;
+    }
+
+    page = runtime_gc_page_base(chunk->base);
+    last_page = runtime_gc_page_base(chunk->limit - 1u);
+    while (1) {
+        uintptr_t page_number;
+        runtime_gc_small_chunk** l2;
+
+        page_number = runtime_gc_page_number(page);
+        l2 = runtime_gc_small_page_l2_get(page_number, 0u);
+        if (l2 != NULL &&
+            l2[page_number & (RUNTIME_GC_SMALL_PAGE_L2_COUNT - 1u)] == chunk) {
+            l2[page_number & (RUNTIME_GC_SMALL_PAGE_L2_COUNT - 1u)] = NULL;
+        }
+        if (page == last_page) {
+            break;
+        }
+        page += (uintptr_t)RUNTIME_GC_PAGE_SIZE;
+    }
+}
+
+static runtime_gc_small_chunk* runtime_gc_small_chunk_take_empty_locked(runtime_gc_small_central* central) {
+    runtime_gc_small_chunk* chunk;
+    uintptr_t bitmap_bytes;
+
+    if (central == NULL) {
+        return NULL;
+    }
+
+    chunk = central->empty_list;
+    if (chunk == NULL) {
+        return NULL;
+    }
+
+    central->empty_list = chunk->empty_next;
+    chunk->empty_next = NULL;
+    chunk->empty_cached = 0u;
+    if (central->empty_count > 0u) {
+        central->empty_count--;
+    }
+
+    bitmap_bytes = ((uintptr_t)chunk->slot_count + 7u) >> 3u;
+    if (bitmap_bytes != 0u) {
+        kos_memset(chunk->alloc_bits, 0, bitmap_bytes);
+    }
+    chunk->allocated = 0u;
+    return chunk;
+}
+
 static void* runtime_gc_small_central_alloc_locked(runtime_gc_small_central* central, int class_index, size_t class_size) {
+    runtime_gc_small_chunk* chunk_meta;
     runtime_pool_node* node;
 
     if (central == NULL || class_index < 0 || (uint32_t)class_index >= RUNTIME_GC_SMALL_CLASS_COUNT || class_size == 0) {
@@ -861,14 +980,24 @@ static void* runtime_gc_small_central_alloc_locked(runtime_gc_small_central* cen
         size_t chunk_size;
         void* chunk;
 
-        chunk_size = runtime_pool_fixalloc_chunk_size(class_size);
-        chunk = runtime_persistent_alloc(chunk_size, RUNTIME_GC_PAGE_SIZE);
-        if (chunk == NULL) {
-            return NULL;
+        chunk_meta = runtime_gc_small_chunk_take_empty_locked(central);
+        if (chunk_meta != NULL) {
+            chunk = (void*)chunk_meta->base;
+            chunk_size = (size_t)(chunk_meta->limit - chunk_meta->base);
+        } else {
+            chunk_size = runtime_pool_fixalloc_chunk_size(class_size);
+            chunk = runtime_alloc_aligned_zeroed(chunk_size, RUNTIME_GC_PAGE_SIZE);
+            if (chunk == NULL) {
+                return NULL;
+            }
+            chunk_meta = runtime_gc_small_chunk_register((uintptr_t)chunk, chunk_size, class_size, (uint16_t)class_index);
+            if (chunk_meta == NULL) {
+                runtime_free_aligned(chunk);
+                return NULL;
+            }
+            chunk_meta->reclaimable = 1u;
         }
-        if (runtime_gc_small_chunk_register((uintptr_t)chunk, chunk_size, class_size, (uint16_t)class_index) == NULL) {
-            return NULL;
-        }
+
         central->chunk_cursor = (uintptr_t)chunk + class_size;
         central->chunk_remaining = (uint32_t)(chunk_size - class_size);
         return chunk;
@@ -1072,6 +1201,7 @@ static void* runtime_gc_small_alloc_local_chunk(runtime_m* m, int class_index, s
 }
 
 static void* runtime_gc_small_refill_local_chunk(runtime_m* m, int class_index, size_t class_size) {
+    runtime_gc_small_chunk* chunk_meta;
     size_t chunk_size;
     void* chunk;
 
@@ -1080,13 +1210,16 @@ static void* runtime_gc_small_refill_local_chunk(runtime_m* m, int class_index, 
     }
 
     chunk_size = runtime_pool_fixalloc_chunk_size(class_size);
-    chunk = runtime_persistent_alloc(chunk_size, RUNTIME_GC_PAGE_SIZE);
+    chunk = runtime_alloc_aligned_zeroed(chunk_size, RUNTIME_GC_PAGE_SIZE);
     if (chunk == NULL) {
         return NULL;
     }
-    if (runtime_gc_small_chunk_register((uintptr_t)chunk, chunk_size, class_size, (uint16_t)class_index) == NULL) {
+    chunk_meta = runtime_gc_small_chunk_register((uintptr_t)chunk, chunk_size, class_size, (uint16_t)class_index);
+    if (chunk_meta == NULL) {
+        runtime_free_aligned(chunk);
         return NULL;
     }
+    chunk_meta->reclaimable = 1u;
 
     m->gc_small_local_chunk_cursor[class_index] = (uintptr_t)chunk + class_size;
     m->gc_small_local_chunk_remaining[class_index] = (uint32_t)(chunk_size - class_size);
@@ -1166,12 +1299,131 @@ static void runtime_gc_small_flush_mcache_locked(runtime_m* m) {
 }
 
 static void runtime_gc_small_collect_locked(void) {
+    uint32_t class_index;
     runtime_m* m;
 
     for (m = runtime_allm; m != NULL; m = m->next) {
         runtime_gc_small_flush_mcache_locked(m);
         m->tiny = 0;
         m->tinyoffset = 0;
+    }
+
+    for (class_index = 0; class_index < RUNTIME_GC_SMALL_CLASS_COUNT; class_index++) {
+        runtime_gc_small_central* central;
+        runtime_pool_node* tail;
+        size_t class_size;
+
+        central = &runtime_gc_small_centrals[class_index];
+        class_size = runtime_gc_small_class_size(class_index);
+        if (class_size == 0) {
+            central->chunk_cursor = 0;
+            central->chunk_remaining = 0;
+            continue;
+        }
+
+        tail = runtime_chunk_tail_to_chain(central->chunk_cursor,
+                                           central->chunk_remaining,
+                                           class_size);
+        central->chunk_cursor = 0;
+        central->chunk_remaining = 0;
+        runtime_gc_small_central_push_chain_locked(central, tail);
+    }
+}
+
+static void runtime_gc_small_chunk_detach_from_all(uint32_t class_index, runtime_gc_small_chunk* target) {
+    runtime_gc_small_chunk** link;
+
+    if (target == NULL || class_index >= RUNTIME_GC_SMALL_CLASS_COUNT) {
+        return;
+    }
+
+    link = &runtime_gc_small_chunks[class_index];
+    while (*link != NULL) {
+        if (*link == target) {
+            *link = target->all_next;
+            target->all_next = NULL;
+            return;
+        }
+        link = &(*link)->all_next;
+    }
+}
+
+static void runtime_gc_small_reclaim_empty_chunks_locked(void) {
+    uint32_t class_index;
+
+    for (class_index = 0; class_index < RUNTIME_GC_SMALL_CLASS_COUNT; class_index++) {
+        runtime_gc_small_central* central;
+        runtime_pool_node* kept_head;
+        runtime_pool_node* kept_tail;
+        runtime_pool_node* node;
+        runtime_gc_small_chunk* chunk;
+        uint32_t kept_count;
+
+        central = &runtime_gc_small_centrals[class_index];
+        kept_head = NULL;
+        kept_tail = NULL;
+        kept_count = 0u;
+        for (node = central->list; node != NULL;) {
+            runtime_pool_node* next;
+            runtime_gc_small_chunk* owner;
+
+            next = node->next;
+            owner = runtime_gc_small_page_lookup((uintptr_t)node);
+            if (owner != NULL &&
+                owner->alloc_class == class_index &&
+                owner->reclaimable &&
+                owner->allocated == 0u) {
+                node = next;
+                continue;
+            }
+
+            node->next = NULL;
+            if (kept_tail != NULL) {
+                kept_tail->next = node;
+            } else {
+                kept_head = node;
+            }
+            kept_tail = node;
+            kept_count++;
+            node = next;
+        }
+        central->list = kept_head;
+        central->count = kept_count;
+
+        for (chunk = runtime_gc_small_chunks[class_index]; chunk != NULL; chunk = chunk->all_next) {
+            if (chunk->base == 0 ||
+                chunk->allocated != 0u ||
+                !chunk->reclaimable ||
+                chunk->empty_cached) {
+                continue;
+            }
+
+            chunk->empty_cached = 1u;
+            chunk->empty_next = central->empty_list;
+            central->empty_list = chunk;
+            central->empty_count++;
+        }
+
+        while (central->empty_count > RUNTIME_GC_SMALL_EMPTY_KEEP &&
+               central->empty_list != NULL) {
+            runtime_gc_small_chunk* released;
+
+            released = central->empty_list;
+            central->empty_list = released->empty_next;
+            released->empty_next = NULL;
+            released->empty_cached = 0u;
+            if (central->empty_count > 0u) {
+                central->empty_count--;
+            }
+
+            runtime_gc_small_chunk_unregister(released);
+            runtime_gc_small_chunk_detach_from_all(class_index, released);
+            runtime_free_aligned((void*)released->base);
+            released->base = 0;
+            released->limit = 0;
+            released->allocated = 0u;
+            released->slot_count = 0u;
+        }
     }
 }
 
@@ -6690,6 +6942,7 @@ static void runtime_gc_collect_impl_locked(void) {
     }
     runtime_gc_sweep_small_chunks_locked();
     runtime_gc_small_collect_locked();
+    runtime_gc_small_reclaim_empty_chunks_locked();
     runtime_lock_mutex(&runtime_pool_lock);
     runtime_pool_collect_locked();
     runtime_unlock_mutex(&runtime_pool_lock);
