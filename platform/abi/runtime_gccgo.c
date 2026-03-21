@@ -650,6 +650,34 @@ static void runtime_fixalloc_free_chain(runtime_fixalloc* allocator, runtime_poo
     }
 }
 
+static runtime_pool_node* runtime_chunk_tail_to_chain(uintptr_t cursor, uint32_t remaining, size_t class_size) {
+    runtime_pool_node* head;
+    runtime_pool_node* tail;
+
+    if (cursor == 0 || class_size == 0 || (size_t)remaining < class_size) {
+        return NULL;
+    }
+
+    head = NULL;
+    tail = NULL;
+    while ((size_t)remaining >= class_size) {
+        runtime_pool_node* node;
+
+        node = (runtime_pool_node*)cursor;
+        node->next = NULL;
+        if (tail != NULL) {
+            tail->next = node;
+        } else {
+            head = node;
+        }
+        tail = node;
+        cursor += class_size;
+        remaining -= (uint32_t)class_size;
+    }
+
+    return head;
+}
+
 static void runtime_fixalloc_free(runtime_fixalloc* allocator, void* ptr) {
     runtime_pool_node* node;
     bool fast_path;
@@ -884,11 +912,33 @@ static void runtime_gc_small_flush_mcache_locked(runtime_m* m) {
     }
 
     for (class_index = 0; class_index < RUNTIME_GC_SMALL_CLASS_COUNT; class_index++) {
+        size_t class_size;
         runtime_pool_node* node;
+        runtime_pool_node* tail;
 
         node = m->gc_small_local_lists[class_index];
-        if (node == NULL) {
+        class_size = runtime_gc_small_class_size(class_index);
+        if (class_size == 0) {
+            m->gc_small_local_lists[class_index] = NULL;
+            m->gc_small_local_counts[class_index] = 0;
+            m->gc_small_local_chunk_cursor[class_index] = 0;
+            m->gc_small_local_chunk_remaining[class_index] = 0;
             continue;
+        }
+
+        tail = runtime_chunk_tail_to_chain(m->gc_small_local_chunk_cursor[class_index],
+                                           m->gc_small_local_chunk_remaining[class_index],
+                                           class_size);
+        m->gc_small_local_chunk_cursor[class_index] = 0;
+        m->gc_small_local_chunk_remaining[class_index] = 0;
+        if (node == NULL) {
+            node = tail;
+        } else if (tail != NULL) {
+            runtime_pool_node* end = node;
+            while (end->next != NULL) {
+                end = end->next;
+            }
+            end->next = tail;
         }
         m->gc_small_local_lists[class_index] = NULL;
         m->gc_small_local_counts[class_index] = 0;
@@ -901,6 +951,8 @@ static void runtime_gc_small_collect_locked(void) {
 
     for (m = runtime_allm; m != NULL; m = m->next) {
         runtime_gc_small_flush_mcache_locked(m);
+        m->tiny = 0;
+        m->tinyoffset = 0;
     }
 }
 
@@ -1047,6 +1099,38 @@ static void runtime_pool_release_local_chain_locked(runtime_m* m, int class_inde
     }
 }
 
+static void runtime_pool_release_local_chunk_locked(runtime_m* m, int class_index, size_t class_size) {
+    int local_index;
+    runtime_pool_node* chain;
+    runtime_pool_node* node;
+
+    if (m == NULL || class_index < 0 || (uint32_t)class_index >= RUNTIME_POOL_CLASS_COUNT) {
+        return;
+    }
+
+    local_index = runtime_pool_local_class_index(class_index);
+    if (local_index < 0) {
+        return;
+    }
+
+    chain = runtime_chunk_tail_to_chain(m->pool_local_chunk_cursor[local_index],
+                                        m->pool_local_chunk_remaining[local_index],
+                                        class_size);
+    m->pool_local_chunk_cursor[local_index] = 0;
+    m->pool_local_chunk_remaining[local_index] = 0;
+    while (chain != NULL) {
+        runtime_pool_node* next;
+        bool released;
+
+        next = chain->next;
+        released = runtime_pool_release_global_locked((void*)chain, class_size, class_index);
+        if (!released) {
+            free(chain);
+        }
+        chain = next;
+    }
+}
+
 static void runtime_pool_flush_mcache_locked(runtime_m* m) {
     uint32_t class_index;
 
@@ -1059,6 +1143,7 @@ static void runtime_pool_flush_mcache_locked(runtime_m* m) {
 
         class_size = ((size_t)1u) << ((size_t)class_index + RUNTIME_POOL_MIN_SHIFT);
         runtime_pool_release_local_chain_locked(m, (int)class_index, class_size);
+        runtime_pool_release_local_chunk_locked(m, (int)class_index, class_size);
     }
     m->pool_local_bytes = 0;
 }
@@ -6030,13 +6115,12 @@ static void runtime_gc_mark_defers(void) {
     }
 }
 
-static void runtime_gc_mark_m_caches(void) {
+static void runtime_gc_flush_m_tiny_caches_locked(void) {
     runtime_m* m;
 
     for (m = runtime_allm; m != NULL; m = m->next) {
-        if (m->tiny != 0) {
-            runtime_gc_mark_pointer((const void*)m->tiny);
-        }
+        m->tiny = 0;
+        m->tinyoffset = 0;
     }
 }
 
@@ -6072,7 +6156,6 @@ __attribute__((noinline)) static void runtime_gc_mark_roots_and_stack(void) {
     runtime_gc_scan_conservative_words(registers, sizeof(registers));
     runtime_gc_mark_registered_roots();
     runtime_gc_mark_defers();
-    runtime_gc_mark_m_caches();
     runtime_g* current = runtime_getg();
     for (g = runtime_allg; g != NULL; g = g->all_next) {
         uintptr_t marker;
@@ -6161,6 +6244,7 @@ static void runtime_gc_collect_impl_locked(void) {
     runtime_stop_world();
     runtime_gc_running = 1;
     runtime_gc_mark_token = (runtime_gc_mark_token == 1u) ? 2u : 1u;
+    runtime_gc_flush_m_tiny_caches_locked();
 
     runtime_gc_mark_roots_and_stack();
     current = runtime_gc_objects;
