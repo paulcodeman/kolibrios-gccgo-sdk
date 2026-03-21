@@ -626,6 +626,30 @@ static void* runtime_fixalloc_try_alloc_list(runtime_fixalloc* allocator) {
     return result;
 }
 
+static void runtime_fixalloc_free_chain(runtime_fixalloc* allocator, runtime_pool_node* head) {
+    runtime_pool_node* tail;
+    bool fast_path;
+
+    if (allocator == NULL || head == NULL) {
+        return;
+    }
+
+    tail = head;
+    while (tail->next != NULL) {
+        tail = tail->next;
+    }
+
+    fast_path = !runtime_world_stopping && runtime_atomic_load_u32(&runtime_m_count) <= 1u;
+    if (!fast_path) {
+        runtime_lock_mutex(&allocator->lock);
+    }
+    tail->next = allocator->list;
+    allocator->list = head;
+    if (!fast_path) {
+        runtime_unlock_mutex(&allocator->lock);
+    }
+}
+
 static void runtime_fixalloc_free(runtime_fixalloc* allocator, void* ptr) {
     runtime_pool_node* node;
     bool fast_path;
@@ -742,6 +766,47 @@ static void* runtime_gc_small_alloc_local(runtime_m* m, int class_index) {
     return (void*)node;
 }
 
+static void* runtime_gc_small_refill_local_free(runtime_m* m, int class_index, size_t class_size) {
+    runtime_fixalloc* allocator;
+    runtime_pool_node* node;
+    uint8_t local_cap;
+    bool fast_path;
+
+    if (m == NULL || class_index < 0 || (uint32_t)class_index >= RUNTIME_GC_SMALL_CLASS_COUNT) {
+        return NULL;
+    }
+
+    allocator = &runtime_gc_small_fixallocs[class_index];
+    local_cap = runtime_pool_local_class_cap(class_size);
+    fast_path = !runtime_world_stopping && runtime_atomic_load_u32(&runtime_m_count) <= 1u;
+    if (!fast_path) {
+        runtime_lock_mutex(&allocator->lock);
+    }
+
+    node = allocator->list;
+    if (node != NULL) {
+        allocator->list = node->next;
+    }
+
+    while (local_cap > 0 && m->gc_small_local_counts[class_index] < local_cap) {
+        runtime_pool_node* cached;
+
+        cached = allocator->list;
+        if (cached == NULL) {
+            break;
+        }
+        allocator->list = cached->next;
+        cached->next = m->gc_small_local_lists[class_index];
+        m->gc_small_local_lists[class_index] = cached;
+        m->gc_small_local_counts[class_index]++;
+    }
+
+    if (!fast_path) {
+        runtime_unlock_mutex(&allocator->lock);
+    }
+    return (void*)node;
+}
+
 static void* runtime_gc_small_alloc_local_chunk(runtime_m* m, int class_index, size_t class_size) {
     void* result;
 
@@ -809,6 +874,34 @@ static bool runtime_gc_small_release_local(runtime_m* m, void* ptr, uint16_t cla
     m->gc_small_local_lists[class_index] = node;
     m->gc_small_local_counts[class_index]++;
     return true;
+}
+
+static void runtime_gc_small_flush_mcache_locked(runtime_m* m) {
+    uint32_t class_index;
+
+    if (m == NULL) {
+        return;
+    }
+
+    for (class_index = 0; class_index < RUNTIME_GC_SMALL_CLASS_COUNT; class_index++) {
+        runtime_pool_node* node;
+
+        node = m->gc_small_local_lists[class_index];
+        if (node == NULL) {
+            continue;
+        }
+        m->gc_small_local_lists[class_index] = NULL;
+        m->gc_small_local_counts[class_index] = 0;
+        runtime_fixalloc_free_chain(&runtime_gc_small_fixallocs[class_index], node);
+    }
+}
+
+static void runtime_gc_small_collect_locked(void) {
+    runtime_m* m;
+
+    for (m = runtime_allm; m != NULL; m = m->next) {
+        runtime_gc_small_flush_mcache_locked(m);
+    }
 }
 
 static void* runtime_pool_refill_local_chunk(runtime_m* m, int local_index, size_t class_size) {
@@ -6079,6 +6172,7 @@ static void runtime_gc_collect_impl_locked(void) {
         }
         current = next;
     }
+    runtime_gc_small_collect_locked();
     runtime_lock_mutex(&runtime_pool_lock);
     runtime_pool_collect_locked();
     runtime_unlock_mutex(&runtime_pool_lock);
@@ -6159,6 +6253,9 @@ static void* runtime_gc_alloc_managed(size_t size, const go_type_descriptor* des
         if (m != NULL) {
             header = (runtime_gc_header*)runtime_gc_small_alloc_local(m, class_index);
         }
+        if (header == NULL && m != NULL) {
+            header = (runtime_gc_header*)runtime_gc_small_refill_local_free(m, class_index, class_size);
+        }
         if (header == NULL) {
             header = (runtime_gc_header*)runtime_fixalloc_try_alloc_list(&runtime_gc_small_fixallocs[class_index]);
         }
@@ -6190,6 +6287,9 @@ static void* runtime_gc_alloc_managed(size_t size, const go_type_descriptor* des
         if (class_index >= 0) {
             if (m != NULL) {
                 header = (runtime_gc_header*)runtime_gc_small_alloc_local(m, class_index);
+            }
+            if (header == NULL && m != NULL) {
+                header = (runtime_gc_header*)runtime_gc_small_refill_local_free(m, class_index, class_size);
             }
             if (header == NULL) {
                 header = (runtime_gc_header*)runtime_fixalloc_try_alloc_list(&runtime_gc_small_fixallocs[class_index]);
