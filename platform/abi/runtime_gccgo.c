@@ -72,6 +72,9 @@ static runtime_m* runtime_getm(void);
 static uintptr_t runtime_align_up_pow2(uintptr_t value, uintptr_t align);
 static void runtime_init_fixallocs(void);
 static void* kos_memset(void* dest, int value, size_t size);
+static void* runtime_persistent_alloc(size_t size, size_t align);
+static uintptr_t runtime_gc_page_base(uintptr_t address);
+static bool runtime_gc_single_thread_fast_path(void);
 __attribute__((noreturn)) static void runtime_exit_process(void);
 static uint32_t runtime_m_count;
 static volatile uint32_t runtime_world_stopping;
@@ -159,6 +162,14 @@ int pthread_setspecific(pthread_key_t key, const void* value) {
 #define RUNTIME_GC_SMALL_MAX_SHIFT 12u
 #define RUNTIME_GC_SMALL_CLASS_COUNT (RUNTIME_GC_SMALL_MAX_SHIFT - RUNTIME_GC_SMALL_MIN_SHIFT + 1u)
 #define RUNTIME_GC_ALLOC_CLASS_POOL 0xFFFFu
+#define RUNTIME_GC_PAGE_SHIFT 12u
+#define RUNTIME_GC_PAGE_SIZE (1u << RUNTIME_GC_PAGE_SHIFT)
+#define RUNTIME_GC_PAGE_MASK (RUNTIME_GC_PAGE_SIZE - 1u)
+#define RUNTIME_GC_PAGE_BUCKETS 4096u
+#define RUNTIME_GC_SMALL_PAGE_L1_BITS 10u
+#define RUNTIME_GC_SMALL_PAGE_L2_BITS 10u
+#define RUNTIME_GC_SMALL_PAGE_L1_COUNT (1u << RUNTIME_GC_SMALL_PAGE_L1_BITS)
+#define RUNTIME_GC_SMALL_PAGE_L2_COUNT (1u << RUNTIME_GC_SMALL_PAGE_L2_BITS)
 #define RUNTIME_POOL_LOCAL_MAX_CACHED_BYTES (32u * 1024u)
 #define RUNTIME_POOL_LOCAL_CLASS_BYTES_LIMIT (8u * 1024u)
 #define RUNTIME_POOL_LOCAL_CLASS_MIN_CACHED 2u
@@ -173,15 +184,25 @@ typedef struct runtime_pool_node {
     struct runtime_pool_node* next;
 } runtime_pool_node;
 
+typedef struct runtime_gc_header runtime_gc_header;
+
 typedef struct runtime_fixalloc {
     size_t size;
     uint32_t chunk_size;
+    uint32_t chunk_align;
     uintptr_t chunk;
     uint32_t nchunk;
     runtime_pool_node* list;
     runtime_mutex lock;
     uint8_t zero;
 } runtime_fixalloc;
+
+typedef struct runtime_gc_small_chunk {
+    uintptr_t base;
+    uintptr_t limit;
+    uintptr_t object_size;
+    uint16_t alloc_class;
+} runtime_gc_small_chunk;
 
 static runtime_pool_node* runtime_pool_free_lists[RUNTIME_POOL_CLASS_COUNT];
 static uint32_t runtime_pool_free_counts[RUNTIME_POOL_CLASS_COUNT];
@@ -196,6 +217,7 @@ static size_t runtime_persistent_limit = 0;
 static runtime_fixalloc runtime_sudog_fixalloc;
 static runtime_fixalloc runtime_gc_page_entry_fixalloc;
 static runtime_fixalloc runtime_gc_small_fixallocs[RUNTIME_GC_SMALL_CLASS_COUNT];
+static runtime_gc_small_chunk** runtime_gc_small_page_l1[RUNTIME_GC_SMALL_PAGE_L1_COUNT];
 static bool runtime_pool_release_global_locked(void* ptr, size_t class_size, int class_index);
 static runtime_m* runtime_allm;
 
@@ -289,6 +311,13 @@ static int runtime_gc_small_class_index(size_t size, size_t* class_size_out) {
     return (int)(shift - RUNTIME_GC_SMALL_MIN_SHIFT);
 }
 
+static size_t runtime_gc_small_class_size(uint32_t class_index) {
+    if (class_index >= RUNTIME_GC_SMALL_CLASS_COUNT) {
+        return 0;
+    }
+    return ((size_t)1u) << (class_index + RUNTIME_GC_SMALL_MIN_SHIFT);
+}
+
 static uint8_t runtime_pool_local_class_cap(size_t class_size) {
     size_t cap;
 
@@ -329,6 +358,83 @@ static size_t runtime_pool_fixalloc_chunk_size(size_t class_size) {
 
 static bool runtime_pool_use_fixalloc(size_t class_size) {
     return class_size <= RUNTIME_POOL_FIXALLOC_MAX_CLASS_SIZE;
+}
+
+static uintptr_t runtime_gc_page_number(uintptr_t address) {
+    return address >> RUNTIME_GC_PAGE_SHIFT;
+}
+
+static runtime_gc_small_chunk** runtime_gc_small_page_l2_get(uintptr_t page_number, uint8_t create) {
+    uintptr_t l1_index;
+    runtime_gc_small_chunk** l2;
+
+    l1_index = page_number >> RUNTIME_GC_SMALL_PAGE_L2_BITS;
+    if (l1_index >= RUNTIME_GC_SMALL_PAGE_L1_COUNT) {
+        return NULL;
+    }
+
+    l2 = runtime_gc_small_page_l1[l1_index];
+    if (l2 == NULL && create) {
+        l2 = (runtime_gc_small_chunk**)runtime_persistent_alloc(
+            sizeof(runtime_gc_small_chunk*) * RUNTIME_GC_SMALL_PAGE_L2_COUNT,
+            sizeof(void*));
+        if (l2 == NULL) {
+            return NULL;
+        }
+        runtime_gc_small_page_l1[l1_index] = l2;
+    }
+    return l2;
+}
+
+static runtime_gc_small_chunk* runtime_gc_small_page_lookup(uintptr_t address) {
+    uintptr_t page_number;
+    runtime_gc_small_chunk** l2;
+
+    page_number = runtime_gc_page_number(address);
+    l2 = runtime_gc_small_page_l2_get(page_number, 0u);
+    if (l2 == NULL) {
+        return NULL;
+    }
+    return l2[page_number & (RUNTIME_GC_SMALL_PAGE_L2_COUNT - 1u)];
+}
+
+static runtime_gc_small_chunk* runtime_gc_small_chunk_register(uintptr_t base, size_t chunk_size, size_t object_size, uint16_t alloc_class) {
+    runtime_gc_small_chunk* chunk;
+    uintptr_t page;
+    uintptr_t last_page;
+
+    if (base == 0 || chunk_size == 0 || object_size == 0) {
+        return NULL;
+    }
+
+    chunk = (runtime_gc_small_chunk*)runtime_persistent_alloc(sizeof(runtime_gc_small_chunk), sizeof(void*));
+    if (chunk == NULL) {
+        return NULL;
+    }
+    chunk->base = base;
+    chunk->limit = base + chunk_size;
+    chunk->object_size = object_size;
+    chunk->alloc_class = alloc_class;
+
+    page = runtime_gc_page_base(base);
+    last_page = runtime_gc_page_base(base + chunk_size - 1u);
+    while (1) {
+        uintptr_t page_number;
+        runtime_gc_small_chunk** l2;
+
+        page_number = runtime_gc_page_number(page);
+        l2 = runtime_gc_small_page_l2_get(page_number, 1u);
+        if (l2 == NULL) {
+            return NULL;
+        }
+        l2[page_number & (RUNTIME_GC_SMALL_PAGE_L2_COUNT - 1u)] = chunk;
+        if (page == last_page) {
+            break;
+        }
+        page += (uintptr_t)RUNTIME_GC_PAGE_SIZE;
+    }
+
+    return chunk;
 }
 
 static size_t runtime_persistent_normalize_align(size_t align) {
@@ -428,6 +534,7 @@ static void runtime_fixalloc_configure(runtime_fixalloc* allocator, size_t size,
 
     allocator->size = size;
     allocator->chunk_size = (uint32_t)chunk_size;
+    allocator->chunk_align = (uint32_t)size;
     allocator->chunk = 0;
     allocator->nchunk = 0;
     allocator->list = NULL;
@@ -462,7 +569,10 @@ static void* runtime_fixalloc_alloc(runtime_fixalloc* allocator) {
     }
 
     if ((size_t)allocator->nchunk < allocator->size || allocator->chunk == 0) {
-        result = runtime_persistent_alloc((size_t)allocator->chunk_size, allocator->size);
+        size_t align;
+
+        align = allocator->chunk_align != 0 ? (size_t)allocator->chunk_align : allocator->size;
+        result = runtime_persistent_alloc((size_t)allocator->chunk_size, align);
         if (result == NULL) {
             if (!fast_path) {
                 runtime_unlock_mutex(&allocator->lock);
@@ -580,6 +690,94 @@ static void* runtime_pool_alloc_local_chunk(runtime_m* m, int local_index, size_
     m->pool_local_chunk_cursor[local_index] += class_size;
     m->pool_local_chunk_remaining[local_index] -= (uint32_t)class_size;
     return result;
+}
+
+static void* runtime_gc_small_alloc_local(runtime_m* m, int class_index) {
+    runtime_pool_node* node;
+
+    if (m == NULL || class_index < 0 || (uint32_t)class_index >= RUNTIME_GC_SMALL_CLASS_COUNT) {
+        return NULL;
+    }
+
+    node = m->gc_small_local_lists[class_index];
+    if (node == NULL) {
+        return NULL;
+    }
+
+    m->gc_small_local_lists[class_index] = node->next;
+    if (m->gc_small_local_counts[class_index] > 0) {
+        m->gc_small_local_counts[class_index]--;
+    }
+    return (void*)node;
+}
+
+static void* runtime_gc_small_alloc_local_chunk(runtime_m* m, int class_index, size_t class_size) {
+    void* result;
+
+    if (m == NULL || class_index < 0 || (uint32_t)class_index >= RUNTIME_GC_SMALL_CLASS_COUNT) {
+        return NULL;
+    }
+    if ((size_t)m->gc_small_local_chunk_remaining[class_index] < class_size ||
+        m->gc_small_local_chunk_cursor[class_index] == 0) {
+        return NULL;
+    }
+
+    result = (void*)m->gc_small_local_chunk_cursor[class_index];
+    m->gc_small_local_chunk_cursor[class_index] += class_size;
+    m->gc_small_local_chunk_remaining[class_index] -= (uint32_t)class_size;
+    return result;
+}
+
+static void* runtime_gc_small_refill_local_chunk(runtime_m* m, int class_index, size_t class_size) {
+    size_t chunk_size;
+    void* chunk;
+
+    if (m == NULL || class_index < 0 || (uint32_t)class_index >= RUNTIME_GC_SMALL_CLASS_COUNT) {
+        return NULL;
+    }
+
+    chunk_size = runtime_pool_fixalloc_chunk_size(class_size);
+    chunk = runtime_persistent_alloc(chunk_size, RUNTIME_GC_PAGE_SIZE);
+    if (chunk == NULL) {
+        return NULL;
+    }
+    if (runtime_gc_small_chunk_register((uintptr_t)chunk, chunk_size, class_size, (uint16_t)class_index) == NULL) {
+        return NULL;
+    }
+
+    m->gc_small_local_chunk_cursor[class_index] = (uintptr_t)chunk + class_size;
+    m->gc_small_local_chunk_remaining[class_index] = (uint32_t)(chunk_size - class_size);
+    return chunk;
+}
+
+static bool runtime_gc_small_release_local(runtime_m* m, void* ptr, uint16_t class_index) {
+    runtime_pool_node* node;
+    size_t class_size;
+    uint8_t local_cap;
+
+    if (m == NULL || ptr == NULL) {
+        return false;
+    }
+
+    if (class_index >= RUNTIME_GC_SMALL_CLASS_COUNT) {
+        return false;
+    }
+
+    class_size = runtime_gc_small_class_size(class_index);
+    if (class_size == 0) {
+        return false;
+    }
+
+    local_cap = runtime_pool_local_class_cap(class_size);
+    if (local_cap == 0 || m->gc_small_local_counts[class_index] >= local_cap) {
+        return false;
+    }
+
+    node = (runtime_pool_node*)ptr;
+    node->next = m->gc_small_local_lists[class_index];
+    m->gc_small_local_lists[class_index] = node;
+    m->gc_small_local_counts[class_index]++;
+    return true;
 }
 
 static void* runtime_pool_refill_local_chunk(runtime_m* m, int local_index, size_t class_size) {
@@ -1517,6 +1715,10 @@ static void runtime_init_g0(void) {
     runtime_m0.exit_check_counter = 0;
     runtime_m0.tiny = 0;
     runtime_m0.tinyoffset = 0;
+    kos_memset(runtime_m0.gc_small_local_lists, 0, sizeof(runtime_m0.gc_small_local_lists));
+    kos_memset(runtime_m0.gc_small_local_counts, 0, sizeof(runtime_m0.gc_small_local_counts));
+    kos_memset(runtime_m0.gc_small_local_chunk_cursor, 0, sizeof(runtime_m0.gc_small_local_chunk_cursor));
+    kos_memset(runtime_m0.gc_small_local_chunk_remaining, 0, sizeof(runtime_m0.gc_small_local_chunk_remaining));
     runtime_g0.m = &runtime_m0;
     runtime_g0.lockedm = &runtime_m0;
     runtime_g0.entrysp = 0;
@@ -1921,6 +2123,10 @@ void runtime_m_start(runtime_m_start_record* start) {
     m->exit_check_counter = 0;
     m->tiny = 0;
     m->tinyoffset = 0;
+    kos_memset(m->gc_small_local_lists, 0, sizeof(m->gc_small_local_lists));
+    kos_memset(m->gc_small_local_counts, 0, sizeof(m->gc_small_local_counts));
+    kos_memset(m->gc_small_local_chunk_cursor, 0, sizeof(m->gc_small_local_chunk_cursor));
+    kos_memset(m->gc_small_local_chunk_remaining, 0, sizeof(m->gc_small_local_chunk_remaining));
     {
         uint32_t slot = runtime_kolibri_current_thread_slot();
         if (slot == 0) {
@@ -3179,6 +3385,7 @@ static void runtime_init_fixallocs(void) {
 
         class_size = ((size_t)1u) << ((size_t)class_index + RUNTIME_GC_SMALL_MIN_SHIFT);
         runtime_fixalloc_configure(&runtime_gc_small_fixallocs[class_index], class_size, 1u);
+        runtime_gc_small_fixallocs[class_index].chunk_align = RUNTIME_GC_PAGE_SIZE;
     }
 }
  
@@ -3192,11 +3399,6 @@ static void runtime_init_fixallocs(void) {
 #define GO_TYPE_KIND_COMPLEX128 0x10u
 
 #define RUNTIME_TINY_SIZE 16u
-#define RUNTIME_GC_PAGE_SHIFT 12u
-#define RUNTIME_GC_PAGE_SIZE (1u << RUNTIME_GC_PAGE_SHIFT)
-#define RUNTIME_GC_PAGE_MASK (RUNTIME_GC_PAGE_SIZE - 1u)
-#define RUNTIME_GC_PAGE_BUCKETS 4096u
-
 typedef struct {
     uintptr_t size;
 } go_type_size_only_descriptor;
@@ -5125,6 +5327,10 @@ static void runtime_gc_index_add(runtime_gc_header* header) {
     if (header == NULL) {
         return;
     }
+    if (header->alloc_class != RUNTIME_GC_ALLOC_CLASS_POOL &&
+        header->alloc_class < RUNTIME_GC_SMALL_CLASS_COUNT) {
+        return;
+    }
 
     start = (uintptr_t)runtime_gc_payload(header);
     end = start + header->size;
@@ -5179,6 +5385,10 @@ static void runtime_gc_index_remove(runtime_gc_header* header) {
     runtime_gc_page_entry* entry;
 
     if (header == NULL) {
+        return;
+    }
+    if (header->alloc_class != RUNTIME_GC_ALLOC_CLASS_POOL &&
+        header->alloc_class < RUNTIME_GC_SMALL_CLASS_COUNT) {
         return;
     }
 
@@ -5240,6 +5450,45 @@ static runtime_gc_header* runtime_gc_index_lookup(const void* address) {
     return NULL;
 }
 
+static runtime_gc_header* runtime_gc_small_chunk_lookup(const void* address) {
+    runtime_gc_small_chunk* chunk;
+    runtime_gc_header* header;
+    uintptr_t target;
+    uintptr_t slot_base;
+    uintptr_t offset;
+    uintptr_t start;
+    uintptr_t end;
+
+    if (address == NULL) {
+        return NULL;
+    }
+
+    target = (uintptr_t)address;
+    chunk = runtime_gc_small_page_lookup(target);
+    if (chunk == NULL || target < chunk->base || target >= chunk->limit || chunk->object_size == 0) {
+        return NULL;
+    }
+
+    offset = target - chunk->base;
+    slot_base = chunk->base + (offset / chunk->object_size) * chunk->object_size;
+    header = (runtime_gc_header*)slot_base;
+    if (header->reserved == 0 ||
+        header->alloc_class != chunk->alloc_class) {
+        return NULL;
+    }
+
+    start = (uintptr_t)runtime_gc_payload(header);
+    end = start + header->size;
+    if (end < start) {
+        end = (uintptr_t)-1;
+    }
+    if (target < start || target >= end) {
+        return NULL;
+    }
+
+    return header;
+}
+
 static uintptr_t runtime_gc_min_uintptr(uintptr_t left, uintptr_t right) {
     if (left < right) {
         return left;
@@ -5299,6 +5548,11 @@ static runtime_gc_header* runtime_gc_find_header_for_address(const void* address
         return NULL;
     }
 
+    header = runtime_gc_small_chunk_lookup(address);
+    if (header != NULL) {
+        return header;
+    }
+
     header = runtime_gc_index_lookup(address);
     if (header != NULL || runtime_gc_page_index_complete) {
         return header;
@@ -5312,6 +5566,7 @@ static void runtime_gc_link_allocation(runtime_gc_header* header) {
         return;
     }
 
+    header->reserved = 1u;
     header->prev = NULL;
     header->next = runtime_gc_objects;
     if (runtime_gc_objects != NULL) {
@@ -5329,6 +5584,7 @@ static void runtime_gc_unlink_allocation(runtime_gc_header* header) {
         return;
     }
 
+    header->reserved = 0u;
     runtime_gc_index_remove(header);
     if (header->prev != NULL) {
         header->prev->next = header->next;
@@ -5755,6 +6011,14 @@ static void runtime_gc_release_header(runtime_gc_header* header) {
 
     if (header->alloc_class != RUNTIME_GC_ALLOC_CLASS_POOL &&
         header->alloc_class < RUNTIME_GC_SMALL_CLASS_COUNT) {
+        if (runtime_gc_single_thread_fast_path()) {
+            runtime_m* m;
+
+            m = runtime_getm();
+            if (runtime_gc_small_release_local(m, header, header->alloc_class)) {
+                return;
+            }
+        }
         runtime_fixalloc_free(&runtime_gc_small_fixallocs[header->alloc_class], header);
         return;
     }
@@ -5842,9 +6106,11 @@ static void* runtime_gc_alloc_managed(size_t size, const go_type_descriptor* des
     runtime_gc_header* header;
     size_t payload_size;
     size_t total_size;
+    size_t class_size;
     void* payload;
     int class_index;
     bool single_thread_fast_path;
+    runtime_m* m;
 
     (void)aux;
 
@@ -5853,11 +6119,24 @@ static void* runtime_gc_alloc_managed(size_t size, const go_type_descriptor* des
         runtime_panicmem();
     }
     total_size = sizeof(runtime_gc_header) + payload_size;
-    class_index = runtime_gc_small_class_index(total_size, NULL);
+    class_index = runtime_gc_small_class_index(total_size, &class_size);
 
     single_thread_fast_path = runtime_gc_single_thread_fast_path();
+    m = single_thread_fast_path ? runtime_getm() : NULL;
+    header = NULL;
     if (class_index >= 0) {
-        header = (runtime_gc_header*)runtime_fixalloc_alloc(&runtime_gc_small_fixallocs[class_index]);
+        if (m != NULL) {
+            header = (runtime_gc_header*)runtime_gc_small_alloc_local(m, class_index);
+            if (header == NULL) {
+                header = (runtime_gc_header*)runtime_gc_small_alloc_local_chunk(m, class_index, class_size);
+            }
+            if (header == NULL) {
+                header = (runtime_gc_header*)runtime_gc_small_refill_local_chunk(m, class_index, class_size);
+            }
+        }
+        if (header == NULL) {
+            header = (runtime_gc_header*)runtime_fixalloc_alloc(&runtime_gc_small_fixallocs[class_index]);
+        }
     } else {
         header = (runtime_gc_header*)runtime_pool_malloc(total_size);
     }
@@ -5875,7 +6154,18 @@ static void* runtime_gc_alloc_managed(size_t size, const go_type_descriptor* des
         }
 
         if (class_index >= 0) {
-            header = (runtime_gc_header*)runtime_fixalloc_alloc(&runtime_gc_small_fixallocs[class_index]);
+            if (m != NULL) {
+                header = (runtime_gc_header*)runtime_gc_small_alloc_local(m, class_index);
+                if (header == NULL) {
+                    header = (runtime_gc_header*)runtime_gc_small_alloc_local_chunk(m, class_index, class_size);
+                }
+                if (header == NULL) {
+                    header = (runtime_gc_header*)runtime_gc_small_refill_local_chunk(m, class_index, class_size);
+                }
+            }
+            if (header == NULL) {
+                header = (runtime_gc_header*)runtime_fixalloc_alloc(&runtime_gc_small_fixallocs[class_index]);
+            }
         } else {
             header = (runtime_gc_header*)runtime_pool_malloc(total_size);
         }
@@ -5891,6 +6181,15 @@ static void* runtime_gc_alloc_managed(size_t size, const go_type_descriptor* des
     header->alloc_class = class_index >= 0 ? (uint16_t)class_index : RUNTIME_GC_ALLOC_CLASS_POOL;
     header->marked = 0;
     header->reserved = 0;
+
+    if (class_index >= 0 && runtime_gc_small_page_lookup((uintptr_t)header) == NULL) {
+        if (runtime_gc_small_chunk_register((uintptr_t)header,
+                                            runtime_pool_fixalloc_chunk_size(class_size),
+                                            class_size,
+                                            (uint16_t)class_index) == NULL) {
+            runtime_panicmem();
+        }
+    }
 
     payload = runtime_gc_payload(header);
     kos_memset(payload, 0, payload_size);

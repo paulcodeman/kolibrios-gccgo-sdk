@@ -27,6 +27,10 @@ typedef struct runtime_sudog runtime_sudog;
 #define RUNTIME_POOL_LOCAL_CLASS_COUNT 8u
 #endif
 
+#ifndef RUNTIME_GC_SMALL_LOCAL_CLASS_COUNT
+#define RUNTIME_GC_SMALL_LOCAL_CLASS_COUNT 8u
+#endif
+
 struct runtime_panic {
     runtime_panic* link;
     go_empty_interface arg;
@@ -69,6 +73,10 @@ struct runtime_m {
     uintptr_t pool_local_chunk_cursor[RUNTIME_POOL_LOCAL_CLASS_COUNT];
     uint32_t pool_local_chunk_remaining[RUNTIME_POOL_LOCAL_CLASS_COUNT];
     uint32_t pool_local_bytes;
+    runtime_pool_node* gc_small_local_lists[RUNTIME_GC_SMALL_LOCAL_CLASS_COUNT];
+    uint8_t gc_small_local_counts[RUNTIME_GC_SMALL_LOCAL_CLASS_COUNT];
+    uintptr_t gc_small_local_chunk_cursor[RUNTIME_GC_SMALL_LOCAL_CLASS_COUNT];
+    uint32_t gc_small_local_chunk_remaining[RUNTIME_GC_SMALL_LOCAL_CLASS_COUNT];
     runtime_sudog* sudog_local_list;
     uint8_t sudog_local_count;
 };
