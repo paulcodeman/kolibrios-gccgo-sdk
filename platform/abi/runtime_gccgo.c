@@ -6397,6 +6397,11 @@ static void runtime_gc_release_header(runtime_gc_header* header) {
  */
 static void runtime_gc_sweep_small_chunks_locked(void) {
     uint32_t class_index;
+    runtime_pool_node* free_heads[RUNTIME_GC_SMALL_CLASS_COUNT];
+    runtime_pool_node* free_tails[RUNTIME_GC_SMALL_CLASS_COUNT];
+
+    kos_memset(free_heads, 0, sizeof(free_heads));
+    kos_memset(free_tails, 0, sizeof(free_tails));
 
     for (class_index = 0; class_index < RUNTIME_GC_SMALL_CLASS_COUNT; class_index++) {
         runtime_gc_small_chunk* chunk;
@@ -6433,12 +6438,25 @@ static void runtime_gc_sweep_small_chunks_locked(void) {
                         continue;
                     }
                     if (header->marked != runtime_gc_mark_token) {
+                        runtime_pool_node* node;
+
                         runtime_gc_unlink_allocation(header);
-                        runtime_gc_release_header(header);
+                        node = (runtime_pool_node*)header;
+                        node->next = NULL;
+                        if (free_tails[class_index] != NULL) {
+                            free_tails[class_index]->next = node;
+                        } else {
+                            free_heads[class_index] = node;
+                        }
+                        free_tails[class_index] = node;
                     }
                 }
             }
         }
+    }
+
+    for (class_index = 0; class_index < RUNTIME_GC_SMALL_CLASS_COUNT; class_index++) {
+        runtime_fixalloc_free_chain(&runtime_gc_small_fixallocs[class_index], free_heads[class_index]);
     }
 }
 
