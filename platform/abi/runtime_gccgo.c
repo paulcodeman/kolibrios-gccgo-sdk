@@ -313,6 +313,20 @@ static int runtime_pool_local_class_index(int class_index) {
     return class_index;
 }
 
+static size_t runtime_pool_fixalloc_chunk_size(size_t class_size) {
+    size_t alloc_size;
+
+    alloc_size = RUNTIME_POOL_FIXALLOC_CHUNK_SIZE;
+    if (alloc_size < class_size) {
+        alloc_size = class_size;
+    }
+    alloc_size = (alloc_size / class_size) * class_size;
+    if (alloc_size < class_size) {
+        alloc_size = class_size;
+    }
+    return alloc_size;
+}
+
 static bool runtime_pool_use_fixalloc(size_t class_size) {
     return class_size <= RUNTIME_POOL_FIXALLOC_MAX_CLASS_SIZE;
 }
@@ -551,6 +565,42 @@ static void* runtime_pool_alloc_local_class(runtime_m* m, int local_index, size_
     return (void*)node;
 }
 
+static void* runtime_pool_alloc_local_chunk(runtime_m* m, int local_index, size_t class_size) {
+    void* result;
+
+    if (m == NULL || local_index < 0 || !runtime_pool_use_fixalloc(class_size)) {
+        return NULL;
+    }
+    if ((size_t)m->pool_local_chunk_remaining[local_index] < class_size ||
+        m->pool_local_chunk_cursor[local_index] == 0) {
+        return NULL;
+    }
+
+    result = (void*)m->pool_local_chunk_cursor[local_index];
+    m->pool_local_chunk_cursor[local_index] += class_size;
+    m->pool_local_chunk_remaining[local_index] -= (uint32_t)class_size;
+    return result;
+}
+
+static void* runtime_pool_refill_local_chunk(runtime_m* m, int local_index, size_t class_size) {
+    size_t alloc_size;
+    void* chunk;
+
+    if (m == NULL || local_index < 0 || !runtime_pool_use_fixalloc(class_size)) {
+        return NULL;
+    }
+
+    alloc_size = runtime_pool_fixalloc_chunk_size(class_size);
+    chunk = runtime_persistent_alloc(alloc_size, class_size);
+    if (chunk == NULL) {
+        return NULL;
+    }
+
+    m->pool_local_chunk_cursor[local_index] = (uintptr_t)chunk + class_size;
+    m->pool_local_chunk_remaining[local_index] = (uint32_t)(alloc_size - class_size);
+    return chunk;
+}
+
 static bool runtime_pool_release_local_class(runtime_m* m, void* ptr, int local_index, size_t class_size) {
     uint8_t local_cap;
     runtime_pool_node* node;
@@ -574,7 +624,7 @@ static bool runtime_pool_release_local_class(runtime_m* m, void* ptr, int local_
     return true;
 }
 
-static runtime_pool_node* runtime_pool_take_global_locked(int class_index, size_t class_size) {
+static runtime_pool_node* runtime_pool_take_global_free_locked(int class_index, size_t class_size) {
     runtime_pool_node* node;
 
     if (class_index < 0 || (uint32_t)class_index >= RUNTIME_POOL_CLASS_COUNT) {
@@ -597,6 +647,17 @@ static runtime_pool_node* runtime_pool_take_global_locked(int class_index, size_
         return node;
     }
 
+    return NULL;
+}
+
+static runtime_pool_node* runtime_pool_take_global_locked(int class_index, size_t class_size) {
+    runtime_pool_node* node;
+
+    node = runtime_pool_take_global_free_locked(class_index, class_size);
+    if (node != NULL) {
+        return node;
+    }
+
     node = (runtime_pool_node*)runtime_pool_alloc_fixalloc_locked(class_index, class_size);
     if (node != NULL) {
         return node;
@@ -613,7 +674,7 @@ static runtime_pool_node* runtime_pool_refill_local_locked(runtime_m* m, int loc
         return NULL;
     }
 
-    node = runtime_pool_take_global_locked(class_index, class_size);
+    node = runtime_pool_take_global_free_locked(class_index, class_size);
     if (node == NULL) {
         return NULL;
     }
@@ -622,7 +683,7 @@ static runtime_pool_node* runtime_pool_refill_local_locked(runtime_m* m, int loc
     while (local_cap > 0 &&
            m->pool_local_counts[local_index] < local_cap &&
            m->pool_local_bytes + class_size <= RUNTIME_POOL_LOCAL_MAX_CACHED_BYTES) {
-        runtime_pool_node* cached = runtime_pool_take_global_locked(class_index, class_size);
+        runtime_pool_node* cached = runtime_pool_take_global_free_locked(class_index, class_size);
         if (cached == NULL) {
             break;
         }
@@ -798,14 +859,25 @@ void* runtime_pool_malloc(size_t size) {
     m = runtime_getm();
     header = (runtime_pool_header*)runtime_pool_alloc_local_class(m, local_index, class_size);
     if (header == NULL) {
+        header = (runtime_pool_header*)runtime_pool_alloc_local_chunk(m, local_index, class_size);
+    }
+    if (header == NULL) {
         runtime_lock_mutex(&runtime_pool_lock);
         if (m != NULL && local_index >= 0) {
             header = (runtime_pool_header*)runtime_pool_refill_local_locked(m, local_index, class_index, class_size);
         }
-        if (header == NULL) {
+        if (header == NULL && (m == NULL || local_index < 0)) {
             header = (runtime_pool_header*)runtime_pool_take_global_locked(class_index, class_size);
         }
         runtime_unlock_mutex(&runtime_pool_lock);
+        if (header == NULL) {
+            header = (runtime_pool_header*)runtime_pool_refill_local_chunk(m, local_index, class_size);
+        }
+        if (header == NULL) {
+            runtime_lock_mutex(&runtime_pool_lock);
+            header = (runtime_pool_header*)runtime_pool_take_global_locked(class_index, class_size);
+            runtime_unlock_mutex(&runtime_pool_lock);
+        }
         if (header == NULL) {
             header = (runtime_pool_header*)malloc(class_size);
         }

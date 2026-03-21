@@ -66,6 +66,8 @@ struct runtime_m {
     uint32_t tinyoffset;
     runtime_pool_node* pool_local_lists[RUNTIME_POOL_LOCAL_CLASS_COUNT];
     uint8_t pool_local_counts[RUNTIME_POOL_LOCAL_CLASS_COUNT];
+    uintptr_t pool_local_chunk_cursor[RUNTIME_POOL_LOCAL_CLASS_COUNT];
+    uint32_t pool_local_chunk_remaining[RUNTIME_POOL_LOCAL_CLASS_COUNT];
     uint32_t pool_local_bytes;
     runtime_sudog* sudog_local_list;
     uint8_t sudog_local_count;
