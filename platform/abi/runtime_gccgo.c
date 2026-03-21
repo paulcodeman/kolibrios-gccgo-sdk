@@ -203,8 +203,11 @@ typedef struct runtime_gc_small_chunk {
     uintptr_t base;
     uintptr_t limit;
     uintptr_t object_size;
+    uint8_t* alloc_bits;
     uint16_t alloc_class;
     uint16_t allocated;
+    uint16_t slot_count;
+    uint16_t reserved0;
 } runtime_gc_small_chunk;
 
 static runtime_pool_node* runtime_pool_free_lists[RUNTIME_POOL_CLASS_COUNT];
@@ -402,17 +405,56 @@ static runtime_gc_small_chunk* runtime_gc_small_page_lookup(uintptr_t address) {
     return l2[page_number & (RUNTIME_GC_SMALL_PAGE_L2_COUNT - 1u)];
 }
 
+static uintptr_t runtime_gc_small_chunk_slot_index(const runtime_gc_small_chunk* chunk, uintptr_t address) {
+    if (chunk == NULL || chunk->object_size == 0 || address < chunk->base || address >= chunk->limit) {
+        return (uintptr_t)-1;
+    }
+    return (address - chunk->base) / chunk->object_size;
+}
+
+static uint8_t runtime_gc_small_chunk_test_alloc(const runtime_gc_small_chunk* chunk, uintptr_t slot_index) {
+    if (chunk == NULL || chunk->alloc_bits == NULL || slot_index >= chunk->slot_count) {
+        return 0u;
+    }
+    return (uint8_t)((chunk->alloc_bits[slot_index >> 3u] >> (slot_index & 7u)) & 1u);
+}
+
+static void runtime_gc_small_chunk_set_alloc(runtime_gc_small_chunk* chunk, uintptr_t slot_index) {
+    if (chunk == NULL || chunk->alloc_bits == NULL || slot_index >= chunk->slot_count) {
+        return;
+    }
+    chunk->alloc_bits[slot_index >> 3u] |= (uint8_t)(1u << (slot_index & 7u));
+}
+
+static void runtime_gc_small_chunk_clear_alloc(runtime_gc_small_chunk* chunk, uintptr_t slot_index) {
+    if (chunk == NULL || chunk->alloc_bits == NULL || slot_index >= chunk->slot_count) {
+        return;
+    }
+    chunk->alloc_bits[slot_index >> 3u] &= (uint8_t)~(1u << (slot_index & 7u));
+}
+
 static runtime_gc_small_chunk* runtime_gc_small_chunk_register(uintptr_t base, size_t chunk_size, size_t object_size, uint16_t alloc_class) {
     runtime_gc_small_chunk* chunk;
+    size_t slot_count;
+    size_t bitmap_bytes;
     uintptr_t page;
     uintptr_t last_page;
 
     if (base == 0 || chunk_size == 0 || object_size == 0) {
         return NULL;
     }
+    slot_count = chunk_size / object_size;
+    if (slot_count == 0 || slot_count > 0xFFFFu) {
+        return NULL;
+    }
 
     chunk = (runtime_gc_small_chunk*)runtime_persistent_alloc(sizeof(runtime_gc_small_chunk), sizeof(void*));
     if (chunk == NULL) {
+        return NULL;
+    }
+    bitmap_bytes = (slot_count + 7u) >> 3u;
+    chunk->alloc_bits = (uint8_t*)runtime_persistent_alloc(bitmap_bytes, sizeof(void*));
+    if (chunk->alloc_bits == NULL) {
         return NULL;
     }
     chunk->next = NULL;
@@ -422,6 +464,8 @@ static runtime_gc_small_chunk* runtime_gc_small_chunk_register(uintptr_t base, s
     chunk->object_size = object_size;
     chunk->alloc_class = alloc_class;
     chunk->allocated = 0;
+    chunk->slot_count = (uint16_t)slot_count;
+    chunk->reserved0 = 0;
 
     page = runtime_gc_page_base(base);
     last_page = runtime_gc_page_base(base + chunk_size - 1u);
@@ -5695,8 +5739,8 @@ static runtime_gc_header* runtime_gc_small_chunk_lookup(const void* address) {
     runtime_gc_small_chunk* chunk;
     runtime_gc_header* header;
     uintptr_t target;
+    uintptr_t slot_index;
     uintptr_t slot_base;
-    uintptr_t offset;
     uintptr_t start;
     uintptr_t end;
 
@@ -5710,8 +5754,11 @@ static runtime_gc_header* runtime_gc_small_chunk_lookup(const void* address) {
         return NULL;
     }
 
-    offset = target - chunk->base;
-    slot_base = chunk->base + (offset / chunk->object_size) * chunk->object_size;
+    slot_index = runtime_gc_small_chunk_slot_index(chunk, target);
+    if (slot_index == (uintptr_t)-1 || !runtime_gc_small_chunk_test_alloc(chunk, slot_index)) {
+        return NULL;
+    }
+    slot_base = chunk->base + slot_index * chunk->object_size;
     header = (runtime_gc_header*)slot_base;
     if (header->reserved == 0 ||
         header->alloc_class != chunk->alloc_class) {
@@ -5745,18 +5792,30 @@ static runtime_gc_small_chunk* runtime_gc_small_chunk_for_header(const runtime_g
 
 static void runtime_gc_small_chunk_note_alloc(runtime_gc_header* header) {
     runtime_gc_small_chunk* chunk;
+    uintptr_t slot_index;
 
     chunk = runtime_gc_small_chunk_for_header(header);
-    if (chunk != NULL && chunk->allocated < 0xFFFFu) {
+    slot_index = runtime_gc_small_chunk_slot_index(chunk, (uintptr_t)header);
+    if (chunk != NULL &&
+        slot_index != (uintptr_t)-1 &&
+        !runtime_gc_small_chunk_test_alloc(chunk, slot_index) &&
+        chunk->allocated < 0xFFFFu) {
+        runtime_gc_small_chunk_set_alloc(chunk, slot_index);
         chunk->allocated++;
     }
 }
 
 static void runtime_gc_small_chunk_note_free(runtime_gc_header* header) {
     runtime_gc_small_chunk* chunk;
+    uintptr_t slot_index;
 
     chunk = runtime_gc_small_chunk_for_header(header);
-    if (chunk != NULL && chunk->allocated > 0u) {
+    slot_index = runtime_gc_small_chunk_slot_index(chunk, (uintptr_t)header);
+    if (chunk != NULL &&
+        slot_index != (uintptr_t)-1 &&
+        runtime_gc_small_chunk_test_alloc(chunk, slot_index) &&
+        chunk->allocated > 0u) {
+        runtime_gc_small_chunk_clear_alloc(chunk, slot_index);
         chunk->allocated--;
     }
 }
@@ -5868,6 +5927,9 @@ static void runtime_gc_unlink_allocation(runtime_gc_header* header) {
 
     header->reserved = 0u;
     if (runtime_gc_header_is_small(header)) {
+        runtime_gc_small_chunk* chunk;
+
+        chunk = runtime_gc_small_chunk_for_header(header);
         runtime_gc_small_chunk_note_free(header);
         if (runtime_gc_live_bytes >= header->size) {
             runtime_gc_live_bytes -= header->size;
@@ -5879,6 +5941,13 @@ static void runtime_gc_unlink_allocation(runtime_gc_header* header) {
         }
         header->next = NULL;
         header->prev = NULL;
+        if (chunk != NULL &&
+            chunk->allocated == 0u &&
+            runtime_gc_heap_min != 0 &&
+            ((runtime_gc_heap_min >= chunk->base && runtime_gc_heap_min < chunk->limit) ||
+             (runtime_gc_heap_max > chunk->base && runtime_gc_heap_max <= chunk->limit))) {
+            runtime_gc_recompute_heap_bounds();
+        }
         return;
     }
 
@@ -6333,22 +6402,40 @@ static void runtime_gc_sweep_small_chunks_locked(void) {
         runtime_gc_small_chunk* chunk;
 
         for (chunk = runtime_gc_small_chunks[class_index]; chunk != NULL; chunk = chunk->next) {
-            uintptr_t slot;
+            uintptr_t byte_index;
+            uintptr_t bitmap_bytes;
 
             if (chunk->allocated == 0u || chunk->object_size == 0u) {
                 continue;
             }
 
-            for (slot = chunk->base; slot + chunk->object_size <= chunk->limit; slot += chunk->object_size) {
-                runtime_gc_header* header;
+            bitmap_bytes = ((uintptr_t)chunk->slot_count + 7u) >> 3u;
+            for (byte_index = 0; byte_index < bitmap_bytes; byte_index++) {
+                uint8_t bits;
 
-                header = (runtime_gc_header*)slot;
-                if (header->reserved == 0u || header->alloc_class != class_index) {
-                    continue;
-                }
-                if (header->marked != runtime_gc_mark_token) {
-                    runtime_gc_unlink_allocation(header);
-                    runtime_gc_release_header(header);
+                bits = chunk->alloc_bits[byte_index];
+                while (bits != 0u) {
+                    unsigned int bit_index;
+                    uintptr_t slot_index;
+                    uintptr_t slot;
+                    runtime_gc_header* header;
+
+                    bit_index = (unsigned int)__builtin_ctz((unsigned int)bits);
+                    slot_index = (byte_index << 3u) + (uintptr_t)bit_index;
+                    bits &= (uint8_t)(bits - 1u);
+                    if (slot_index >= chunk->slot_count) {
+                        continue;
+                    }
+
+                    slot = chunk->base + slot_index * chunk->object_size;
+                    header = (runtime_gc_header*)slot;
+                    if (header->reserved == 0u || header->alloc_class != class_index) {
+                        continue;
+                    }
+                    if (header->marked != runtime_gc_mark_token) {
+                        runtime_gc_unlink_allocation(header);
+                        runtime_gc_release_header(header);
+                    }
                 }
             }
         }
