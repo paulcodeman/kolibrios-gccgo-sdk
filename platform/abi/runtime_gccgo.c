@@ -69,6 +69,7 @@ static inline uint32_t runtime_atomic_load_u32(const volatile uint32_t* value);
 static inline void runtime_atomic_store_u32(uint32_t* value, uint32_t next);
 static inline bool runtime_atomic_cas_u32(uint32_t* value, uint32_t expected, uint32_t desired);
 static runtime_m* runtime_getm(void);
+static uintptr_t runtime_align_up_pow2(uintptr_t value, uintptr_t align);
 static void* kos_memset(void* dest, int value, size_t size);
 __attribute__((noreturn)) static void runtime_exit_process(void);
 __attribute__((noreturn)) void runtime_kolibri_exit_process(void) __asm__("runtime_kolibri_exit_process");
@@ -147,10 +148,15 @@ int pthread_setspecific(pthread_key_t key, const void* value) {
 #define RUNTIME_POOL_CLASS_BYTES_LIMIT (256u * 1024u)
 #define RUNTIME_POOL_CLASS_MIN_CACHED 2u
 #define RUNTIME_POOL_CLASS_MAX_CACHED 256u
+#define RUNTIME_POOL_FIXALLOC_CHUNK_SIZE (16u * 1024u)
+#define RUNTIME_POOL_FIXALLOC_MAX_CLASS_SIZE (4u * 1024u)
+#define RUNTIME_PERSISTENT_CHUNK_SIZE (256u * 1024u)
+#define RUNTIME_PERSISTENT_DIRECT_THRESHOLD (64u * 1024u)
 #define RUNTIME_POOL_LOCAL_MAX_CACHED_BYTES (32u * 1024u)
 #define RUNTIME_POOL_LOCAL_CLASS_BYTES_LIMIT (8u * 1024u)
 #define RUNTIME_POOL_LOCAL_CLASS_MIN_CACHED 2u
 #define RUNTIME_POOL_LOCAL_CLASS_MAX_CACHED 8u
+#define RUNTIME_POOL_GC_TARGET_CACHED_BYTES (256u * 1024u)
 #define RUNTIME_SUDOG_LOCAL_MAX_CACHED 16u
 #define RUNTIME_SELECT_STACK_CASES 8u
 
@@ -161,9 +167,17 @@ typedef struct runtime_pool_node {
 } runtime_pool_node;
 
 static runtime_pool_node* runtime_pool_free_lists[RUNTIME_POOL_CLASS_COUNT];
-static uint16_t runtime_pool_free_counts[RUNTIME_POOL_CLASS_COUNT];
+static uint32_t runtime_pool_free_counts[RUNTIME_POOL_CLASS_COUNT];
+static uintptr_t runtime_pool_chunk_cursor[RUNTIME_POOL_CLASS_COUNT];
+static uint32_t runtime_pool_chunk_remaining[RUNTIME_POOL_CLASS_COUNT];
 static size_t runtime_pool_cached_bytes = 0;
 static runtime_mutex runtime_pool_lock;
+static runtime_mutex runtime_persistent_lock;
+static uintptr_t runtime_persistent_base = 0;
+static size_t runtime_persistent_offset = 0;
+static size_t runtime_persistent_limit = 0;
+static bool runtime_pool_release_global_locked(void* ptr, size_t class_size, int class_index);
+static runtime_m* runtime_allm;
 
 typedef struct runtime_pool_header {
     uint32_t magic;
@@ -248,6 +262,121 @@ static int runtime_pool_local_class_index(int class_index) {
     return class_index;
 }
 
+static bool runtime_pool_use_fixalloc(size_t class_size) {
+    return class_size <= RUNTIME_POOL_FIXALLOC_MAX_CLASS_SIZE;
+}
+
+static size_t runtime_persistent_normalize_align(size_t align) {
+    size_t out;
+
+    if (align == 0) {
+        return sizeof(void*);
+    }
+    if ((align & (align - 1u)) == 0) {
+        return align;
+    }
+
+    out = sizeof(void*);
+    while (out < align && out < (((size_t)1u) << ((sizeof(size_t) * 8u) - 1u))) {
+        out <<= 1u;
+    }
+    return out < align ? align : out;
+}
+
+static void* runtime_persistent_alloc(size_t size, size_t align) {
+    uintptr_t start;
+    void* result;
+
+    if (size == 0) {
+        return NULL;
+    }
+
+    align = runtime_persistent_normalize_align(align);
+    if (size >= RUNTIME_PERSISTENT_DIRECT_THRESHOLD) {
+        size_t alloc_size;
+        void* raw;
+
+        if (size > (size_t)-1 - align) {
+            return NULL;
+        }
+        alloc_size = size + align;
+        raw = malloc(alloc_size);
+        if (raw == NULL) {
+            return NULL;
+        }
+        start = runtime_align_up_pow2((uintptr_t)raw, (uintptr_t)align);
+        result = (void*)start;
+        kos_memset(result, 0, size);
+        return result;
+    }
+
+    runtime_lock_mutex(&runtime_persistent_lock);
+    start = runtime_align_up_pow2(runtime_persistent_base + (uintptr_t)runtime_persistent_offset, (uintptr_t)align);
+    if (runtime_persistent_base == 0 ||
+        start < runtime_persistent_base ||
+        start - runtime_persistent_base > runtime_persistent_limit ||
+        size > runtime_persistent_limit - (size_t)(start - runtime_persistent_base)) {
+        size_t alloc_size;
+        void* chunk;
+
+        alloc_size = RUNTIME_PERSISTENT_CHUNK_SIZE;
+        if (alloc_size < size + align) {
+            alloc_size = size + align;
+        }
+        chunk = malloc(alloc_size);
+        if (chunk == NULL) {
+            runtime_unlock_mutex(&runtime_persistent_lock);
+            return NULL;
+        }
+        runtime_persistent_base = (uintptr_t)chunk;
+        runtime_persistent_offset = 0;
+        runtime_persistent_limit = alloc_size;
+        start = runtime_align_up_pow2(runtime_persistent_base, (uintptr_t)align);
+    }
+
+    result = (void*)start;
+    runtime_persistent_offset = (size_t)((start - runtime_persistent_base) + size);
+    runtime_unlock_mutex(&runtime_persistent_lock);
+    kos_memset(result, 0, size);
+    return result;
+}
+
+static void* runtime_pool_alloc_fixalloc_locked(int class_index, size_t class_size) {
+    size_t alloc_size;
+    void* result;
+
+    if (class_index < 0 || (uint32_t)class_index >= RUNTIME_POOL_CLASS_COUNT) {
+        return NULL;
+    }
+    if (!runtime_pool_use_fixalloc(class_size)) {
+        return NULL;
+    }
+
+    if ((size_t)runtime_pool_chunk_remaining[class_index] < class_size ||
+        runtime_pool_chunk_cursor[class_index] == 0) {
+        alloc_size = RUNTIME_POOL_FIXALLOC_CHUNK_SIZE;
+        if (alloc_size < class_size) {
+            alloc_size = class_size;
+        }
+        alloc_size = (alloc_size / class_size) * class_size;
+        if (alloc_size < class_size) {
+            alloc_size = class_size;
+        }
+
+        result = runtime_persistent_alloc(alloc_size, class_size);
+        if (result == NULL) {
+            return NULL;
+        }
+        runtime_pool_chunk_cursor[class_index] = (uintptr_t)result;
+        runtime_pool_chunk_remaining[class_index] = (uint32_t)alloc_size;
+    }
+
+    result = (void*)runtime_pool_chunk_cursor[class_index];
+    runtime_pool_chunk_cursor[class_index] += class_size;
+    runtime_pool_chunk_remaining[class_index] -= (uint32_t)class_size;
+    return result;
+}
+
 static void* runtime_pool_alloc_local_class(runtime_m* m, int local_index, size_t class_size) {
     runtime_pool_node* node;
 
@@ -308,11 +437,18 @@ static runtime_pool_node* runtime_pool_take_global_locked(int class_index, size_
         if (runtime_pool_free_counts[class_index] > 0) {
             runtime_pool_free_counts[class_index]--;
         }
-        if (runtime_pool_cached_bytes >= class_size) {
-            runtime_pool_cached_bytes -= class_size;
-        } else {
-            runtime_pool_cached_bytes = 0;
+        if (!runtime_pool_use_fixalloc(class_size)) {
+            if (runtime_pool_cached_bytes >= class_size) {
+                runtime_pool_cached_bytes -= class_size;
+            } else {
+                runtime_pool_cached_bytes = 0;
+            }
         }
+        return node;
+    }
+
+    node = (runtime_pool_node*)runtime_pool_alloc_fixalloc_locked(class_index, class_size);
+    if (node != NULL) {
         return node;
     }
 
@@ -349,6 +485,93 @@ static runtime_pool_node* runtime_pool_refill_local_locked(runtime_m* m, int loc
     return node;
 }
 
+static void runtime_pool_release_local_chain_locked(runtime_m* m, int class_index, size_t class_size) {
+    runtime_pool_node* node;
+    int local_index;
+
+    if (m == NULL || class_index < 0 || (uint32_t)class_index >= RUNTIME_POOL_CLASS_COUNT) {
+        return;
+    }
+
+    local_index = runtime_pool_local_class_index(class_index);
+    if (local_index < 0) {
+        return;
+    }
+
+    node = m->pool_local_lists[local_index];
+    m->pool_local_lists[local_index] = NULL;
+    m->pool_local_counts[local_index] = 0;
+    while (node != NULL) {
+        runtime_pool_node* next;
+        bool released;
+
+        next = node->next;
+        released = runtime_pool_release_global_locked((void*)node, class_size, class_index);
+        if (!released) {
+            free(node);
+        }
+        node = next;
+    }
+}
+
+static void runtime_pool_flush_mcache_locked(runtime_m* m) {
+    uint32_t class_index;
+
+    if (m == NULL) {
+        return;
+    }
+
+    for (class_index = 0; class_index < RUNTIME_POOL_LOCAL_CLASS_COUNT; class_index++) {
+        size_t class_size;
+
+        class_size = ((size_t)1u) << ((size_t)class_index + RUNTIME_POOL_MIN_SHIFT);
+        runtime_pool_release_local_chain_locked(m, (int)class_index, class_size);
+    }
+    m->pool_local_bytes = 0;
+}
+
+static void runtime_pool_trim_global_locked(size_t target_cached_bytes) {
+    int class_index;
+
+    if (runtime_pool_cached_bytes <= target_cached_bytes) {
+        return;
+    }
+
+    for (class_index = (int)RUNTIME_POOL_CLASS_COUNT - 1; class_index >= 0; class_index--) {
+        size_t class_size;
+
+        class_size = ((size_t)1u) << ((size_t)class_index + RUNTIME_POOL_MIN_SHIFT);
+        if (runtime_pool_use_fixalloc(class_size)) {
+            continue;
+        }
+        while (runtime_pool_cached_bytes > target_cached_bytes &&
+               runtime_pool_free_lists[class_index] != NULL) {
+            runtime_pool_node* node;
+
+            node = runtime_pool_free_lists[class_index];
+            runtime_pool_free_lists[class_index] = node->next;
+            if (runtime_pool_free_counts[class_index] > 0) {
+                runtime_pool_free_counts[class_index]--;
+            }
+            if (runtime_pool_cached_bytes >= class_size) {
+                runtime_pool_cached_bytes -= class_size;
+            } else {
+                runtime_pool_cached_bytes = 0;
+            }
+            free(node);
+        }
+    }
+}
+
+static void runtime_pool_collect_locked(void) {
+    runtime_m* m;
+
+    for (m = runtime_allm; m != NULL; m = m->next) {
+        runtime_pool_flush_mcache_locked(m);
+    }
+    runtime_pool_trim_global_locked(RUNTIME_POOL_GC_TARGET_CACHED_BYTES);
+}
+
 static bool runtime_pool_release_global_locked(void* ptr, size_t class_size, int class_index) {
     uint16_t class_cap;
     runtime_pool_node* node;
@@ -359,6 +582,14 @@ static bool runtime_pool_release_global_locked(void* ptr, size_t class_size, int
 
     if (class_index < 0 || (uint32_t)class_index >= RUNTIME_POOL_CLASS_COUNT) {
         return false;
+    }
+
+    if (runtime_pool_use_fixalloc(class_size)) {
+        node = (runtime_pool_node*)ptr;
+        node->next = runtime_pool_free_lists[class_index];
+        runtime_pool_free_lists[class_index] = node;
+        runtime_pool_free_counts[class_index]++;
+        return true;
     }
 
     class_cap = runtime_pool_class_cap(class_size);
@@ -4482,8 +4713,15 @@ static runtime_gc_root_block* runtime_gc_roots = NULL;
 static void* runtime_gc_stack_top = NULL;
 static size_t runtime_gc_live_bytes = 0;
 static size_t runtime_gc_live_objects = 0;
-/* Small heaps make allocation-heavy interpreters spend disproportionate time in GC. */
-#define RUNTIME_GC_MIN_HEAP_GOAL (256u * 1024u)
+/*
+ * Align the simple stop-the-world collector with libgo's default GOGC=100
+ * pacing policy: the next GC goal is roughly 2x the last live heap, with a
+ * minimum heap goal of 4 MiB to amortize per-collection overhead on small
+ * but allocation-heavy workloads.
+ */
+#define RUNTIME_GC_PERCENT 100u
+#define RUNTIME_GC_DEFAULT_HEAP_MINIMUM (4u * 1024u * 1024u)
+#define RUNTIME_GC_MIN_HEAP_GOAL ((size_t)((RUNTIME_GC_DEFAULT_HEAP_MINIMUM * RUNTIME_GC_PERCENT) / 100u))
 
 static size_t runtime_gc_threshold = RUNTIME_GC_MIN_HEAP_GOAL;
 static size_t runtime_gc_collection_count = 0;
@@ -4512,6 +4750,29 @@ static uint64_t runtime_gc_last_collect_alloc_bytes = 0;
 
 static void runtime_gc_mark_pointer(const void* value);
 static void runtime_gc_collect_impl(void);
+
+static size_t runtime_gc_goal_from_live_bytes(size_t live_bytes) {
+    size_t goal;
+    size_t growth;
+
+    goal = live_bytes;
+    growth = live_bytes;
+    if (goal < RUNTIME_GC_MIN_HEAP_GOAL) {
+        goal = RUNTIME_GC_MIN_HEAP_GOAL;
+    }
+    if (growth > 0 && goal <= (size_t)-1 - growth) {
+        size_t gogc_goal;
+
+        gogc_goal = live_bytes + growth;
+        if (gogc_goal > goal) {
+            goal = gogc_goal;
+        }
+    } else if (growth > 0) {
+        goal = (size_t)-1;
+    }
+
+    return goal;
+}
 
 static void runtime_gc_record_stack_top(const void* ptr) {
     uintptr_t value;
@@ -5241,18 +5502,7 @@ __attribute__((noinline)) static void runtime_gc_mark_roots_and_stack(void) {
 }
 
 static void runtime_gc_update_threshold(void) {
-    size_t base;
-
-    base = runtime_gc_live_bytes;
-    if (base < RUNTIME_GC_MIN_HEAP_GOAL) {
-        base = RUNTIME_GC_MIN_HEAP_GOAL;
-    }
-    if (base > ((size_t)-1) - (base / 2u) - 4096u) {
-        runtime_gc_threshold = (size_t)-1;
-        return;
-    }
-
-    runtime_gc_threshold = base + (base / 2u) + 4096u;
+    runtime_gc_threshold = runtime_gc_goal_from_live_bytes(runtime_gc_live_bytes);
 }
 
 static void runtime_gc_collect_impl_locked(void) {
@@ -5277,6 +5527,9 @@ static void runtime_gc_collect_impl_locked(void) {
         }
         current = next;
     }
+    runtime_lock_mutex(&runtime_pool_lock);
+    runtime_pool_collect_locked();
+    runtime_unlock_mutex(&runtime_pool_lock);
 
     runtime_gc_collection_count++;
     runtime_gc_running = 0;
@@ -8925,11 +9178,10 @@ static runtime_itab_cache_table* runtime_itab_alloc_table(uintptr_t size) {
     }
 
     alloc_size = sizeof(runtime_itab_cache_table) + (size_t)size * sizeof(runtime_itab_cache_entry*);
-    table = (runtime_itab_cache_table*)runtime_pool_malloc(alloc_size);
+    table = (runtime_itab_cache_table*)runtime_persistent_alloc(alloc_size, sizeof(void*));
     if (table == NULL) {
         return NULL;
     }
-    kos_memset(table, 0, alloc_size);
     table->size = size;
     return table;
 }
@@ -8993,11 +9245,10 @@ static go_interface_method_table* runtime_create_interface_method_table(const go
     }
 
     size = sizeof(void*) + (uintptr_t)target_interface->method_count * sizeof(void*);
-    table_entries = (void**)runtime_pool_malloc((size_t)size);
+    table_entries = (void**)runtime_persistent_alloc((size_t)size, sizeof(void*));
     if (table_entries == NULL) {
         return NULL;
     }
-    kos_memset(table_entries, 0, (size_t)size);
 
     table_entries[0] = (void*)source_type;
     if (target_interface->method_count == 0 || target_interface->methods == NULL) {
@@ -9009,7 +9260,6 @@ static go_interface_method_table* runtime_create_interface_method_table(const go
     for (index = 0; index < (uintptr_t)target_interface->method_count; index++) {
         source_method = runtime_find_named_method(uncommon, target_methods + index);
         if (source_method == NULL || source_method->function == NULL) {
-            runtime_pool_free(table_entries);
             return NULL;
         }
 
@@ -9058,9 +9308,8 @@ static go_interface_method_table* runtime_get_interface_method_table(const go_in
 
     methods = runtime_create_interface_method_table(target_interface, source_type);
     if (runtime_itab_maybe_grow_locked()) {
-        entry = (runtime_itab_cache_entry*)runtime_pool_malloc(sizeof(runtime_itab_cache_entry));
+        entry = (runtime_itab_cache_entry*)runtime_persistent_alloc(sizeof(runtime_itab_cache_entry), sizeof(void*));
         if (entry != NULL) {
-            kos_memset(entry, 0, sizeof(runtime_itab_cache_entry));
             entry->inter = target_interface;
             entry->concrete = source_type;
             entry->methods = methods;
