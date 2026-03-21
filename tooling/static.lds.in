@@ -33,6 +33,7 @@ SECTIONS
 
     .data :
     {
+        *(.loader)
         *(.data)
         *(.data.*)
     } :data

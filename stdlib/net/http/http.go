@@ -52,25 +52,36 @@ const (
 type Header map[string][]string
 
 type Request struct {
-	Method        string
-	URL           *urlpkg.URL
-	Header        Header
-	Body          io.ReadCloser
-	ContentLength int64
+	Method           string
+	URL              *urlpkg.URL
+	Proto            string
+	ProtoMajor       int
+	ProtoMinor       int
+	Header           Header
+	Body             io.ReadCloser
+	ContentLength    int64
+	TransferEncoding []string
+	Close            bool
+	Host             string
+	RequestURI       string
+	RemoteAddr       string
+	LocalAddr        string
 
 	bodyData []byte
 }
 
 type Response struct {
-	Status        string
-	StatusCode    int
-	Proto         string
-	ProtoMajor    int
-	ProtoMinor    int
-	Header        Header
-	Body          io.ReadCloser
-	ContentLength int64
-	Request       *Request
+	Status           string
+	StatusCode       int
+	Proto            string
+	ProtoMajor       int
+	ProtoMinor       int
+	Header           Header
+	Body             io.ReadCloser
+	ContentLength    int64
+	TransferEncoding []string
+	Close            bool
+	Request          *Request
 }
 
 type RoundTripper interface {

@@ -1,4 +1,5 @@
 package http
 
-// Package http provides a narrow bootstrap-compatible HTTP client surface on
-// top of KolibriOS HTTP.OBJ.
+// Package http provides a bootstrap-compatible HTTP surface for KolibriOS.
+// Client requests use HTTP.OBJ and server support covers the small HTTP/1.1
+// subset needed by in-tree applications.

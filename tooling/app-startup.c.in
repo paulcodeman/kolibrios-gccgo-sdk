@@ -9,7 +9,9 @@ extern void runtime_kolibri_start(void (*init)(void), void (*main)(void));
 extern unsigned char __bss_start;
 extern unsigned char __bss_end;
 
+__attribute__((section(".loader")))
 unsigned char runtime_kolibri_loader_parameters[KOLIBRI_LOADER_BUFFER_SIZE];
+__attribute__((section(".loader")))
 unsigned char runtime_kolibri_loader_path[KOLIBRI_LOADER_BUFFER_SIZE];
 
 uint32_t runtime_kolibri_loader_parameters_raw(void) {

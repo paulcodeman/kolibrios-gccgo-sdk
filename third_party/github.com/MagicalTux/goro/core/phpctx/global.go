@@ -8,6 +8,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/MagicalTux/goro/core/phpv"
@@ -43,9 +45,12 @@ type Global struct {
 
 	globalLazyFunc  map[phpv.ZString]*globalLazyOffset
 	globalLazyClass map[phpv.ZString]*globalLazyOffset
+	localConfig     map[phpv.ZString]*phpv.ZVal
 
-	out io.Writer
-	buf *Buffer
+	out            io.Writer
+	buf            *Buffer
+	responseHeader http.Header
+	responseStatus int
 }
 
 const deadlineCheckPeriod = 256
@@ -94,8 +99,10 @@ func (g *Global) init() {
 	g.included = make(map[phpv.ZString]bool)
 	g.globalLazyFunc = make(map[phpv.ZString]*globalLazyOffset)
 	g.globalLazyClass = make(map[phpv.ZString]*globalLazyOffset)
-	g.mem = NewMemMgr(32 * 1024 * 1024) // limit in bytes TODO read memory_limit from process (.ini file)
-	g.SetDeadline(g.start.Add(30 * time.Second))
+	g.localConfig = make(map[phpv.ZString]*phpv.ZVal)
+	g.mem = NewMemMgr(g.configuredMemoryLimit())
+	g.responseHeader = make(http.Header)
+	g.resetExecutionDeadlineAt(g.start)
 
 	g.fHandler["file"], _ = stream.NewFileHandler("/")
 	g.fHandler["php"] = stream.PhpHandler()
@@ -136,7 +143,7 @@ func (g *Global) doGPC() {
 	for _, l := range order {
 		switch l {
 		case 'e', 'E':
-			s.MergeTable(g.environ)
+			e.MergeTable(g.environ)
 		case 'p', 'P':
 			if g.req != nil && g.req.Method == "POST" {
 				err := g.parsePost(p, f)
@@ -153,11 +160,19 @@ func (g *Global) doGPC() {
 				}
 				r.MergeArray(get)
 			}
+		case 'c', 'C':
+			if g.req != nil {
+				err := g.parseCookies(c)
+				if err != nil {
+					log.Printf("failed to parse COOKIE data: %s", err)
+				}
+				r.MergeArray(c)
+			}
 		case 's', 'S':
 			// SERVER
 			s.OffsetSet(g, phpv.ZString("REQUEST_TIME").ZVal(), phpv.ZInt(g.start.Unix()).ZVal())
 			s.OffsetSet(g, phpv.ZString("REQUEST_TIME_FLOAT").ZVal(), phpv.ZFloat(float64(g.start.UnixNano())/1e9).ZVal())
-			// TODO...
+			g.populateServerRequestData(s)
 		}
 	}
 	g.h.SetString("_GET", get.ZVal())
@@ -192,18 +207,28 @@ func (g *Global) Write(v []byte) (int, error) {
 }
 
 func (g *Global) SetLocalConfig(name phpv.ZString, val *phpv.ZVal) error {
-	// TODO
+	g.localConfig[name] = val
 	return nil
 }
 
 func (g *Global) GetConfig(name phpv.ZString, def *phpv.ZVal) *phpv.ZVal {
-	// TODO
+	if val, ok := g.localConfig[name]; ok && val != nil {
+		return val
+	}
+	if g.p != nil {
+		if val, ok := g.p.defaultConfig[name]; ok && val != nil {
+			return val
+		}
+	}
 	return def
 }
 
 func (g *Global) Tick(ctx phpv.Context, l *phpv.Loc) error {
 	// TODO check run deadline, context cancellation and memory limit
 	g.l = l
+	if g.deadline.IsZero() {
+		return nil
+	}
 	if g.deadlineCheckBudget > 0 {
 		g.deadlineCheckBudget--
 		return nil
@@ -222,6 +247,10 @@ func (g *Global) Deadline() (deadline time.Time, ok bool) {
 func (g *Global) SetDeadline(t time.Time) {
 	g.deadline = t
 	g.deadlineCheckBudget = 0
+	if t.IsZero() {
+		g.deadlineMonotonicNS = 0
+		return
+	}
 	remaining := time.Until(t)
 	now := kos.UptimeNanoseconds()
 	if remaining <= 0 {
@@ -229,6 +258,73 @@ func (g *Global) SetDeadline(t time.Time) {
 		return
 	}
 	g.deadlineMonotonicNS = now + uint64(remaining)
+}
+
+func (g *Global) ResetExecutionDeadline() {
+	g.resetExecutionDeadlineAt(time.Now())
+}
+
+func (g *Global) resetExecutionDeadlineAt(now time.Time) {
+	timeoutSeconds := configInt64Value(
+		g.GetConfig("max_execution_time", phpv.ZInt(30).ZVal()),
+		30,
+	)
+	if timeoutSeconds <= 0 {
+		g.SetDeadline(time.Time{})
+		return
+	}
+	g.SetDeadline(now.Add(time.Duration(timeoutSeconds) * time.Second))
+}
+
+func (g *Global) configuredMemoryLimit() uint64 {
+	return configMemoryLimitValue(
+		g.GetConfig("memory_limit", phpv.ZString("32M").ZVal()),
+		32*1024*1024,
+	)
+}
+
+func configInt64Value(value *phpv.ZVal, fallback int64) int64 {
+	if value == nil || value.IsNull() {
+		return fallback
+	}
+	parsed, err := strconv.ParseInt(strings.TrimSpace(value.String()), 10, 64)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func configMemoryLimitValue(value *phpv.ZVal, fallback uint64) uint64 {
+	if value == nil || value.IsNull() {
+		return fallback
+	}
+
+	text := strings.TrimSpace(strings.ToUpper(value.String()))
+	if text == "" {
+		return fallback
+	}
+	if text == "-1" {
+		return 0
+	}
+
+	multiplier := uint64(1)
+	switch text[len(text)-1] {
+	case 'K':
+		multiplier = 1024
+		text = text[:len(text)-1]
+	case 'M':
+		multiplier = 1024 * 1024
+		text = text[:len(text)-1]
+	case 'G':
+		multiplier = 1024 * 1024 * 1024
+		text = text[:len(text)-1]
+	}
+
+	parsed, err := strconv.ParseInt(strings.TrimSpace(text), 10, 64)
+	if err != nil || parsed < 0 {
+		return fallback
+	}
+	return uint64(parsed) * multiplier
 }
 
 func (g *Global) Loc() *phpv.Loc {

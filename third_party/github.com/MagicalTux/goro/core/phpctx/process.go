@@ -10,6 +10,7 @@ import (
 
 type Process struct {
 	defaultConstants map[phpv.ZString]phpv.Val
+	defaultConfig    map[phpv.ZString]*phpv.ZVal
 	environ          *phpv.ZHashTable
 	defaultOut       io.Writer
 	defaultErr       io.Writer
@@ -20,13 +21,28 @@ type Process struct {
 func NewProcess(sapi string) *Process {
 	res := &Process{
 		defaultConstants: make(map[phpv.ZString]phpv.Val),
+		defaultConfig:    make(map[phpv.ZString]*phpv.ZVal),
 		environ:          importEnv(os.Environ()),
 		defaultOut:       os.Stdout,
 		defaultErr:       os.Stderr,
 	}
+	res.populateConfig()
 	res.populateConstants()
 	res.SetConstant("PHP_SAPI", phpv.ZString(sapi))
 	return res
+}
+
+func (p *Process) populateConfig() {
+	p.SetConfig("default_charset", phpv.ZString("UTF-8").ZVal())
+	p.SetConfig("display_errors", phpv.ZInt(1).ZVal())
+	p.SetConfig("file_uploads", phpv.ZInt(0).ZVal())
+	p.SetConfig("html_errors", phpv.ZInt(0).ZVal())
+	p.SetConfig("include_path", phpv.ZString(".").ZVal())
+	p.SetConfig("max_execution_time", phpv.ZInt(30).ZVal())
+	p.SetConfig("memory_limit", phpv.ZString("32M").ZVal())
+	p.SetConfig("output_buffering", phpv.ZInt(0).ZVal())
+	p.SetConfig("register_argc_argv", phpv.ZInt(1).ZVal())
+	p.SetConfig("variables_order", phpv.ZString("EGPCS").ZVal())
 }
 
 func (p *Process) populateConstants() {
@@ -41,6 +57,11 @@ func (p *Process) populateConstants() {
 // SetConstant sets a global constant, typically used to set PHP_SAPI.
 func (p *Process) SetConstant(name, value phpv.ZString) {
 	p.defaultConstants[name] = value.ZVal()
+}
+
+// SetConfig sets a process-wide configuration value exposed via get_cfg_var.
+func (p *Process) SetConfig(name phpv.ZString, value *phpv.ZVal) {
+	p.defaultConfig[name] = value
 }
 
 // CommandLine will parse arguments from the command line and configure the

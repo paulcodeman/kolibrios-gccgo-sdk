@@ -182,6 +182,7 @@ func (l *TCPListener) Accept() (Conn, error) {
 		return nil, &OpError{Op: "accept", Net: "tcp", Err: ErrClosed}
 	}
 
+	spins := 0
 	for {
 		l.mu.Lock()
 		closed := l.closed
@@ -200,6 +201,10 @@ func (l *TCPListener) Accept() (Conn, error) {
 				laddr: cloneTCPAddr(addr),
 				raddr: remoteAddr,
 			}, nil
+		}
+		if isWouldBlock(err) {
+			spins = yieldSocketWait(spins)
+			continue
 		}
 
 		l.mu.Lock()
