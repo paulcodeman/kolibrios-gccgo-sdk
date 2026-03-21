@@ -70,6 +70,7 @@ static inline void runtime_atomic_store_u32(uint32_t* value, uint32_t next);
 static inline bool runtime_atomic_cas_u32(uint32_t* value, uint32_t expected, uint32_t desired);
 static runtime_m* runtime_getm(void);
 static uintptr_t runtime_align_up_pow2(uintptr_t value, uintptr_t align);
+static void runtime_init_fixallocs(void);
 static void* kos_memset(void* dest, int value, size_t size);
 __attribute__((noreturn)) static void runtime_exit_process(void);
 __attribute__((noreturn)) void runtime_kolibri_exit_process(void) __asm__("runtime_kolibri_exit_process");
@@ -166,6 +167,16 @@ typedef struct runtime_pool_node {
     struct runtime_pool_node* next;
 } runtime_pool_node;
 
+typedef struct runtime_fixalloc {
+    size_t size;
+    uint32_t chunk_size;
+    uintptr_t chunk;
+    uint32_t nchunk;
+    runtime_pool_node* list;
+    runtime_mutex lock;
+    uint8_t zero;
+} runtime_fixalloc;
+
 static runtime_pool_node* runtime_pool_free_lists[RUNTIME_POOL_CLASS_COUNT];
 static uint32_t runtime_pool_free_counts[RUNTIME_POOL_CLASS_COUNT];
 static uintptr_t runtime_pool_chunk_cursor[RUNTIME_POOL_CLASS_COUNT];
@@ -176,6 +187,8 @@ static runtime_mutex runtime_persistent_lock;
 static uintptr_t runtime_persistent_base = 0;
 static size_t runtime_persistent_offset = 0;
 static size_t runtime_persistent_limit = 0;
+static runtime_fixalloc runtime_sudog_fixalloc;
+static runtime_fixalloc runtime_gc_page_entry_fixalloc;
 static bool runtime_pool_release_global_locked(void* ptr, size_t class_size, int class_index);
 static runtime_m* runtime_allm;
 
@@ -339,6 +352,89 @@ static void* runtime_persistent_alloc(size_t size, size_t align) {
     runtime_unlock_mutex(&runtime_persistent_lock);
     kos_memset(result, 0, size);
     return result;
+}
+
+static void runtime_fixalloc_configure(runtime_fixalloc* allocator, size_t size, uint8_t zero) {
+    size_t chunk_size;
+
+    if (allocator == NULL || size == 0) {
+        return;
+    }
+
+    if (size < sizeof(runtime_pool_node)) {
+        size = sizeof(runtime_pool_node);
+    }
+
+    chunk_size = RUNTIME_POOL_FIXALLOC_CHUNK_SIZE;
+    if (chunk_size < size) {
+        chunk_size = size;
+    }
+    chunk_size = (chunk_size / size) * size;
+    if (chunk_size < size) {
+        chunk_size = size;
+    }
+
+    allocator->size = size;
+    allocator->chunk_size = (uint32_t)chunk_size;
+    allocator->chunk = 0;
+    allocator->nchunk = 0;
+    allocator->list = NULL;
+    allocator->zero = zero ? 1u : 0u;
+}
+
+static void* runtime_fixalloc_alloc(runtime_fixalloc* allocator) {
+    void* result;
+
+    if (allocator == NULL || allocator->size == 0) {
+        return NULL;
+    }
+
+    runtime_lock_mutex(&allocator->lock);
+    if (allocator->list != NULL) {
+        runtime_pool_node* node;
+
+        node = allocator->list;
+        allocator->list = node->next;
+        runtime_unlock_mutex(&allocator->lock);
+        result = (void*)node;
+        if (allocator->zero) {
+            kos_memset(result, 0, allocator->size);
+        }
+        return result;
+    }
+
+    if ((size_t)allocator->nchunk < allocator->size || allocator->chunk == 0) {
+        result = runtime_persistent_alloc((size_t)allocator->chunk_size, allocator->size);
+        if (result == NULL) {
+            runtime_unlock_mutex(&allocator->lock);
+            return NULL;
+        }
+        allocator->chunk = (uintptr_t)result;
+        allocator->nchunk = allocator->chunk_size;
+    }
+
+    result = (void*)allocator->chunk;
+    allocator->chunk += allocator->size;
+    allocator->nchunk -= (uint32_t)allocator->size;
+    runtime_unlock_mutex(&allocator->lock);
+    if (allocator->zero) {
+        kos_memset(result, 0, allocator->size);
+    }
+    return result;
+}
+
+static void runtime_fixalloc_free(runtime_fixalloc* allocator, void* ptr) {
+    runtime_pool_node* node;
+
+    if (allocator == NULL || ptr == NULL || allocator->size == 0) {
+        return;
+    }
+
+    node = (runtime_pool_node*)ptr;
+    runtime_lock_mutex(&allocator->lock);
+    node->next = allocator->list;
+    allocator->list = node;
+    runtime_unlock_mutex(&allocator->lock);
 }
 
 static void* runtime_pool_alloc_fixalloc_locked(int class_index, size_t class_size) {
@@ -1282,6 +1378,7 @@ static void runtime_set_current_g(runtime_g* g) {
 }
 
 static void runtime_init_g0(void) {
+    runtime_init_fixallocs();
     runtime_m0.curg = &runtime_g0;
     runtime_m0.gsignal = NULL;
     runtime_m0.tid = runtime_kolibri_current_thread_slot();
@@ -2057,7 +2154,7 @@ static bool runtime_sudog_free_local(runtime_sudog* sd) {
 static runtime_sudog* runtime_sudog_alloc(runtime_hchan* c, void* elem, int32_t index, uint8_t is_select) {
     runtime_sudog* sd = runtime_sudog_alloc_local();
     if (sd == NULL) {
-        sd = (runtime_sudog*)runtime_pool_malloc(sizeof(runtime_sudog));
+        sd = (runtime_sudog*)runtime_fixalloc_alloc(&runtime_sudog_fixalloc);
     }
     if (sd == NULL) {
         runtime_panicmem();
@@ -2081,7 +2178,7 @@ static void runtime_sudog_free(runtime_sudog* sd) {
     if (runtime_sudog_free_local(sd)) {
         return;
     }
-    runtime_pool_free(sd);
+    runtime_fixalloc_free(&runtime_sudog_fixalloc, sd);
 }
 
 static void runtime_waitq_enqueue(runtime_waitq* q, runtime_sudog* sd) {
@@ -2939,6 +3036,17 @@ struct runtime_gc_header {
     uint8_t marked;
 };
 
+static void runtime_init_fixallocs(void) {
+    static uint8_t initialized = 0;
+
+    if (initialized) {
+        return;
+    }
+    initialized = 1;
+    runtime_fixalloc_configure(&runtime_sudog_fixalloc, sizeof(runtime_sudog), 1u);
+    runtime_fixalloc_configure(&runtime_gc_page_entry_fixalloc, sizeof(runtime_gc_page_entry), 1u);
+}
+ 
 #define GO_TYPE_KIND_DIRECT_IFACE 0x20u
 #define GO_TYPE_KIND_MASK 0x1Fu
 #define GO_TYPE_KIND_INTERFACE 0x14u
@@ -4901,7 +5009,7 @@ static void runtime_gc_index_add(runtime_gc_header* header) {
             entry = &header->inline_page_entry;
             used_inline = 1;
         } else {
-            entry = (runtime_gc_page_entry*)runtime_pool_malloc(sizeof(runtime_gc_page_entry));
+            entry = (runtime_gc_page_entry*)runtime_fixalloc_alloc(&runtime_gc_page_entry_fixalloc);
             if (entry == NULL) {
                 runtime_gc_page_index_complete = 0;
                 break;
@@ -4955,7 +5063,7 @@ static void runtime_gc_index_remove(runtime_gc_header* header) {
             entry->next_in_bucket->prev_in_bucket = entry->prev_in_bucket;
         }
         if (entry != &header->inline_page_entry) {
-            runtime_pool_free(entry);
+            runtime_fixalloc_free(&runtime_gc_page_entry_fixalloc, entry);
         }
         entry = next;
     }
