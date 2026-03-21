@@ -197,6 +197,12 @@ typedef struct runtime_fixalloc {
     uint8_t zero;
 } runtime_fixalloc;
 
+typedef struct runtime_gc_small_central {
+    runtime_pool_node* list;
+    uint32_t count;
+    runtime_mutex lock;
+} runtime_gc_small_central;
+
 typedef struct runtime_gc_small_chunk {
     struct runtime_gc_small_chunk* all_next;
     struct runtime_gc_small_chunk* active_next;
@@ -224,6 +230,7 @@ static size_t runtime_persistent_limit = 0;
 static runtime_fixalloc runtime_sudog_fixalloc;
 static runtime_fixalloc runtime_gc_page_entry_fixalloc;
 static runtime_fixalloc runtime_gc_small_fixallocs[RUNTIME_GC_SMALL_CLASS_COUNT];
+static runtime_gc_small_central runtime_gc_small_centrals[RUNTIME_GC_SMALL_CLASS_COUNT];
 static runtime_gc_small_chunk* runtime_gc_small_chunks[RUNTIME_GC_SMALL_CLASS_COUNT];
 static runtime_gc_small_chunk* runtime_gc_small_active_chunks[RUNTIME_GC_SMALL_CLASS_COUNT];
 static runtime_gc_small_chunk** runtime_gc_small_page_l1[RUNTIME_GC_SMALL_PAGE_L1_COUNT];
@@ -802,6 +809,63 @@ static void runtime_fixalloc_free(runtime_fixalloc* allocator, void* ptr) {
     }
 }
 
+static void runtime_gc_small_central_push_chain(uint32_t class_index, runtime_pool_node* head) {
+    runtime_gc_small_central* central;
+    runtime_pool_node* tail;
+    uint32_t count;
+    bool fast_path;
+
+    if (head == NULL || class_index >= RUNTIME_GC_SMALL_CLASS_COUNT) {
+        return;
+    }
+
+    central = &runtime_gc_small_centrals[class_index];
+    tail = head;
+    count = 1u;
+    while (tail->next != NULL) {
+        tail = tail->next;
+        count++;
+    }
+
+    fast_path = !runtime_world_stopping && runtime_atomic_load_u32(&runtime_m_count) <= 1u;
+    if (!fast_path) {
+        runtime_lock_mutex(&central->lock);
+    }
+    tail->next = central->list;
+    central->list = head;
+    central->count += count;
+    if (!fast_path) {
+        runtime_unlock_mutex(&central->lock);
+    }
+}
+
+static void* runtime_gc_small_central_alloc(int class_index) {
+    runtime_gc_small_central* central;
+    runtime_pool_node* node;
+    bool fast_path;
+
+    if (class_index < 0 || (uint32_t)class_index >= RUNTIME_GC_SMALL_CLASS_COUNT) {
+        return NULL;
+    }
+
+    central = &runtime_gc_small_centrals[class_index];
+    fast_path = !runtime_world_stopping && runtime_atomic_load_u32(&runtime_m_count) <= 1u;
+    if (!fast_path) {
+        runtime_lock_mutex(&central->lock);
+    }
+    node = central->list;
+    if (node != NULL) {
+        central->list = node->next;
+        if (central->count > 0u) {
+            central->count--;
+        }
+    }
+    if (!fast_path) {
+        runtime_unlock_mutex(&central->lock);
+    }
+    return (void*)node;
+}
+
 static void* runtime_pool_alloc_fixalloc_locked(int class_index, size_t class_size) {
     size_t alloc_size;
     void* result;
@@ -899,6 +963,7 @@ static void* runtime_gc_small_alloc_local(runtime_m* m, int class_index) {
 }
 
 static void* runtime_gc_small_refill_local_free(runtime_m* m, int class_index, size_t class_size) {
+    runtime_gc_small_central* central;
     runtime_fixalloc* allocator;
     runtime_pool_node* node;
     uint8_t local_cap;
@@ -908,33 +973,56 @@ static void* runtime_gc_small_refill_local_free(runtime_m* m, int class_index, s
         return NULL;
     }
 
-    allocator = &runtime_gc_small_fixallocs[class_index];
+    central = &runtime_gc_small_centrals[class_index];
     local_cap = runtime_pool_local_class_cap(class_size);
     fast_path = !runtime_world_stopping && runtime_atomic_load_u32(&runtime_m_count) <= 1u;
     if (!fast_path) {
-        runtime_lock_mutex(&allocator->lock);
+        runtime_lock_mutex(&central->lock);
     }
 
-    node = allocator->list;
+    node = central->list;
     if (node != NULL) {
-        allocator->list = node->next;
+        central->list = node->next;
+        if (central->count > 0u) {
+            central->count--;
+        }
     }
 
     while (local_cap > 0 && m->gc_small_local_counts[class_index] < local_cap) {
         runtime_pool_node* cached;
 
-        cached = allocator->list;
+        cached = central->list;
         if (cached == NULL) {
             break;
         }
-        allocator->list = cached->next;
+        central->list = cached->next;
+        if (central->count > 0u) {
+            central->count--;
+        }
         cached->next = m->gc_small_local_lists[class_index];
         m->gc_small_local_lists[class_index] = cached;
         m->gc_small_local_counts[class_index]++;
     }
 
     if (!fast_path) {
-        runtime_unlock_mutex(&allocator->lock);
+        runtime_unlock_mutex(&central->lock);
+    }
+    if (node != NULL) {
+        return (void*)node;
+    }
+
+    allocator = &runtime_gc_small_fixallocs[class_index];
+    node = (runtime_pool_node*)runtime_fixalloc_try_alloc_list(allocator);
+    while (node == NULL && local_cap > 0 && m->gc_small_local_counts[class_index] < local_cap) {
+        runtime_pool_node* cached;
+
+        cached = (runtime_pool_node*)runtime_fixalloc_try_alloc_list(allocator);
+        if (cached == NULL) {
+            break;
+        }
+        cached->next = m->gc_small_local_lists[class_index];
+        m->gc_small_local_lists[class_index] = cached;
+        m->gc_small_local_counts[class_index]++;
     }
     return (void*)node;
 }
@@ -1046,7 +1134,7 @@ static void runtime_gc_small_flush_mcache_locked(runtime_m* m) {
         }
         m->gc_small_local_lists[class_index] = NULL;
         m->gc_small_local_counts[class_index] = 0;
-        runtime_fixalloc_free_chain(&runtime_gc_small_fixallocs[class_index], node);
+        runtime_gc_small_central_push_chain(class_index, node);
     }
 }
 
@@ -6455,7 +6543,8 @@ static void runtime_gc_release_header(runtime_gc_header* header) {
                 return;
             }
         }
-        runtime_fixalloc_free(&runtime_gc_small_fixallocs[header->alloc_class], header);
+        ((runtime_pool_node*)header)->next = NULL;
+        runtime_gc_small_central_push_chain(header->alloc_class, (runtime_pool_node*)header);
         return;
     }
 
@@ -6532,7 +6621,7 @@ static void runtime_gc_sweep_small_chunks_locked(void) {
     }
 
     for (class_index = 0; class_index < RUNTIME_GC_SMALL_CLASS_COUNT; class_index++) {
-        runtime_fixalloc_free_chain(&runtime_gc_small_fixallocs[class_index], free_heads[class_index]);
+        runtime_gc_small_central_push_chain(class_index, free_heads[class_index]);
     }
 }
 
@@ -6645,6 +6734,9 @@ static void* runtime_gc_alloc_managed(size_t size, const go_type_descriptor* des
             header = (runtime_gc_header*)runtime_gc_small_refill_local_free(m, class_index, class_size);
         }
         if (header == NULL) {
+            header = (runtime_gc_header*)runtime_gc_small_central_alloc(class_index);
+        }
+        if (header == NULL) {
             header = (runtime_gc_header*)runtime_fixalloc_try_alloc_list(&runtime_gc_small_fixallocs[class_index]);
         }
         if (header == NULL && m != NULL) {
@@ -6678,6 +6770,9 @@ static void* runtime_gc_alloc_managed(size_t size, const go_type_descriptor* des
             }
             if (header == NULL && m != NULL) {
                 header = (runtime_gc_header*)runtime_gc_small_refill_local_free(m, class_index, class_size);
+            }
+            if (header == NULL) {
+                header = (runtime_gc_header*)runtime_gc_small_central_alloc(class_index);
             }
             if (header == NULL) {
                 header = (runtime_gc_header*)runtime_fixalloc_try_alloc_list(&runtime_gc_small_fixallocs[class_index]);
