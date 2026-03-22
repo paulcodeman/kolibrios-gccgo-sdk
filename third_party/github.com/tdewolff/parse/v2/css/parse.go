@@ -234,7 +234,7 @@ func (p *Parser) parseAtRule() GrammarType {
 	p.initBuf()
 	parse.ToLower(p.data)
 	atRuleName := p.data
-	if len(atRuleName) > 0 && atRuleName[1] == '-' {
+	if len(atRuleName) > 1 && atRuleName[1] == '-' {
 		if i := bytes.IndexByte(atRuleName[2:], '-'); i != -1 {
 			atRuleName = atRuleName[i+2:] // skip vendor specific prefix
 		}

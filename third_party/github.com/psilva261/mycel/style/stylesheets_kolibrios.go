@@ -497,10 +497,12 @@ func (cs *Map) Tlbr(key string) (s Spacing, err error) {
 				return s, fmt.Errorf("length: %w", err)
 			}
 		}
-		s.Top = nums[0]
-		s.Right = s.Top
-		s.Bottom = s.Top
-		s.Left = s.Top
+		if len(nums) > 0 {
+			s.Top = nums[0]
+			s.Right = s.Top
+			s.Bottom = s.Top
+			s.Left = s.Top
+		}
 		if len(nums) >= 2 {
 			s.Right = nums[1]
 			s.Left = s.Right

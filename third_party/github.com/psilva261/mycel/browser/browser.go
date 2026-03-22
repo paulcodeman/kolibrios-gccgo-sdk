@@ -279,11 +279,14 @@ func srcSet(n *nodes.Node) (w int, src string) {
 
 	for _, s := range strings.Split(n.Attr("srcset"), ",") {
 		s = strings.TrimSpace(s)
-		tmp := strings.Split(s, " ")
+		tmp := strings.Fields(s)
+		if len(tmp) == 0 {
+			continue
+		}
 		src := ""
 		s := ""
 		src = tmp[0]
-		if len(tmp) == 2 {
+		if len(tmp) >= 2 {
 			s = tmp[1]
 		}
 		if s == "" || s == fmt.Sprintf("%vx", scale) {
@@ -674,7 +677,14 @@ func NewTextArea(b *Browser, n *nodes.Node) *Element {
 
 	el := NewElement(b, edit, n)
 	el.Changed = func(e *Element) {
-		ed := e.UI.(*duitx.Box).Kids[0].UI.(*duit.Edit)
+		box, ok := e.UI.(*duitx.Box)
+		if !ok || len(box.Kids) == 0 {
+			return
+		}
+		ed, ok := box.Kids[0].UI.(*duit.Edit)
+		if !ok {
+			return
+		}
 
 		tt, err := ed.Text()
 		if err != nil {
@@ -1352,7 +1362,10 @@ func NodeToBox(r int, b *Browser, n *nodes.Node) (el *Element) {
 
 			return NewElement(b, btn, n)
 		case "table":
-			return NewTable(n).Element(r+1, b, n)
+			if t := NewTable(n); t != nil {
+				return t.Element(r+1, b, n)
+			}
+			return nil
 		case "picture", "img", "svg":
 			return NewElement(b, NewImage(b, n), n)
 		case "pre":
@@ -1440,7 +1453,7 @@ func InnerNodesToBox(r int, b *Browser, n *nodes.Node) *Element {
 			els = append(els, ls...)
 		} else if nodes.IsPureTextContent(*n) && n.IsInline() {
 			// Handle text wrapped in unwrappable tags like p, div, ...
-			ls := NewText(b, c.Content(false), items[0])
+			ls := NewText(b, c.Content(false), c)
 			if len(ls) == 0 {
 				continue
 			}

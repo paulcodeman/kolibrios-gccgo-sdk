@@ -123,7 +123,7 @@ func parseQuery(mediaQuery string) (tokens []MediaQuery, err error) {
 		q = strings.TrimSpace(q)
 		captures := reMediaQuery.FindStringSubmatch(q)
 
-		if captures == nil {
+		if captures == nil || len(captures) < 5 {
 			return tokens, fmt.Errorf("Invalid CSS media query: %v", q)
 		}
 		modifier := captures[1]
@@ -148,17 +148,20 @@ func parseQuery(mediaQuery string) (tokens []MediaQuery, err error) {
 			continue
 		}
 
-		exprsList := reExpressions.FindStringSubmatch(exprs)
-		if exprsList == nil {
+		exprsList := reExpressions.FindAllString(exprs, -1)
+		if len(exprsList) == 0 {
 			return tokens, fmt.Errorf("Invalid CSS media query: %v", q)
 		}
 		for _, expr := range exprsList {
 			var captures = reMqExpression.FindStringSubmatch(expr)
 
-			if captures == nil {
+			if captures == nil || len(captures) < 3 {
 				return tokens, fmt.Errorf("Invalid CSS media query: %v", q)
 			}
 			feature := reMqFeature.FindStringSubmatch(strings.ToLower(captures[1]))
+			if len(feature) < 3 {
+				return tokens, fmt.Errorf("Invalid CSS media query feature: %v", captures[1])
+			}
 			parsed.exprs = append(parsed.exprs, MediaExpr{
 				modifier: feature[1],
 				feature:  feature[2],
@@ -178,14 +181,14 @@ func toDecimal(ratio string) (decimal float64, err error) {
 	decimal, err = strconv.ParseFloat(ratio, 64)
 	if err != nil {
 		numbers := reQuot.FindStringSubmatch(ratio)
-		if numbers == nil {
+		if len(numbers) < 3 {
 			return 0, fmt.Errorf("cannot parse %v", ratio)
 		}
-		p, err := strconv.ParseFloat(numbers[0], 64)
+		p, err := strconv.ParseFloat(numbers[1], 64)
 		if err != nil {
 			return 0, fmt.Errorf("cannot parse %v", p)
 		}
-		q, err := strconv.ParseFloat(numbers[1], 64)
+		q, err := strconv.ParseFloat(numbers[2], 64)
 		if err != nil {
 			return 0, fmt.Errorf("cannot parse %v", q)
 		}
@@ -201,7 +204,11 @@ func toDpi(resolution string) (value float64, err error) {
 	if value, err = strconv.ParseFloat(resolution, 64); err != nil {
 		return
 	}
-	units := reResolutionUnit.FindStringSubmatch(resolution)[1]
+	match := reResolutionUnit.FindStringSubmatch(resolution)
+	if len(match) < 2 {
+		return value, nil
+	}
+	units := match[1]
 
 	switch units {
 	case "dpcm":
@@ -213,7 +220,11 @@ func toDpi(resolution string) (value float64, err error) {
 }
 
 func toPx(length string) (value float64, err error) {
-	units := reLengthUnit.FindStringSubmatch(length)[1]
+	match := reLengthUnit.FindStringSubmatch(length)
+	if len(match) < 2 {
+		return 0, fmt.Errorf("cannot parse %v", length)
+	}
+	units := match[1]
 	length = length[:len(length)-len(units)]
 	if value, err = strconv.ParseFloat(length, 64); err != nil {
 		return

@@ -108,6 +108,11 @@ func (ui *Grid) Layout(dui *duit.DUI, self *duit.Kid, sizeAvail image.Point, for
 	if len(ui.Kids)%ui.Columns != 0 {
 		panic(fmt.Sprintf("len(kids) = %d, should be multiple of ui.Columns = %d", len(ui.Kids), ui.Columns))
 	}
+	if ui.Columns <= 0 {
+		self.R = rect(sizeAvail)
+		ui.size = image.Point{}
+		return
+	}
 
 	scaledWidth := dui.Scale(ui.Width)
 	if scaledWidth > 0 && scaledWidth < sizeAvail.X {
@@ -118,7 +123,9 @@ func (ui *Grid) Layout(dui *duit.DUI, self *duit.Kid, sizeAvail image.Point, for
 	spaces := ui.spaces(dui)
 	width := 0
 	x := make([]int, len(ui.widths))
-	x[0] = 0
+	if len(x) > 0 {
+		x[0] = 0
+	}
 
 	ui.widths, width, x = ui.maxWidths(dui, sizeAvail)
 
@@ -149,7 +156,9 @@ func (ui *Grid) Layout(dui *duit.DUI, self *duit.Kid, sizeAvail image.Point, for
 	ui.heights = make([]int, (len(ui.Kids)+ui.Columns-1)/ui.Columns)
 	height := 0
 	y := make([]int, len(ui.heights))
-	y[0] = 0
+	if len(y) > 0 {
+		y[0] = 0
+	}
 	for i := 0; i < len(ui.Kids); i += ui.Columns {
 		row := i / ui.Columns
 		if row > 0 {
@@ -157,6 +166,9 @@ func (ui *Grid) Layout(dui *duit.DUI, self *duit.Kid, sizeAvail image.Point, for
 		}
 		rowDy := 0
 		for col := 0; col < ui.Columns; col++ {
+			if i+col >= len(ui.Kids) || col >= len(spaces) || col >= len(ui.widths) || col >= len(x) {
+				break
+			}
 			space := spaces[col]
 			k := ui.Kids[i+col]
 			k.UI.Layout(dui, k, image.Pt(ui.widths[col]-space.Dx(), sizeAvail.Y-y[row]-space.Dy()), true)

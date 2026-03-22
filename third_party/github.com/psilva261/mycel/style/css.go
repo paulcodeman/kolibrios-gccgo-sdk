@@ -96,7 +96,9 @@ func Parse(str string, inline bool) (s Sheet, err error) {
 	if inline {
 		stack = append(stack, Rule{})
 		defer func() {
-			s.Rules = append(s.Rules, stack[0])
+			if len(stack) > 0 {
+				s.Rules = append(s.Rules, stack[0])
+			}
 		}()
 	}
 	for {

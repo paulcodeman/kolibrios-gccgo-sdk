@@ -334,6 +334,9 @@ func (b *Browser) submit(form *html.Node, submitBtn *html.Node) {
 	if method == "GET" {
 		q := uri.Query()
 		for k, vs := range formData(form, submitBtn) {
+			if len(vs) == 0 {
+				continue
+			}
 			q.Set(k, vs[0]) // TODO: what is with the rest?
 		}
 		uri.RawQuery = escapeValues(b.Website.ContentType, q).Encode()

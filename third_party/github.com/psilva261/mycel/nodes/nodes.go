@@ -379,6 +379,9 @@ func (n *Node) SetText(t string) {
 			},
 		}
 	}
+	if len(n.Children) == 0 || n.Children[0] == nil || n.Children[0].DomSubtree == nil {
+		return
+	}
 
 	n.Children[0].Text = t
 	n.Children[0].DomSubtree.Data = t

@@ -27,6 +27,9 @@ func parseDataUri(addr string) (data []byte, ct mycel.ContentType, err error) {
 		return nil, ct, fmt.Errorf("cannot handle charset")
 	}
 	parts := strings.Split(addr, ",")
+	if len(parts) == 0 {
+		return nil, ct, fmt.Errorf("empty: %v", addr)
+	}
 
 	var ctStr string
 	if strings.Contains(parts[0], ";") {
