@@ -92,8 +92,9 @@ type Label struct {
 func NewLabel(t string, n *nodes.Node) *Label {
 	return &Label{
 		Label: &duitx.Label{
-			Text: t + " ",
-			Font: n.Font(),
+			Text:  t + " ",
+			Font:  n.Font(),
+			LineH: int(math.Ceil(n.FontHeight())),
 		},
 		n: n,
 	}
@@ -399,6 +400,14 @@ func newBoxElement(n *nodes.Node, force bool, uis ...duit.UI) (box *duitx.Box, o
 			log.Errorf("margin: %v", err)
 		}
 		autoMarginLeft, autoMarginRight = autoMargins(n)
+		switch strings.TrimSpace(strings.ToLower(n.Css("float"))) {
+		case "right":
+			autoMarginLeft = true
+			autoMarginRight = false
+		case "left":
+			autoMarginLeft = false
+			autoMarginRight = false
+		}
 
 		if n.Css("display") == "inline" {
 			// Actually this doesn't fix the problem to the full extend
@@ -1091,7 +1100,7 @@ func duitDisplay(n *nodes.Node) duitx.Display {
 	if n == nil {
 		return duitx.InlineBlock
 	}
-	if n.Css("float") == "left" {
+	if fl := strings.TrimSpace(strings.ToLower(n.Css("float"))); fl == "left" || fl == "right" {
 		return duitx.InlineBlock
 	} else if cl := n.Css("clear"); cl == "left" || cl == "both" {
 		return duitx.Block

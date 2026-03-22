@@ -193,26 +193,21 @@ func FetchNodeRules(doc *html.Node, cssText string) (m map[*html.Node][]Rule, rV
 					log.Printf("cssSel compile %v: %v", sel.Val, compileErr)
 					return
 				}
-				var cs cascadia.Sel
-				if n := len(csg); n == 1 {
-					cs = csg[0]
-				} else {
-					log.Errorf("csg len %v", n)
-					return
-				}
-				for _, el := range cascadia.QueryAll(doc, cs) {
-					maybeYield()
-					existing := m[el]
-					var sr Rule
-					sr = r
-					sr.Selectors = []Selector{r.Selectors[i]}
-					for j := range sr.Declarations {
-						sr.Declarations[j].Specificity[0] = cs.Specificity()[0]
-						sr.Declarations[j].Specificity[1] = cs.Specificity()[1]
-						sr.Declarations[j].Specificity[2] = cs.Specificity()[2]
+				for _, cs := range csg {
+					for _, el := range cascadia.QueryAll(doc, cs) {
+						maybeYield()
+						existing := m[el]
+						var sr Rule
+						sr = r
+						sr.Selectors = []Selector{r.Selectors[i]}
+						for j := range sr.Declarations {
+							sr.Declarations[j].Specificity[0] = cs.Specificity()[0]
+							sr.Declarations[j].Specificity[1] = cs.Specificity()[1]
+							sr.Declarations[j].Specificity[2] = cs.Specificity()[2]
+						}
+						existing = append(existing, sr)
+						m[el] = existing
 					}
-					existing = append(existing, sr)
-					m[el] = existing
 				}
 			}(sel, i)
 		}
@@ -366,7 +361,37 @@ func (cs Map) FontSize() float64 {
 }
 
 func (cs Map) FontHeight() float64 {
-	return math.Max(1, math.Round(cs.FontSize()*1.35))
+	fontSize := cs.FontSize()
+	if fontSize <= 0 {
+		fontSize = FontBaseSize
+	}
+	if lh, ok := cs.Declarations["line-height"]; ok {
+		value := strings.TrimSpace(strings.ToLower(lh.Val))
+		switch {
+		case value == "", value == "normal":
+			return math.Max(1, math.Round(fontSize*1.2))
+		case value == "inherit":
+			if cs.DomTree != nil {
+				if p, ok := cs.DomTree.Parent(); ok {
+					if inherited := p.Style().FontHeight(); inherited > 0 {
+						return inherited
+					}
+				}
+			}
+		case strings.HasSuffix(value, "%"):
+			if f, err := strconv.ParseFloat(strings.TrimSuffix(value, "%"), 64); err == nil && f > 0 {
+				return math.Max(1, math.Round(fontSize*f/100.0))
+			}
+		default:
+			if f, err := strconv.ParseFloat(value, 64); err == nil && f > 0 {
+				return math.Max(1, math.Round(fontSize*f))
+			}
+			if f, unit, err := length(&cs, value); err == nil && f > 0 && unit != "%" {
+				return math.Max(1, math.Round(f))
+			}
+		}
+	}
+	return math.Max(1, math.Round(fontSize*1.2))
 }
 
 func (cs Map) FontWeight() string {
@@ -513,8 +538,11 @@ func ParseColor(propVal string) (kos.Color, bool) {
 }
 
 func (cs Map) IsInline() bool {
-	if propVal, ok := cs.Declarations["float"]; ok && propVal.Val == "left" {
-		return true
+	if propVal, ok := cs.Declarations["float"]; ok {
+		switch strings.TrimSpace(strings.ToLower(propVal.Val)) {
+		case "left", "right":
+			return true
+		}
 	}
 	if propVal, ok := cs.Declarations["display"]; ok {
 		return propVal.Val == "inline" || propVal.Val == "inline-block"
@@ -640,7 +668,10 @@ func length(cs *Map, l string) (f float64, unit string, err error) {
 		if cs == nil {
 			f *= FontBaseSize
 		} else {
-			f *= cs.FontHeight()
+			f *= cs.FontSize()
+			if unit == "ex" {
+				f *= 0.5
+			}
 		}
 	case "vw":
 		f *= float64(WindowWidth) / 100.0

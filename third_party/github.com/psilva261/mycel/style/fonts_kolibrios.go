@@ -50,6 +50,9 @@ func (cs Map) Font() *draw.Font {
 		return dui.Font(nil)
 	}
 	size := int(cs.FontHeight())
+	if fs := int(cs.FontSize()); fs > 0 {
+		size = fs
+	}
 	if size <= 0 {
 		size = 16
 	}

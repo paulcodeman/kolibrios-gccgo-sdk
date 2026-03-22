@@ -232,6 +232,10 @@ func Load(dui *duit.DUI, f mycel.Fetcher, src string, maxW, w, h int, forceSync 
 			if err != nil {
 				log.Errorf("load image: %s", err)
 			}
+			if dui != nil {
+				dui.MarkDraw(nil)
+				dui.Render()
+			}
 			log.Printf("copied image %v", src)
 		}
 	}()

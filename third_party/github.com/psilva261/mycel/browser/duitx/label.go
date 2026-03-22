@@ -19,8 +19,9 @@ var (
 // cmd-c, copy text
 // \n, like button1 click, calls the Click function
 type Label struct {
-	Text     string                // Text to draw, wrapped at glyph boundary.
-	Font     *draw.Font            `json:"-"`
+	Text     string     // Text to draw, wrapped at glyph boundary.
+	Font     *draw.Font `json:"-"`
+	LineH    int
 	Click    func() (e duit.Event) `json:"-"`
 	Selected bool
 
@@ -47,6 +48,9 @@ func (ui *Label) Layout(dui *duit.DUI, self *duit.Kid, sizeAvail image.Point, fo
 }
 
 func (ui *Label) lineHeight(font *draw.Font) int {
+	if ui.LineH > 0 {
+		return ui.LineH
+	}
 	return int(math.Ceil(float64(font.Height) * 1.2))
 }
 

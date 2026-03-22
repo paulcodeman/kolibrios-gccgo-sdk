@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"mime"
 	"net/url"
+	"path"
 	"strings"
 )
 
@@ -32,16 +33,23 @@ type ContentType struct {
 
 // NewContentType based on mime type string and url including file extension as fallback
 func NewContentType(s string, u *url.URL) (c ContentType, err error) {
-	if s == "" && u != nil && strings.Contains(u.String(), ".") {
-		l := strings.Split(u.String(), ".")
-		ext := l[len(l)-1]
+	if s == "" && u != nil {
+		ext := strings.TrimPrefix(strings.ToLower(path.Ext(u.Path)), ".")
 		switch ext {
 		case "jpg":
+			return NewContentType("image/jpeg", u)
+		case "jpeg":
 			return NewContentType("image/jpeg", u)
 		case "png":
 			return NewContentType("image/png", u)
 		case "gif":
 			return NewContentType("image/gif", u)
+		case "webp":
+			return NewContentType("image/webp", u)
+		case "svg":
+			return NewContentType("image/svg+xml", u)
+		case "ico":
+			return NewContentType("image/x-icon", u)
 		default:
 			return ContentType{}, nil
 		}
