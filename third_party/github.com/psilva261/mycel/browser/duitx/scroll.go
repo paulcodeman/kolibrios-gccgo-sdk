@@ -3,7 +3,6 @@ package duitx
 import (
 	"fmt"
 	"image"
-	"math"
 	"time"
 
 	"9fans.net/go/draw"
@@ -28,9 +27,14 @@ type Scroll struct {
 	lastMouseUI   duit.UI
 	drawOffset    int
 
-	tiles        map[int]*draw.Image
-	last         map[int]time.Time
+	tiles        []scrollTile
 	tilesChanged bool
+}
+
+type scrollTile struct {
+	index int
+	img   *draw.Image
+	last  time.Time
 }
 
 var _ duit.UI = &Scroll{}
@@ -40,8 +44,6 @@ func NewScroll(dui *duit.DUI, ui duit.UI) *Scroll {
 	s := &Scroll{
 		Height: -1,
 		Kid:    duit.Kid{UI: ui},
-		tiles:  make(map[int]*draw.Image),
-		last:   make(map[int]time.Time),
 	}
 	_ = dui
 	return s
@@ -52,34 +54,72 @@ func (ui *Scroll) Free() {
 		ui.img.Free()
 		ui.img = nil
 	}
-	for i, img := range ui.tiles {
-		if img != nil {
-			img.Free()
+	for i := range ui.tiles {
+		if ui.tiles[i].img != nil {
+			ui.tiles[i].img.Free()
+			ui.tiles[i].img = nil
 		}
-		delete(ui.tiles, i)
 	}
-	ui.tiles = make(map[int]*draw.Image)
-	ui.last = make(map[int]time.Time)
+	ui.tiles = ui.tiles[:0]
+}
+
+func (ui *Scroll) tileAt(index int) (pos int, tile *scrollTile) {
+	for i := range ui.tiles {
+		if ui.tiles[i].index == index {
+			return i, &ui.tiles[i]
+		}
+	}
+	return -1, nil
+}
+
+func (ui *Scroll) dropTile(index int, freeImg bool) {
+	pos, tile := ui.tileAt(index)
+	if pos < 0 {
+		return
+	}
+	if freeImg && tile != nil && tile.img != nil {
+		tile.img.Free()
+	}
+	last := len(ui.tiles) - 1
+	copy(ui.tiles[pos:], ui.tiles[pos+1:])
+	ui.tiles[last] = scrollTile{}
+	ui.tiles = ui.tiles[:last]
+}
+
+func (ui *Scroll) setTile(index int, img *draw.Image, last time.Time) {
+	pos, tile := ui.tileAt(index)
+	if pos >= 0 {
+		if tile.img != nil && tile.img != img {
+			tile.img.Free()
+		}
+		ui.tiles[pos].img = img
+		ui.tiles[pos].last = last
+		return
+	}
+	ui.tiles = append(ui.tiles, scrollTile{
+		index: index,
+		img:   img,
+		last:  last,
+	})
+}
+
+func tileDistance(a, b int) int {
+	if a > b {
+		return a - b
+	}
+	return b - a
 }
 
 func (ui *Scroll) freeCur() {
 	i, of := ui.pos()
-	tl, ok := ui.tiles[i]
-	tl1, ok1 := ui.tiles[i+1]
-	if !ui.tilesChanged && (!ok || ui.sizeOk(tl)) && (of == 0 || !ok1 || ui.sizeOk(tl1)) {
+	_, tile := ui.tileAt(i)
+	_, tile1 := ui.tileAt(i + 1)
+	if !ui.tilesChanged && (tile == nil || ui.sizeOk(tile.img)) && (of == 0 || tile1 == nil || ui.sizeOk(tile1.img)) {
 		return
 	}
-	if ui.tiles[i] != nil {
-		ui.tiles[i].Free()
-		delete(ui.tiles, i)
-		delete(ui.last, i)
-	}
+	ui.dropTile(i, true)
 	if of > 0 {
-		if ui.tiles[i+1] != nil {
-			ui.tiles[i+1].Free()
-			delete(ui.tiles, i+1)
-			delete(ui.last, i+1)
-		}
+		ui.dropTile(i+1, true)
 	}
 	ui.tilesChanged = false
 }
@@ -90,9 +130,8 @@ func (ui *Scroll) sizeOk(tl *draw.Image) bool {
 
 func (ui *Scroll) ensure(dui *duit.DUI, i int) {
 	log.Printf("ensure(dui, %v)", i)
-	last, ok := ui.last[i]
-	tl, _ := ui.tiles[i]
-	if ok && time.Since(last) < maxAge && ui.sizeOk(tl) {
+	_, tile := ui.tileAt(i)
+	if tile != nil && time.Since(tile.last) < maxAge && ui.sizeOk(tile.img) {
 		return
 	}
 
@@ -104,20 +143,15 @@ func (ui *Scroll) ensure(dui *duit.DUI, i int) {
 	}
 	ui.Kid.UI.Draw(dui, &ui.Kid, img, image.ZP, draw.Mouse{}, true)
 
-	if ui.tiles[i] != nil {
-		ui.tiles[i].Free()
-		ui.tiles[i] = nil
-	}
 	log.Printf("ensure: ui.tiles[%d] = img(R=%+v, ...)", i, img.R)
-	ui.tiles[i] = img
-	ui.last[i] = time.Now()
+	ui.setTile(i, img, time.Now())
 
-	for j, t := range ui.tiles {
-		if math.Abs(float64(i-j)) > 5 {
-			t.Free()
-			delete(ui.tiles, j)
-			delete(ui.last, j)
+	for idx := 0; idx < len(ui.tiles); {
+		if tileDistance(i, ui.tiles[idx].index) > 5 {
+			ui.dropTile(ui.tiles[idx].index, true)
+			continue
 		}
+		idx++
 	}
 }
 

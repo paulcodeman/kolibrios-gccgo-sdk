@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/url"
 	"os"
 	"runtime"
@@ -12,7 +13,6 @@ import (
 	"github.com/psilva261/mycel/js"
 	log "github.com/psilva261/mycel/logger"
 	"github.com/psilva261/mycel/style"
-	"kos"
 )
 
 const (
@@ -137,22 +137,58 @@ func render() {
 	}
 	dui.MarkLayout(dui.Top.UI)
 	dui.MarkDraw(dui.Top.UI)
+	mustRender("root render")
+}
+
+func uiLoopPanic(where string, rec interface{}) {
+	msg := fmt.Sprintf("ui loop panic (%s): %v", where, rec)
+	log.Errorf("%s", msg)
+	if nav, ok := v.(*Nav); ok {
+		nav.StatusBar.Text = msg
+	}
+}
+
+func mustRender(where string) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			uiLoopPanic(where, rec)
+		}
+	}()
 	dui.Render()
+}
+
+func safeCall(where string, fn func()) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			uiLoopPanic(where, rec)
+		}
+	}()
+	if fn != nil {
+		fn()
+	}
+}
+
+func safeStepPoll() (keepRunning bool) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			uiLoopPanic("step poll", rec)
+			keepRunning = false
+		}
+	}()
+	return dui.StepPoll()
 }
 
 func handleAsync() bool {
 	select {
 	case fn := <-dui.Call:
-		if fn != nil {
-			fn()
-		}
+		safeCall("duit.Call", fn)
 		return true
 	case nextLoc := <-b.LocCh:
 		loc = nextLoc
 		if nav, ok := v.(*Nav); ok {
 			nav.LocationField.Text = loc
 			dui.MarkDraw(nav.LocationField)
-			dui.Render()
+			mustRender("location render")
 		}
 		return true
 	case msg := <-b.StatusCh:
@@ -160,7 +196,7 @@ func handleAsync() bool {
 			nav.StatusBar.Text = msg
 			dui.MarkLayout(dui.Top.UI)
 			dui.MarkDraw(dui.Top.UI)
-			dui.Render()
+			mustRender("status render")
 		}
 		return true
 	case err := <-dui.Error:
@@ -199,17 +235,15 @@ func main() {
 	render()
 
 	for {
-		drained := false
-		for handleAsync() {
-			drained = true
+		drained := 0
+		for drained < 32 && handleAsync() {
+			drained++
 		}
-		if !dui.StepPoll() {
+		if !safeStepPoll() {
 			break
 		}
 		updateViewport()
-		if !drained {
-			kos.SleepCentiseconds(1)
-		}
+		runtime.Gosched()
 	}
 
 	js.StopAll()

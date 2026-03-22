@@ -2,6 +2,7 @@ package browser
 
 import (
 	"9fans.net/go/draw"
+	"fmt"
 	"github.com/mjl-/duit"
 	"github.com/psilva261/mycel"
 	"github.com/psilva261/mycel/browser/duitx"
@@ -27,6 +28,20 @@ type Website struct {
 	mycel.ContentType
 }
 
+type preparedLayout struct {
+	ui       duit.UI
+	scroller *duitx.Scroll
+}
+
+type preparedDocument struct {
+	origin  string
+	htm     string
+	body    *html.Node
+	nt      *nodes.Node
+	csss    []string
+	scripts []string
+}
+
 func bodyCanvasBackground(body *nodes.Node) *draw.Image {
 	if body == nil {
 		return nil
@@ -46,15 +61,48 @@ func bodyCanvasBackground(body *nodes.Node) *draw.Image {
 }
 
 func (w *Website) layout(f mycel.Fetcher, htm string, layouting int) {
+	doc, err := w.prepareDocument(f, htm, layouting)
+	if err != nil {
+		log.Errorf("layout: %v", err)
+		return
+	}
+	prepared, nt, err := w.buildPreparedLayout(doc)
+	if err != nil {
+		log.Errorf("layout build: %v", err)
+		return
+	}
+	if scroller != nil {
+		scroller.Free()
+		scroller = nil
+	}
+	scroller = prepared.scroller
+	w.UI = prepared.ui
+	w.b.fs.Update(doc.origin, doc.htm, doc.csss, doc.scripts)
+	w.b.fs.SetDOM(nt)
+}
+
+func (w *Website) prepareLayout(f mycel.Fetcher, htm string, layouting int) (prepared preparedLayout, err error) {
+	doc, err := w.prepareDocument(f, htm, layouting)
+	if err != nil {
+		return prepared, err
+	}
+	prepared, _, err = w.buildPreparedLayout(doc)
+	return prepared, err
+}
+
+func (w *Website) prepareDocument(f mycel.Fetcher, htm string, layouting int) (prepared preparedDocument, err error) {
+	phase := "start"
 	defer func() {
-		select {
-		case w.b.StatusCh <- "":
-		default:
+		if rec := recover(); rec != nil {
+			err = fmt.Errorf("prepare document panic (%s): %v", phase, rec)
 		}
 	}()
-	pass := func(htm string, csss ...string) (*html.Node, map[*html.Node]style.Map) {
+
+	prepared.origin = f.Origin().String()
+	prepared.htm = htm
+	pass := func(htm string, csss ...string) (*html.Node, map[*html.Node]style.Map, error) {
 		if f.Ctx().Err() != nil {
-			return nil, nil
+			return nil, nil, f.Ctx().Err()
 		}
 
 		if debugPrintHtml {
@@ -63,18 +111,20 @@ func (w *Website) layout(f mycel.Fetcher, htm string, layouting int) {
 
 		var doc *html.Node
 		var err error
+		phase = "parse html"
 		doc, err = html.ParseWithOptions(
 			strings.NewReader(htm),
 			html.ParseOptionEnableScripting(ExperimentalJsInsecure),
 		)
 		if err != nil {
-			panic(err.Error())
+			return nil, nil, fmt.Errorf("parse html: %w", err)
 		}
 
 		log.Printf("Retrieving CSS Rules...")
 		var cssSize int
 		nodeMap := make(map[*html.Node]style.Map)
 		for i, css := range csss {
+			phase = fmt.Sprintf("apply css sheet %d", i)
 
 			log.Printf("CSS size %v kB", cssSize/1024)
 
@@ -89,21 +139,44 @@ func (w *Website) layout(f mycel.Fetcher, htm string, layouting int) {
 			}
 		}
 
-		return doc, nodeMap
+		return doc, nodeMap, nil
 	}
 
+	phase = "html pass 1"
+	select {
+	case w.b.StatusCh <- "HTML pass 1...":
+	default:
+	}
 	log.Printf("1st pass")
-	doc, _ := pass(htm)
+	doc, _, err := pass(htm)
+	if err != nil {
+		return prepared, err
+	}
 
+	phase = "scan styles"
+	select {
+	case w.b.StatusCh <- "Scan styles...":
+	default:
+	}
 	log.Printf("2nd pass")
 	log.Printf("Download style...")
 	csss := cssSrcs(f, doc)
-	doc, nodeMap := pass(htm, csss...)
+	phase = "apply css"
+	select {
+	case w.b.StatusCh <- "Apply CSS...":
+	default:
+	}
+	doc, nodeMap, err := pass(htm, csss...)
+	if err != nil {
+		return prepared, err
+	}
+	prepared.csss = csss
 
 	// 3rd pass is only needed initially to load the scripts and set the js VM
 	// state. During subsequent calls from click handlers that state is kept.
 	var scripts []string
 	if ExperimentalJsInsecure && layouting != ClickRelayout {
+		phase = "javascript"
 		var (
 			jsProcessed string
 			changed     bool
@@ -134,19 +207,26 @@ func (w *Website) layout(f mycel.Fetcher, htm string, layouting int) {
 		log.Infof("JS pipeline start")
 		w.b.js.Stop()
 		w.b.js, jsProcessed, changed, err = processJS2(f)
-		if changed && err == nil {
-			htm = jsProcessed
-			if debugPrintHtml {
-				log.Printf("%v\n", jsProcessed)
+			if changed && err == nil {
+				htm = jsProcessed
+				if debugPrintHtml {
+					log.Printf("%v\n", jsProcessed)
+				}
+				doc, nodeMap, err = pass(htm, csss...)
+				if err != nil {
+					return prepared, err
+				}
+			} else if err != nil {
+				log.Errorf("JS error: %v", err)
 			}
-			doc, nodeMap = pass(htm, csss...)
-		} else if err != nil {
-			log.Errorf("JS error: %v", err)
+			log.Infof("JS pipeline end")
 		}
-		log.Infof("JS pipeline end")
-	}
+	prepared.scripts = scripts
 	if f.Ctx().Err() != nil {
 		return
+	}
+	if doc == nil {
+		return prepared, fmt.Errorf("document is nil after %s", phase)
 	}
 	var countHtmlNodes func(*html.Node) int
 	countHtmlNodes = func(n *html.Node) (num int) {
@@ -161,18 +241,39 @@ func (w *Website) layout(f mycel.Fetcher, htm string, layouting int) {
 	body := grep(doc, "body")
 	if body == nil {
 		// TODO: handle frameset without noframes
-		log.Errorf("html has no body")
-		return
+		return prepared, fmt.Errorf("html has no body")
 	}
 
+	prepared.body = body
+
+	phase = "build dom"
+	select {
+	case w.b.StatusCh <- "Build DOM...":
+	default:
+	}
 	log.Printf("Layout website...")
 	nt := nodes.NewNodeTree(body, style.Map{}, nodeMap, &nodes.Node{})
-	canvasBg := bodyCanvasBackground(nt)
-	if scroller != nil {
-		scroller.Free()
-		scroller = nil
+	prepared.nt = nt
+	return prepared, nil
+}
+
+func (w *Website) buildPreparedLayout(prepared preparedDocument) (layout preparedLayout, nt *nodes.Node, err error) {
+	phase := "start"
+	defer func() {
+		if rec := recover(); rec != nil {
+			err = fmt.Errorf("build layout panic (%s): %v", phase, rec)
+		}
+	}()
+
+	if prepared.body == nil || prepared.nt == nil {
+		return layout, nil, fmt.Errorf("prepared document incomplete")
 	}
+	log.Printf("Layout website...")
+	nt = prepared.nt
+	phase = "body background"
+	canvasBg := bodyCanvasBackground(nt)
 	var rootUI duit.UI
+	phase = "node to box"
 	rootUI = NodeToBox(0, w.b, nt)
 	if rootUI == nil {
 		rootUI = &duitx.Box{
@@ -189,16 +290,19 @@ func (w *Website) layout(f mycel.Fetcher, htm string, layouting int) {
 			Kids:       duit.NewKids(rootUI),
 		}
 	}
-	scroller = duitx.NewScroll(dui, rootUI)
+	phase = "scroll"
+	scroll := duitx.NewScroll(dui, rootUI)
 	numElements := 0
-	TraverseTree(scroller, func(ui duit.UI) {
+	phase = "traverse tree"
+	TraverseTree(scroll, func(ui duit.UI) {
 		numElements++
 	})
-	w.UI = scroller
 	log.Printf("Layouting done (%v elements created)", numElements)
 	if numElements < 10 {
 		log.Errorf("Less than 10 elements layouted, seems css processing failed. Will layout without css")
-		nt = nodes.NewNodeTree(body, style.Map{}, make(map[*html.Node]style.Map), nil)
+		phase = "fallback node tree"
+		nt = nodes.NewNodeTree(prepared.body, style.Map{}, make(map[*html.Node]style.Map), nil)
+		phase = "fallback node to box"
 		rootUI = NodeToBox(0, w.b, nt)
 		if rootUI == nil {
 			rootUI = &duitx.Box{
@@ -207,12 +311,12 @@ func (w *Website) layout(f mycel.Fetcher, htm string, layouting int) {
 				Background: dui.Background,
 			}
 		}
-		scroller = duitx.NewScroll(dui, rootUI)
-		w.UI = scroller
+		phase = "fallback scroll"
+		scroll = duitx.NewScroll(dui, rootUI)
 	}
-
-	w.b.fs.Update(f.Origin().String(), htm, csss, scripts)
-	w.b.fs.SetDOM(nt)
+	layout.ui = scroll
+	layout.scroller = scroll
+	return layout, nt, nil
 }
 
 func cssSrcs(f mycel.Fetcher, doc *html.Node) (srcs []string) {

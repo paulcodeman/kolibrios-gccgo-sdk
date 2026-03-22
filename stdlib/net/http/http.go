@@ -634,7 +634,10 @@ func doHTTPObj(request *Request, rawURL string, method string) (*Response, error
 		return nil, errors.New("request start failed")
 	}
 
-	for http.Receive(transfer) != 0 {
+	for spins := 0; http.Receive(transfer) != 0; spins++ {
+		if (spins & 31) == 31 {
+			kos.Gosched()
+		}
 	}
 
 	flags := transfer.Flags()

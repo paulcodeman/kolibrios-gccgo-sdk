@@ -5193,6 +5193,82 @@ static void runtime_debug_write_int64(int64_t value) {
     }
 }
 
+__attribute__((noinline)) static void runtime_debug_write_stacktrace(int skip) {
+#if defined(__i386__)
+    uintptr_t frame_value = 0;
+    uintptr_t low = 0;
+    uintptr_t high = 0;
+    runtime_g* g = runtime_getg();
+    uint32_t seen = 0;
+    uint32_t printed = 0;
+
+    __asm__ volatile("movl %%ebp, %0" : "=r"(frame_value));
+
+    if (g != NULL && g->stack_base != NULL && g->stack_top != 0) {
+        low = (uintptr_t)g->stack_base;
+        high = (uintptr_t)g->stack_top;
+    }
+
+    runtime_debug_write_cstring("stack trace:");
+    runtime_debug_write_newline();
+
+    while (frame_value != 0 && seen < 32u && printed < 16u) {
+        uintptr_t* frame;
+        uintptr_t next;
+        uintptr_t ret;
+        uintptr_t callsite;
+
+        if ((frame_value & (sizeof(uintptr_t) - 1u)) != 0u) {
+            break;
+        }
+        if (low != 0 && high != 0) {
+            if (frame_value < low || frame_value + (sizeof(uintptr_t) * 2u) > high) {
+                break;
+            }
+        }
+
+        frame = (uintptr_t*)frame_value;
+        next = frame[0];
+        ret = frame[1];
+        callsite = ret;
+        if (callsite > 0) {
+            callsite--;
+        }
+
+        if (skip > 0) {
+            skip--;
+        } else {
+            runtime_debug_write_cstring("  #");
+            runtime_debug_write_int64((int64_t)printed);
+            runtime_debug_write_cstring(" pc=");
+            runtime_debug_write_hex32((uint32_t)callsite);
+            runtime_debug_write_cstring(" fp=");
+            runtime_debug_write_hex32((uint32_t)frame_value);
+            runtime_debug_write_newline();
+            printed++;
+        }
+
+        seen++;
+        if (ret == 0 || next == 0 || next <= frame_value) {
+            break;
+        }
+        if (low != 0 && high != 0) {
+            if (next < low || next > high) {
+                break;
+            }
+        } else if (next - frame_value > 0x100000u) {
+            break;
+        }
+
+        frame_value = next;
+    }
+#else
+    (void)skip;
+    runtime_debug_write_cstring("stack trace unavailable");
+    runtime_debug_write_newline();
+#endif
+}
+
 #define RUNTIME_HASH_C0 ((uintptr_t)2860486313u)
 #define RUNTIME_HASH_C1 ((uintptr_t)3267000013u)
 
@@ -5655,6 +5731,7 @@ __attribute__((noreturn)) static void runtime_fail_simple(const char* reason) {
     runtime_debug_write_cstring("runtime panic: ");
     runtime_debug_write_cstring(reason);
     runtime_debug_write_newline();
+    runtime_debug_write_stacktrace(1);
     runtime_exit_process();
 }
 
@@ -5671,6 +5748,7 @@ __attribute__((noreturn)) static void runtime_fail_pair(const char* reason, cons
     runtime_debug_write_hex32(second_value);
     runtime_debug_write_cstring(")");
     runtime_debug_write_newline();
+    runtime_debug_write_stacktrace(1);
     runtime_exit_process();
 }
 
@@ -5698,6 +5776,7 @@ __attribute__((noreturn)) void throw(go_string message) {
         runtime_debug_write_bytes((const unsigned char*)message.str, (size_t)message.len);
     }
     runtime_debug_write_newline();
+    runtime_debug_write_stacktrace(1);
     runtime_exit_process();
 }
 

@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -333,7 +334,10 @@ func (z *Tokenizer) readRawOrRCDATA() {
 		return
 	}
 loop:
-	for {
+	for scanned := 0; ; scanned++ {
+		if (scanned & 255) == 255 {
+			runtime.Gosched()
+		}
 		c := z.readByte()
 		if z.err != nil {
 			break loop
@@ -1038,7 +1042,10 @@ func (z *Tokenizer) Next() TokenType {
 	z.convertNUL = false
 
 loop:
-	for {
+	for scanned := 0; ; scanned++ {
+		if (scanned & 255) == 255 {
+			runtime.Gosched()
+		}
 		c := z.readByte()
 		if z.err != nil {
 			break loop

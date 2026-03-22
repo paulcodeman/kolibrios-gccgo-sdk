@@ -24,6 +24,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -1327,6 +1328,18 @@ func grep(n *html.Node, tag string) *html.Node {
 }
 
 func NodeToBox(r int, b *Browser, n *nodes.Node) (el *Element) {
+	visits := 0
+	return nodeToBox(r, b, n, &visits)
+}
+
+func nodeToBox(r int, b *Browser, n *nodes.Node, visits *int) (el *Element) {
+	if visits != nil {
+		*visits = *visits + 1
+		if (*visits & 127) == 127 {
+			runtime.Gosched()
+		}
+	}
+
 	if n.Attr("aria-hidden") == "true" || n.Attr("hidden") != "" {
 		return
 	}
@@ -1387,7 +1400,7 @@ func NodeToBox(r int, b *Browser, n *nodes.Node) (el *Element) {
 				}
 				innerContent = NewLabel(t, n)
 			} else {
-				return InnerNodesToBox(r+1, b, n)
+				return innerNodesToBox(r+1, b, n, visits)
 			}
 
 			return NewElement(b, innerContent, n)
@@ -1400,7 +1413,7 @@ func NodeToBox(r int, b *Browser, n *nodes.Node) (el *Element) {
 					n,
 				)
 			} else {
-				innerContent = InnerNodesToBox(r+1, b, n)
+				innerContent = innerNodesToBox(r+1, b, n, visits)
 			}
 			if innerContent == nil {
 				return nil
@@ -1414,7 +1427,7 @@ func NodeToBox(r int, b *Browser, n *nodes.Node) (el *Element) {
 			}
 			fallthrough
 		default:
-			return InnerNodesToBox(r+1, b, n)
+			return innerNodesToBox(r+1, b, n, visits)
 		}
 	} else if n.Type() == html.TextNode {
 		// Leaf text object
@@ -1441,6 +1454,11 @@ func isWrapped(n *nodes.Node) bool {
 }
 
 func InnerNodesToBox(r int, b *Browser, n *nodes.Node) *Element {
+	visits := 0
+	return innerNodesToBox(r, b, n, &visits)
+}
+
+func innerNodesToBox(r int, b *Browser, n *nodes.Node, visits *int) *Element {
 	items := n.CBItems()
 	els := make([]*Element, 0, len(items))
 
@@ -1462,7 +1480,7 @@ func InnerNodesToBox(r int, b *Browser, n *nodes.Node) *Element {
 				continue
 			}
 			els = append(els, el)
-		} else if el := NodeToBox(r+1, b, c); el != nil {
+		} else if el := nodeToBox(r+1, b, c, visits); el != nil {
 			els = append(els, el)
 		}
 	}
@@ -1586,17 +1604,17 @@ type Browser struct {
 	cancel context.CancelFunc
 
 	history.History
-	dui      *duit.DUI
-	js       *js.JS
-	fs       *browserfs.FS
-	Website  *Website
-	loading  bool
-	client   *http.Client
-	Download func(res chan *string)
-	LocCh    chan string
-	StatusCh chan string
-	loadSeq  uint32
-	lastNav  string
+	dui       *duit.DUI
+	js        *js.JS
+	fs        *browserfs.FS
+	Website   *Website
+	loading   bool
+	client    *http.Client
+	Download  func(res chan *string)
+	LocCh     chan string
+	StatusCh  chan string
+	loadSeq   uint32
+	lastNav   string
 	lastNavAt time.Time
 }
 
@@ -1833,18 +1851,113 @@ func (b *Browser) loadUrl(url *url.URL, loadSeq uint32) {
 }
 
 func (b *Browser) render(ct mycel.ContentType, buf []byte, loadSeq uint32) {
-	dui.Call <- func() {
+	phase := "start"
+	defer func() {
+		if rec := recover(); rec != nil {
+			if loadSeq != b.currentLoadSeq() {
+				return
+			}
+			msg := fmt.Sprintf("render panic (%s): %v", phase, rec)
+			log.Errorf("%s", msg)
+			b.loading = false
+			select {
+			case b.StatusCh <- msg:
+			default:
+			}
+			b.showBodyMessage(msg, loadSeq)
+		}
+	}()
+
+	htm := ct.Utf8(buf)
+	phase = "prepare document"
+	doc, err := b.Website.prepareDocument(b, htm, InitialLayout)
+	if err != nil {
 		if loadSeq != b.currentLoadSeq() {
 			return
 		}
+		log.Errorf("prepare document: %v", err)
+		b.showBodyMessage(err.Error(), loadSeq)
+		b.loading = false
+		return
+	}
+	if loadSeq != b.currentLoadSeq() {
+		return
+	}
+	phase = "queue ui"
+	select {
+	case b.StatusCh <- "Queue UI...":
+	default:
+	}
+
+	dui.Call <- func() {
+		uiPhase := "start"
+		defer func() {
+			if rec := recover(); rec != nil {
+				if loadSeq != b.currentLoadSeq() {
+					return
+				}
+				msg := fmt.Sprintf("ui panic (%s): %v", uiPhase, rec)
+				log.Errorf("%s", msg)
+				b.Website.UI = &duit.Label{
+					Text: msg,
+					Font: style.Map{}.Font(),
+				}
+				dui.MarkLayout(dui.Top.UI)
+				dui.MarkDraw(dui.Top.UI)
+				dui.Render()
+				b.loading = false
+				select {
+				case b.StatusCh <- msg:
+				default:
+				}
+			}
+		}()
+
+		if loadSeq != b.currentLoadSeq() {
+			return
+		}
+		select {
+		case b.StatusCh <- "Layout UI...":
+		default:
+		}
+		uiPhase = "cache tidy"
 		log.Printf("Empty some cache...")
 		cache.Tidy()
 		imageCache = make(map[string]*draw.Image)
 
-		b.Website.ContentType = ct
-		htm := ct.Utf8(buf)
-		b.Website.layout(b, htm, InitialLayout)
+		uiPhase = "build prepared layout"
+		prepared, nt, err := b.Website.buildPreparedLayout(doc)
+		if err != nil {
+			log.Errorf("build layout: %v", err)
+			b.Website.UI = &duit.Label{
+				Text: err.Error(),
+				Font: style.Map{}.Font(),
+			}
+			dui.MarkLayout(dui.Top.UI)
+			dui.MarkDraw(dui.Top.UI)
+			dui.Render()
+			b.loading = false
+			return
+		}
+		if loadSeq != b.currentLoadSeq() {
+			if prepared.scroller != nil {
+				prepared.scroller.Free()
+			}
+			return
+		}
+		if scroller != nil {
+			scroller.Free()
+			scroller = nil
+		}
 
+		uiPhase = "commit ui"
+		b.fs.Update(doc.origin, doc.htm, doc.csss, doc.scripts)
+		b.fs.SetDOM(nt)
+		b.Website.ContentType = ct
+		scroller = prepared.scroller
+		b.Website.UI = prepared.ui
+
+		uiPhase = "traverse ui tree"
 		log.Printf("Render...")
 		TraverseTree(b.Website.UI, func(ui duit.UI) {
 			// just checking for nil elements. That would be a bug anyway and it's better
@@ -1858,6 +1971,7 @@ func (b *Browser) render(ct mycel.ContentType, buf []byte, loadSeq uint32) {
 		if scroller != nil {
 			scroller.Offset = b.History.Scroll()
 		}
+		uiPhase = "render ui"
 		dui.MarkLayout(dui.Top.UI)
 		dui.MarkDraw(dui.Top.UI)
 		dui.Render()
@@ -2011,17 +2125,17 @@ func (b *Browser) doRequest(req *http.Request, showProgress bool) (*http.Respons
 			}
 		case result := <-results:
 			return result.resp, result.err
-			case <-timer.C:
-				cancel()
-				progressMu.Lock()
-				message := lastProgress
-				progressMu.Unlock()
-				if message != "" {
-					if strings.HasPrefix(message, "TLS ") {
-						return nil, errors.New("request timeout during TLS " + strings.TrimPrefix(message, "TLS "))
-					}
-					return nil, errors.New("request timeout at " + message)
+		case <-timer.C:
+			cancel()
+			progressMu.Lock()
+			message := lastProgress
+			progressMu.Unlock()
+			if message != "" {
+				if strings.HasPrefix(message, "TLS ") {
+					return nil, errors.New("request timeout during TLS " + strings.TrimPrefix(message, "TLS "))
 				}
+				return nil, errors.New("request timeout at " + message)
+			}
 			return nil, errors.New("request timeout")
 		}
 	}

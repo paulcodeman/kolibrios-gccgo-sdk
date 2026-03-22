@@ -10,6 +10,7 @@ import (
 	"kos"
 	"math"
 	"net/html"
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -153,54 +154,85 @@ func compile(v string) (cs cascadia.SelectorGroup, err error) {
 }
 
 func FetchNodeRules(doc *html.Node, cssText string) (m map[*html.Node][]Rule, rVars map[string]string, err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			err = fmt.Errorf("fetch node rules panic: %v", rec)
+		}
+	}()
+
 	m = make(map[*html.Node][]Rule)
 	rVars = make(map[string]string)
 	s, err := Parse(cssText, false)
 	if err != nil {
 		return nil, nil, fmt.Errorf("parse: %w", err)
 	}
+	yieldCounter := 0
+	maybeYield := func() {
+		yieldCounter++
+		if (yieldCounter & 63) == 0 {
+			runtime.Gosched()
+		}
+	}
 	processRule := func(m map[*html.Node][]Rule, r Rule) error {
 		for i, sel := range r.Selectors {
-			if sel.Val == ":root" {
-				for _, d := range r.Declarations {
-					rVars[d.Prop] = d.Val
+			func(sel Selector, i int) {
+				defer func() {
+					if rec := recover(); rec != nil {
+						log.Errorf("css selector panic %q: %v", sel.Val, rec)
+					}
+				}()
+
+				maybeYield()
+				if sel.Val == ":root" {
+					for _, d := range r.Declarations {
+						rVars[d.Prop] = d.Val
+					}
 				}
-			}
-			csg, err := compile(sel.Val)
-			if err != nil {
-				log.Printf("cssSel compile %v: %v", sel.Val, err)
-				continue
-			}
-			var cs cascadia.Sel
-			if n := len(csg); n == 1 {
-				cs = csg[0]
-			} else {
-				log.Errorf("csg len %v", n)
-				continue
-			}
-			for _, el := range cascadia.QueryAll(doc, cs) {
-				existing := m[el]
-				var sr Rule
-				sr = r
-				sr.Selectors = []Selector{r.Selectors[i]}
-				for j := range sr.Declarations {
-					sr.Declarations[j].Specificity[0] = cs.Specificity()[0]
-					sr.Declarations[j].Specificity[1] = cs.Specificity()[1]
-					sr.Declarations[j].Specificity[2] = cs.Specificity()[2]
+				csg, compileErr := compile(sel.Val)
+				if compileErr != nil {
+					log.Printf("cssSel compile %v: %v", sel.Val, compileErr)
+					return
 				}
-				existing = append(existing, sr)
-				m[el] = existing
-			}
+				var cs cascadia.Sel
+				if n := len(csg); n == 1 {
+					cs = csg[0]
+				} else {
+					log.Errorf("csg len %v", n)
+					return
+				}
+				for _, el := range cascadia.QueryAll(doc, cs) {
+					maybeYield()
+					existing := m[el]
+					var sr Rule
+					sr = r
+					sr.Selectors = []Selector{r.Selectors[i]}
+					for j := range sr.Declarations {
+						sr.Declarations[j].Specificity[0] = cs.Specificity()[0]
+						sr.Declarations[j].Specificity[1] = cs.Specificity()[1]
+						sr.Declarations[j].Specificity[2] = cs.Specificity()[2]
+					}
+					existing = append(existing, sr)
+					m[el] = existing
+				}
+			}(sel, i)
 		}
 		return nil
 	}
 	for _, r := range s.Rules {
+		maybeYield()
 		if err := processRule(m, r); err != nil {
 			return nil, nil, fmt.Errorf("process rule: %w", err)
 		}
 		if strings.HasPrefix(r.Prelude, "@media") {
 			p := strings.TrimSpace(strings.TrimPrefix(r.Prelude, "@media"))
-			yes, err := MatchQuery(p, MediaValues)
+			yes, err := func() (yes bool, err error) {
+				defer func() {
+					if rec := recover(); rec != nil {
+						err = fmt.Errorf("media query panic: %v", rec)
+					}
+				}()
+				return MatchQuery(p, MediaValues)
+			}()
 			if err != nil {
 				log.Errorf("match query %v: %v", r.Prelude, err)
 			} else if !yes {
@@ -208,6 +240,7 @@ func FetchNodeRules(doc *html.Node, cssText string) (m map[*html.Node][]Rule, rV
 			}
 		}
 		for _, rr := range r.Rules {
+			maybeYield()
 			if err := processRule(m, rr); err != nil {
 				return nil, nil, fmt.Errorf("process embedded rule: %w", err)
 			}
@@ -369,29 +402,65 @@ func ParseColor(propVal string) (kos.Color, bool) {
 	var r, g, b uint32
 	propVal = strings.TrimSpace(strings.ToLower(propVal))
 	if strings.HasPrefix(propVal, "rgb") {
-		val := strings.TrimPrefix(propVal, "rgb")
-		val = strings.TrimPrefix(val, "a")
-		val = strings.TrimPrefix(val, "(")
-		val = strings.TrimSuffix(val, ")")
-		vals := strings.Split(val, ",")
+		parseComponent := func(v string) (uint32, bool) {
+			v = strings.TrimSpace(v)
+			if v == "" {
+				return 0, false
+			}
+			if strings.HasSuffix(v, "%") {
+				f, err := strconv.ParseFloat(strings.TrimSuffix(v, "%"), 64)
+				if err != nil {
+					return 0, false
+				}
+				if f < 0 {
+					f = 0
+				} else if f > 100 {
+					f = 100
+				}
+				return uint32(math.Round(f * 255.0 / 100.0)), true
+			}
+			f, err := strconv.ParseFloat(v, 64)
+			if err != nil {
+				return 0, false
+			}
+			if f < 0 {
+				f = 0
+			} else if f > 255 {
+				f = 255
+			}
+			return uint32(math.Round(f)), true
+		}
+
+		open := strings.Index(propVal, "(")
+		close := strings.LastIndex(propVal, ")")
+		if open < 0 || close <= open {
+			return 0, false
+		}
+		val := strings.TrimSpace(propVal[open+1 : close])
+		if alphaSep := strings.Index(val, "/"); alphaSep >= 0 {
+			val = strings.TrimSpace(val[:alphaSep])
+		}
+		vals := strings.FieldsFunc(val, func(r rune) bool {
+			return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
+		})
 		if len(vals) < 3 {
 			return 0, false
 		}
-		rr, err := strconv.ParseInt(strings.TrimSpace(vals[0]), 10, 32)
-		if err != nil {
+		rr, ok := parseComponent(vals[0])
+		if !ok {
 			return 0, false
 		}
-		gg, err := strconv.ParseInt(strings.TrimSpace(vals[1]), 10, 32)
-		if err != nil {
+		gg, ok := parseComponent(vals[1])
+		if !ok {
 			return 0, false
 		}
-		bb, err := strconv.ParseInt(strings.TrimSpace(vals[2]), 10, 32)
-		if err != nil {
+		bb, ok := parseComponent(vals[2])
+		if !ok {
 			return 0, false
 		}
-		r = uint32(rr)
-		g = uint32(gg)
-		b = uint32(bb)
+		r = rr
+		g = gg
+		b = bb
 	} else if strings.HasPrefix(propVal, "#") {
 		hexColor := propVal[1:]
 		switch len(hexColor) {

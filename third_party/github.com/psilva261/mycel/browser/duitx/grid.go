@@ -30,8 +30,36 @@ type Grid struct {
 
 var _ duit.UI = &Grid{}
 
+func (ui *Grid) rowSpan(i int) int {
+	if i < 0 || i >= len(ui.RowSpans) || ui.RowSpans[i] <= 0 {
+		return 1
+	}
+	return ui.RowSpans[i]
+}
+
+func (ui *Grid) colSpan(i int) int {
+	if i < 0 || i >= len(ui.ColSpans) || ui.ColSpans[i] <= 0 {
+		return 1
+	}
+	return ui.ColSpans[i]
+}
+
+func (ui *Grid) normalize() {
+	if ui.Columns <= 0 {
+		return
+	}
+	if needRows := (len(ui.Kids) + ui.Columns - 1) / ui.Columns; needRows > ui.Rows {
+		ui.Rows = needRows
+	}
+}
+
 func (ui *Grid) initPos() {
 	log.Printf("grid: %+v", ui)
+	ui.normalize()
+	if ui.Rows <= 0 || ui.Columns <= 0 {
+		ui.pos = nil
+		return
+	}
 	var i, j int
 	ui.pos = make([][]int, ui.Rows)
 	for i = 0; i < ui.Rows; i++ {
@@ -49,16 +77,24 @@ func (ui *Grid) initPos() {
 	}
 
 	for l := range ui.Kids {
-	ijIter:
-		if ll := ui.pos[i][j]; ll >= 0 {
+		for i < ui.Rows && j < ui.Columns && ui.pos[i][j] >= 0 {
 			inc()
-			goto ijIter
 		}
-		for jj := j; jj < j+ui.RowSpans[l]; jj++ {
-			ui.pos[i][jj] = l
+		if i >= ui.Rows || j >= ui.Columns {
+			break
 		}
-		for ii := i; ii < i+ui.ColSpans[l]; ii++ {
-			ui.pos[ii][j] = l
+		hspan := ui.colSpan(l)
+		vspan := ui.rowSpan(l)
+		if remCols := ui.Columns - j; hspan > remCols {
+			hspan = remCols
+		}
+		if remRows := ui.Rows - i; vspan > remRows {
+			vspan = remRows
+		}
+		for ii := i; ii < i+vspan; ii++ {
+			for jj := j; jj < j+hspan; jj++ {
+				ui.pos[ii][jj] = l
+			}
 		}
 		inc()
 	}
@@ -76,9 +112,15 @@ func (ui *Grid) maxWidths(dui *duit.DUI, sizeAvail image.Point) (maxW []int, wid
 		}
 		for i := 0; i < ui.Rows; i++ {
 			l := ui.pos[i][j]
+			if l < 0 || l >= len(ui.Kids) {
+				continue
+			}
 			k := ui.Kids[l]
+			if k == nil || k.UI == nil {
+				continue
+			}
 			k.UI.Layout(dui, k, image.Pt(sizeAvail.X-space.Dx(), sizeAvail.Y-space.Dy()), true)
-			newDx = maximum(newDx, (k.R.Dx()+space.Dx())/ui.ColSpans[l])
+			newDx = maximum(newDx, (k.R.Dx()+space.Dx())/ui.colSpan(l))
 		}
 		maxW[j] = newDx
 		width += newDx
@@ -92,6 +134,12 @@ func (ui *Grid) Layout(dui *duit.DUI, self *duit.Kid, sizeAvail image.Point, for
 		return
 	}
 
+	ui.normalize()
+	if ui.Columns <= 0 {
+		self.R = rect(sizeAvail)
+		ui.size = image.Point{}
+		return
+	}
 	if ui.pos == nil {
 		ui.initPos()
 	}
@@ -104,14 +152,6 @@ func (ui *Grid) Layout(dui *duit.DUI, self *duit.Kid, sizeAvail image.Point, for
 	}
 	if ui.Padding != nil && len(ui.Padding) != ui.Columns {
 		panic(fmt.Sprintf("len(padding) = %d, should be ui.Columns = %d", len(ui.Padding), ui.Columns))
-	}
-	if len(ui.Kids)%ui.Columns != 0 {
-		panic(fmt.Sprintf("len(kids) = %d, should be multiple of ui.Columns = %d", len(ui.Kids), ui.Columns))
-	}
-	if ui.Columns <= 0 {
-		self.R = rect(sizeAvail)
-		ui.size = image.Point{}
-		return
 	}
 
 	scaledWidth := dui.Scale(ui.Width)
@@ -183,6 +223,9 @@ func (ui *Grid) Layout(dui *duit.DUI, self *duit.Kid, sizeAvail image.Point, for
 	for i, k := range ui.Kids {
 		row := i / ui.Columns
 		col := i % ui.Columns
+		if row >= len(ui.heights) || col >= len(spaces) || col >= len(ui.widths) {
+			break
+		}
 		space := spaces[col]
 
 		valign := duit.ValignTop

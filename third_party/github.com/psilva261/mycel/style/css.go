@@ -9,6 +9,7 @@ import (
 	"github.com/tdewolff/parse/v2"
 	"github.com/tdewolff/parse/v2/css"
 	"io"
+	"runtime"
 	"strings"
 )
 
@@ -44,7 +45,12 @@ func Preprocess(s string) (bs []byte, ct mycel.ContentType, imports []string, er
 	ct.MediaType = "text/css"
 	ct.Params = make(map[string]string)
 	at := ""
+	tokenCount := 0
 	for {
+		tokenCount++
+		if (tokenCount & 255) == 0 {
+			runtime.Gosched()
+		}
 		tt, data := l.Next()
 		if tt == css.ErrorToken {
 			if err != io.EOF {
@@ -82,6 +88,12 @@ func parseUrl(u string) string {
 }
 
 func Parse(str string, inline bool) (s Sheet, err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			err = fmt.Errorf("css parser panic: %v", rec)
+		}
+	}()
+
 	s.Rules = make([]Rule, 0, 1000)
 	stack := make([]Rule, 0, 2)
 	selectors := make([]Selector, 0, 1)
@@ -101,7 +113,12 @@ func Parse(str string, inline bool) (s Sheet, err error) {
 			}
 		}()
 	}
+	tokenCount := 0
 	for {
+		tokenCount++
+		if (tokenCount & 255) == 0 {
+			runtime.Gosched()
+		}
 		gt, _, data := p.Next()
 		switch gt {
 		case css.ErrorGrammar:

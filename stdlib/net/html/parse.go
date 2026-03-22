@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime"
 	"strings"
 
 	a "net/html/atom"
@@ -2332,6 +2333,7 @@ func (p *parser) parseCurrentToken() {
 }
 
 func (p *parser) parse() (err error) {
+	tokens := 0
 	defer func() {
 		if panicErr := recover(); panicErr != nil {
 			err = fmt.Errorf("%s", panicErr)
@@ -2339,6 +2341,10 @@ func (p *parser) parse() (err error) {
 	}()
 	// Iterate until EOF. Any other error will cause an early return.
 	for err != io.EOF {
+		tokens++
+		if (tokens & 127) == 127 {
+			runtime.Gosched()
+		}
 		// CDATA sections are allowed only in foreign content.
 		n := p.oe.top()
 		p.tokenizer.AllowCDATA(n != nil && n.Namespace != "")

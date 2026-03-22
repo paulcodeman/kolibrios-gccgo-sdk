@@ -8,6 +8,7 @@ import (
 	"github.com/psilva261/mycel/style"
 	"image"
 	"net/html"
+	"runtime"
 	"strings"
 )
 
@@ -29,6 +30,17 @@ type Rectangular interface {
 //
 // First applies the parent style and at the end the local style attribute's style is attached.
 func NewNodeTree(doc *html.Node, ps style.Map, nodeMap map[*html.Node]style.Map, parent *Node) (n *Node) {
+	visits := 0
+	return newNodeTree(doc, ps, nodeMap, parent, &visits)
+}
+
+func newNodeTree(doc *html.Node, ps style.Map, nodeMap map[*html.Node]style.Map, parent *Node, visits *int) (n *Node) {
+	if visits != nil {
+		*visits = *visits + 1
+		if (*visits & 127) == 0 {
+			runtime.Gosched()
+		}
+	}
 	ncs := style.Map{
 		Declarations: make(map[string]style.Declaration),
 	}
@@ -68,7 +80,7 @@ func NewNodeTree(doc *html.Node, ps style.Map, nodeMap map[*html.Node]style.Map,
 		if c.Type == html.CommentNode || (c.Type == html.TextNode && strings.TrimSpace(c.Data) == "") {
 			continue
 		}
-		cnt := NewNodeTree(c, ncs, nodeMap, n)
+		cnt := newNodeTree(c, ncs, nodeMap, n, visits)
 		n.Children = append(n.Children, cnt)
 		i++
 	}
