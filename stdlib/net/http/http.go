@@ -418,7 +418,7 @@ func (transport *Transport) RoundTrip(request *Request) (*Response, error) {
 	)
 	switch scheme {
 	case "http":
-		response, err = doHTTPObj(request, rawURL, method)
+		response, err = transport.doHTTP(request, method)
 	case "https":
 		response, err = transport.doHTTPS(request, method)
 	}
@@ -430,6 +430,28 @@ func (transport *Transport) RoundTrip(request *Request) (*Response, error) {
 		}
 	}
 	return response, nil
+}
+
+func (transport *Transport) doHTTP(request *Request, method string) (*Response, error) {
+	_, dialAddress, requestHost, requestPath, err := resolveHTTPRequestTarget(request.URL)
+	if err != nil {
+		return nil, err
+	}
+
+	reportRequestProgress(transport, request, "Connect "+requestHost)
+	conn, err := new(net.Dialer).DialContext(request.Context(), "tcp", dialAddress)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	reportRequestProgress(transport, request, "Request "+requestHost)
+	if err := writeHTTPRequest(conn, request, method, requestHost, requestPath); err != nil {
+		return nil, err
+	}
+
+	reportRequestProgress(transport, request, "Read "+requestHost)
+	return readHTTPResponse(bufio.NewReader(conn), method, request)
 }
 
 func (transport *Transport) doHTTPS(request *Request, method string) (*Response, error) {
@@ -647,6 +669,14 @@ func reportRequestProgress(transport *Transport, request *Request, message strin
 }
 
 func resolveHTTPSRequestTarget(target *urlpkg.URL) (serverName string, dialAddress string, requestHost string, requestPath string, err error) {
+	return resolveRequestTarget(target, "443")
+}
+
+func resolveHTTPRequestTarget(target *urlpkg.URL) (serverName string, dialAddress string, requestHost string, requestPath string, err error) {
+	return resolveRequestTarget(target, "80")
+}
+
+func resolveRequestTarget(target *urlpkg.URL, defaultPort string) (serverName string, dialAddress string, requestHost string, requestPath string, err error) {
 	if target == nil {
 		return "", "", "", "", errors.New("missing URL")
 	}
@@ -668,10 +698,10 @@ func resolveHTTPSRequestTarget(target *urlpkg.URL) (serverName string, dialAddre
 	}
 
 	serverName = stripBracketHost(requestHost)
-	return serverName, net.JoinHostPort(serverName, "443"), requestHost, requestPath, nil
+	return serverName, net.JoinHostPort(serverName, defaultPort), requestHost, requestPath, nil
 }
 
-func writeHTTPSRequest(writer io.Writer, request *Request, method string, requestHost string, requestPath string) error {
+func writeHTTPRequest(writer io.Writer, request *Request, method string, requestHost string, requestPath string) error {
 	var builder strings.Builder
 	builder.WriteString(method)
 	builder.WriteString(" ")
@@ -721,7 +751,11 @@ func writeHTTPSRequest(writer io.Writer, request *Request, method string, reques
 	return nil
 }
 
-func readHTTPSResponse(reader *bufio.Reader, method string, request *Request) (*Response, error) {
+func writeHTTPSRequest(writer io.Writer, request *Request, method string, requestHost string, requestPath string) error {
+	return writeHTTPRequest(writer, request, method, requestHost, requestPath)
+}
+
+func readHTTPResponse(reader *bufio.Reader, method string, request *Request) (*Response, error) {
 	statusLine, err := readHTTPLine(reader)
 	if err != nil {
 		return nil, err
@@ -763,6 +797,10 @@ func readHTTPSResponse(reader *bufio.Reader, method string, request *Request) (*
 		ContentLength: contentLength,
 		Request:       request,
 	}, nil
+}
+
+func readHTTPSResponse(reader *bufio.Reader, method string, request *Request) (*Response, error) {
+	return readHTTPResponse(reader, method, request)
 }
 
 func readHTTPHeaders(reader *bufio.Reader) (Header, error) {

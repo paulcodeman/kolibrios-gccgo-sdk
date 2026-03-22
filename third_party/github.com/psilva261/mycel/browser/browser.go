@@ -1583,6 +1583,8 @@ type Browser struct {
 	LocCh    chan string
 	StatusCh chan string
 	loadSeq  uint32
+	lastNav  string
+	lastNavAt time.Time
 }
 
 func NewBrowser(_dui *duit.DUI, initUrl string) (b *Browser) {
@@ -1685,6 +1687,21 @@ func (b *Browser) Back() (e duit.Event) {
 
 func (b *Browser) SetAndLoadUrl(u *url.URL) func() duit.Event {
 	return func() duit.Event {
+		now := time.Now()
+		if u != nil && b.lastNav == u.String() && now.Sub(b.lastNavAt) < 750*time.Millisecond {
+			return duit.Event{
+				Consumed: true,
+			}
+		}
+		if b.loading {
+			return duit.Event{
+				Consumed: true,
+			}
+		}
+		if u != nil {
+			b.lastNav = u.String()
+			b.lastNavAt = now
+		}
 		// Stop updating existing widgets
 		if scroller != nil {
 			scroller.Free()
@@ -1873,7 +1890,7 @@ func (b *Browser) get(uri *url.URL, isNewOrigin bool) (buf []byte, contentType m
 		return
 	}
 	req.Header.Add("User-Agent", UserAgent)
-	resp, err := b.doRequest(req)
+	resp, err := b.doRequest(req, isNewOrigin)
 	if err != nil {
 		return nil, mycel.ContentType{}, fmt.Errorf("error loading %v: %w", uri, err)
 	}
@@ -1904,7 +1921,7 @@ func (b *Browser) PostForm(uri *url.URL, data url.Values) (buf []byte, contentTy
 	}
 	req.Header.Add("User-Agent", UserAgent)
 	req.Header.Set("Content-Type", fmt.Sprintf("application/x-www-form-urlencoded; charset=%v", b.Website.Charset()))
-	resp, err := b.doRequest(req)
+	resp, err := b.doRequest(req, true)
 	if err != nil {
 		return nil, mycel.ContentType{}, fmt.Errorf("error loading %v: %w", uri, err)
 	}
@@ -1923,7 +1940,7 @@ type requestResult struct {
 	err  error
 }
 
-func (b *Browser) doRequest(req *http.Request) (*http.Response, error) {
+func (b *Browser) doRequest(req *http.Request, showProgress bool) (*http.Response, error) {
 	ctx, cancel := context.WithCancel(req.Context())
 	defer cancel()
 	clonedReq, err := http.NewRequestWithContext(ctx, req.Method, req.URL.String(), req.Body)
@@ -1938,17 +1955,21 @@ func (b *Browser) doRequest(req *http.Request) (*http.Response, error) {
 	progress := make(chan string, 8)
 	var progressMu sync.Mutex
 	lastProgress := ""
-	req.Progress = func(message string) {
-		if message == "" {
-			return
+	if showProgress {
+		req.Progress = func(message string) {
+			if message == "" {
+				return
+			}
+			progressMu.Lock()
+			lastProgress = message
+			progressMu.Unlock()
+			select {
+			case progress <- message:
+			default:
+			}
 		}
-		progressMu.Lock()
-		lastProgress = message
-		progressMu.Unlock()
-		select {
-		case progress <- message:
-		default:
-		}
+	} else {
+		req.Progress = func(string) {}
 	}
 	go func() {
 		resp, err := b.client.Do(req)
