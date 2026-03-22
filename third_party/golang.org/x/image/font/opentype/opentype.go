@@ -13,7 +13,7 @@ package opentype // import "golang.org/x/image/font/opentype"
 
 import (
 	"image"
-	"image/draw"
+	imagedraw "image/draw"
 	"io"
 
 	"golang.org/x/image/font"
@@ -218,7 +218,7 @@ func (f *Face) Glyph(dot fixed.Point26_6, r rune) (dr image.Rectangle, mask imag
 
 	// Rasterize the biased segments, converting from fixed.Int26_6 to float32.
 	f.rast.Reset(width, height)
-	f.rast.DrawOp = draw.Src
+	f.rast.DrawOp = imagedraw.Src
 	for _, seg := range segments {
 		switch seg.Op {
 		case sfnt.SegmentOpMoveTo:

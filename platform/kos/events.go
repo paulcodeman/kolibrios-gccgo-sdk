@@ -1,16 +1,16 @@
 package kos
 
 func WaitEvent() EventType {
-	PollRuntimeGCRaw()
-	if !runtimeThreaded() {
-		PollRuntimeWorldStopRaw()
-		return EventType(Event())
-	}
+	threaded := runtimeThreaded()
 	for {
+		PollRuntimeGCRaw()
 		PollRuntimeWorldStopRaw()
 		event := EventType(WaitEventTimeout(1))
 		if event != EventNone {
 			return event
+		}
+		if !threaded {
+			Gosched()
 		}
 	}
 }
@@ -22,16 +22,13 @@ func PollEvent() EventType {
 }
 
 func WaitEventFor(timeout uint32) EventType {
-	PollRuntimeGCRaw()
 	if timeout == 0 {
 		return WaitEvent()
 	}
-	if !runtimeThreaded() {
-		PollRuntimeWorldStopRaw()
-		return EventType(WaitEventTimeout(timeout))
-	}
+	threaded := runtimeThreaded()
 	remaining := timeout
 	for {
+		PollRuntimeGCRaw()
 		PollRuntimeWorldStopRaw()
 		step := remaining
 		if step > 1 {
@@ -45,6 +42,9 @@ func WaitEventFor(timeout uint32) EventType {
 			return event
 		}
 		remaining -= step
+		if !threaded {
+			Gosched()
+		}
 	}
 }
 

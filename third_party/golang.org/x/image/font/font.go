@@ -11,7 +11,7 @@ package font // import "golang.org/x/image/font"
 
 import (
 	"image"
-	"image/draw"
+	imagedraw "image/draw"
 	"io"
 	"unicode/utf8"
 
@@ -34,7 +34,7 @@ import (
 type Face interface {
 	io.Closer
 
-	// Glyph returns the draw.DrawMask parameters (dr, mask, maskp) to draw r's
+	// Glyph returns the imagedraw.DrawMask parameters (dr, mask, maskp) to draw r's
 	// glyph at the sub-pixel destination location dot, and that glyph's
 	// advance width.
 	//
@@ -117,7 +117,7 @@ type Metrics struct {
 // Face is not.
 type Drawer struct {
 	// Dst is the destination image.
-	Dst draw.Image
+	Dst imagedraw.Image
 	// Src is the source image.
 	Src image.Image
 	// Face provides the glyph mask images.
@@ -161,7 +161,7 @@ func (d *Drawer) DrawBytes(s []byte) {
 		}
 		dr, mask, maskp, advance, _ := d.Face.Glyph(d.Dot, c)
 		if !dr.Empty() {
-			draw.DrawMask(d.Dst, dr, d.Src, image.Point{}, mask, maskp, draw.Over)
+			imagedraw.DrawMask(d.Dst, dr, d.Src, image.Point{}, mask, maskp, imagedraw.Over)
 		}
 		d.Dot.X += advance
 		prevC = c
@@ -177,7 +177,7 @@ func (d *Drawer) DrawString(s string) {
 		}
 		dr, mask, maskp, advance, _ := d.Face.Glyph(d.Dot, c)
 		if !dr.Empty() {
-			draw.DrawMask(d.Dst, dr, d.Src, image.Point{}, mask, maskp, draw.Over)
+			imagedraw.DrawMask(d.Dst, dr, d.Src, image.Point{}, mask, maskp, imagedraw.Over)
 		}
 		d.Dot.X += advance
 		prevC = c

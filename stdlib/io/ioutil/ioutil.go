@@ -6,6 +6,8 @@ import (
 	"os"
 )
 
+var Discard io.Writer = io.Discard
+
 // ReadAll reads from r until EOF and returns the data.
 func ReadAll(r io.Reader) ([]byte, error) {
 	var buf bytes.Buffer

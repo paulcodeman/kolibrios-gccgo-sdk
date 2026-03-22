@@ -41,7 +41,19 @@ func UptimeNanoseconds() uint64 {
 }
 
 func SleepCentiseconds(centiseconds uint32) {
-	Sleep(centiseconds)
+	if centiseconds == 0 {
+		return
+	}
+	if runtimeThreaded() {
+		Sleep(centiseconds)
+		return
+	}
+	for remaining := centiseconds; remaining > 0; remaining-- {
+		PollRuntimeGCRaw()
+		PollRuntimeWorldStopRaw()
+		Sleep(1)
+		Gosched()
+	}
 }
 
 func SleepMilliseconds(milliseconds uint32) {
@@ -54,7 +66,7 @@ func SleepMilliseconds(milliseconds uint32) {
 		centiseconds++
 	}
 
-	Sleep(centiseconds)
+	SleepCentiseconds(centiseconds)
 }
 
 func SleepSeconds(seconds uint32) {
@@ -62,11 +74,13 @@ func SleepSeconds(seconds uint32) {
 
 	centiseconds := uint64(seconds) * 100
 	if centiseconds > uint64(maxUint32) {
-		Sleep(maxUint32)
-		return
+		for centiseconds > uint64(maxUint32) {
+			SleepCentiseconds(maxUint32)
+			centiseconds -= uint64(maxUint32)
+		}
 	}
 
-	Sleep(uint32(centiseconds))
+	SleepCentiseconds(uint32(centiseconds))
 }
 
 func decodeBCDByte(value byte) byte {

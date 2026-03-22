@@ -1,0 +1,96 @@
+package js
+
+import (
+	"context"
+	"fmt"
+	"github.com/psilva261/mycel"
+	"github.com/psilva261/mycel/browser/fs"
+	"github.com/psilva261/mycel/logger"
+	"github.com/psilva261/mycel/nodes"
+	"github.com/psilva261/mycel/style"
+	"golang.org/x/net/html"
+	"io/ioutil"
+	"net/url"
+	"strings"
+	"testing"
+	"time"
+)
+
+const simpleHTML = `
+<html>
+<body>
+<h1 id="title">Hello</h1>
+</body>
+</html>
+`
+
+func init() {
+	log.Debug = true
+	<-time.After(2 * time.Second)
+}
+
+type TestFetcher struct{}
+
+func (tf *TestFetcher) Ctx() context.Context {
+	return context.Background()
+}
+
+func (tf *TestFetcher) Origin() (u *url.URL) {
+	u, _ = url.Parse("https://example.com")
+	return
+}
+
+func (tf *TestFetcher) LinkedUrl(string) (*url.URL, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (tf *TestFetcher) Get(*url.URL) ([]byte, mycel.ContentType, error) {
+	return nil, mycel.ContentType{}, fmt.Errorf("not implemented")
+}
+
+func TestJQueryHide(t *testing.T) {
+	f := &TestFetcher{}
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+	buf, err := ioutil.ReadFile("jquery-3.5.1.js")
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	script := `
+	$(document).ready(function() {
+		$('h1').hide();
+	});
+	`
+
+	r := strings.NewReader(simpleHTML)
+	doc, err := html.Parse(r)
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+	nt := nodes.NewNodeTree(doc, style.Map{}, make(map[*html.Node]style.Map), nil)
+	fs := fs.New()
+	go fs.Srv9p()
+	fs.SetDOM(nt)
+	fs.Update("", simpleHTML, nil, []string{string(buf), script})
+
+	svc, resHtm, changed, err := Start(f, string(buf), script)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	if !changed {
+		t.Fatalf("changed=%v", changed)
+	}
+	t.Logf("resHtm=%v", resHtm)
+
+	r = strings.NewReader(resHtm)
+	doc, err = html.Parse(r)
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+	nt = nodes.NewNodeTree(doc, style.Map{}, make(map[*html.Node]style.Map), nil)
+	if v := nt.Find("h1").Css("display"); v != "none" {
+		t.Fatalf("%v", v)
+	}
+	svc.Stop()
+}

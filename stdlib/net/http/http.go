@@ -3,6 +3,7 @@ package http
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/tls"
 	"errors"
 	"io"
@@ -68,6 +69,8 @@ type Request struct {
 	LocalAddr        string
 
 	bodyData []byte
+	ctx      context.Context
+	Progress func(string)
 }
 
 type Response struct {
@@ -90,15 +93,19 @@ type RoundTripper interface {
 
 type Transport struct {
 	TLSClientConfig *tls.Config
+	Progress        func(string)
 }
 
 type Client struct {
-	Transport RoundTripper
+	Transport     RoundTripper
+	Jar           CookieJar
+	CheckRedirect func(req *Request, via []*Request) error
 }
 
 var DefaultTransport RoundTripper = &Transport{}
 var DefaultClient = &Client{}
 var NoBody io.ReadCloser = noBodyReader{}
+var ErrUseLastResponse = errors.New("net/http: use last response")
 
 func (header Header) Add(key string, value string) {
 	storedKey := headerStoredKey(header, key)
@@ -200,6 +207,7 @@ func NewRequest(method string, rawURL string, body io.Reader) (*Request, error) 
 		URL:    parsedURL,
 		Header: make(Header),
 		Body:   NoBody,
+		ctx:    context.Background(),
 	}
 
 	if body != nil {
@@ -218,6 +226,24 @@ func NewRequest(method string, rawURL string, body io.Reader) (*Request, error) 
 	}
 
 	return request, nil
+}
+
+func NewRequestWithContext(ctx context.Context, method string, rawURL string, body io.Reader) (*Request, error) {
+	request, err := NewRequest(method, rawURL, body)
+	if err != nil {
+		return nil, err
+	}
+	if ctx != nil {
+		request.ctx = ctx
+	}
+	return request, nil
+}
+
+func (request *Request) Context() context.Context {
+	if request == nil || request.ctx == nil {
+		return context.Background()
+	}
+	return request.ctx
 }
 
 func Get(rawURL string) (*Response, error) {
@@ -279,6 +305,13 @@ func (client *Client) Do(request *Request) (*Response, error) {
 	if client == nil {
 		client = DefaultClient
 	}
+	if request == nil || request.URL == nil {
+		return nil, &urlpkg.Error{
+			Op:  "request",
+			URL: "",
+			Err: errors.New("nil Request"),
+		}
+	}
 
 	transport := client.Transport
 	if transport == nil {
@@ -292,11 +325,53 @@ func (client *Client) Do(request *Request) (*Response, error) {
 		}
 	}
 
-	response, err := transport.RoundTrip(request)
-	if err != nil {
-		return nil, err
+	current := cloneRequest(request)
+	via := make([]*Request, 0, 4)
+	for redirectCount := 0; redirectCount < 10; redirectCount++ {
+		applyJarCookies(client.Jar, current)
+		response, err := transport.RoundTrip(current)
+		if err != nil {
+			return nil, err
+		}
+		if client.Jar != nil {
+			client.Jar.SetCookies(current.URL, readSetCookies(response.Header))
+		}
+		if !shouldRedirectResponse(current.Method, response.StatusCode, response.Header) {
+			return response, nil
+		}
+		location := strings.TrimSpace(response.Header.Get("Location"))
+		if location == "" {
+			return response, nil
+		}
+		nextURL, err := resolveRedirectURL(current.URL, location)
+		if err != nil {
+			_ = response.Body.Close()
+			return nil, &urlpkg.Error{
+				Op:  httpOperationName(current.Method),
+				URL: current.URL.String(),
+				Err: err,
+			}
+		}
+		nextMethod, includeBody := redirectedMethod(current.Method, response.StatusCode)
+		nextRequest := cloneRequestForRedirect(current, nextURL, nextMethod, includeBody)
+		via = append(via, current)
+		if client.CheckRedirect != nil {
+			if err := client.CheckRedirect(nextRequest, via); err != nil {
+				if err == ErrUseLastResponse {
+					return response, nil
+				}
+				_ = response.Body.Close()
+				return nil, err
+			}
+		}
+		_ = response.Body.Close()
+		current = nextRequest
 	}
-	return response, nil
+	return nil, &urlpkg.Error{
+		Op:  httpOperationName(request.Method),
+		URL: request.URL.String(),
+		Err: errors.New("stopped after 10 redirects"),
+	}
 }
 
 func (transport *Transport) RoundTrip(request *Request) (*Response, error) {
@@ -368,16 +443,19 @@ func (transport *Transport) doHTTPS(request *Request, method string) (*Response,
 		config.ServerName = serverName
 	}
 
+	reportRequestProgress(transport, request, "Connect/TLS "+requestHost)
 	conn, err := tls.DialWithDialer(new(net.Dialer), "tcp", dialAddress, config)
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
 
+	reportRequestProgress(transport, request, "Request "+requestHost)
 	if err := writeHTTPSRequest(conn, request, method, requestHost, requestPath); err != nil {
 		return nil, err
 	}
 
+	reportRequestProgress(transport, request, "Read "+requestHost)
 	return readHTTPSResponse(bufio.NewReader(conn), method, request)
 }
 
@@ -546,6 +624,26 @@ func doHTTPObj(request *Request, rawURL string, method string) (*Response, error
 	response := responseFromTransfer(transfer, method, request)
 	http.Free(transfer)
 	return response, nil
+}
+
+func (transport *Transport) reportProgress(message string) {
+	if transport == nil || transport.Progress == nil || message == "" {
+		return
+	}
+	transport.Progress(message)
+}
+
+func reportRequestProgress(transport *Transport, request *Request, message string) {
+	if message == "" {
+		return
+	}
+	if request != nil && request.Progress != nil {
+		request.Progress(message)
+		return
+	}
+	if transport != nil {
+		transport.reportProgress(message)
+	}
 }
 
 func resolveHTTPSRequestTarget(target *urlpkg.URL) (serverName string, dialAddress string, requestHost string, requestPath string, err error) {
@@ -1096,4 +1194,160 @@ func stringLess(left string, right string) bool {
 	}
 
 	return len(left) < len(right)
+}
+
+func cloneRequest(request *Request) *Request {
+	if request == nil {
+		return nil
+	}
+	cloned := *request
+	if request.Header != nil {
+		cloned.Header = request.Header.Clone()
+	} else {
+		cloned.Header = make(Header)
+	}
+	if len(request.bodyData) > 0 {
+		cloned.bodyData = append([]byte(nil), request.bodyData...)
+		cloned.Body = newMemoryBody(cloned.bodyData)
+	} else {
+		cloned.bodyData = nil
+		cloned.Body = NoBody
+		cloned.ContentLength = 0
+	}
+	if request.URL != nil {
+		copiedURL := *request.URL
+		cloned.URL = &copiedURL
+	}
+	return &cloned
+}
+
+func cloneRequestForRedirect(previous *Request, target *urlpkg.URL, method string, includeBody bool) *Request {
+	next := cloneRequest(previous)
+	if next == nil {
+		return nil
+	}
+	next.Method = method
+	next.URL = target
+	next.RequestURI = ""
+	if next.Header == nil {
+		next.Header = make(Header)
+	}
+	if !includeBody {
+		next.bodyData = nil
+		next.Body = NoBody
+		next.ContentLength = 0
+		next.Header.Del("Content-Type")
+		next.Header.Del("Content-Length")
+	}
+	return next
+}
+
+func applyJarCookies(jar CookieJar, request *Request) {
+	if jar == nil || request == nil || request.URL == nil {
+		return
+	}
+	if request.Header == nil {
+		request.Header = make(Header)
+	}
+	if request.Header.Get("Cookie") != "" {
+		return
+	}
+	value := cookieHeaderValue(jar.Cookies(request.URL))
+	if value != "" {
+		request.Header.Set("Cookie", value)
+	}
+}
+
+func shouldRedirectResponse(method string, statusCode int, header Header) bool {
+	switch statusCode {
+	case StatusMovedPermanently, StatusFound, StatusSeeOther, StatusTemporaryRedirect, StatusPermanentRedirect:
+	default:
+		return false
+	}
+	return strings.TrimSpace(header.Get("Location")) != ""
+}
+
+func redirectedMethod(method string, statusCode int) (string, bool) {
+	method = normalizeMethod(method)
+	switch statusCode {
+	case StatusMovedPermanently, StatusFound:
+		if method == MethodPost {
+			return MethodGet, false
+		}
+	case StatusSeeOther:
+		if method != MethodHead {
+			return MethodGet, false
+		}
+	case StatusTemporaryRedirect, StatusPermanentRedirect:
+		return method, method == MethodPost
+	}
+	return method, method == MethodPost
+}
+
+func resolveRedirectURL(base *urlpkg.URL, location string) (*urlpkg.URL, error) {
+	if strings.TrimSpace(location) == "" {
+		return nil, errors.New("empty redirect location")
+	}
+	target, err := urlpkg.Parse(location)
+	if err != nil {
+		return nil, err
+	}
+	if target.Scheme != "" {
+		return target, nil
+	}
+	if base == nil {
+		return target, nil
+	}
+	resolved := *target
+	resolved.Scheme = base.Scheme
+	if strings.HasPrefix(location, "//") {
+		return &resolved, nil
+	}
+	if resolved.Host == "" {
+		resolved.Host = base.Host
+	}
+	if strings.HasPrefix(resolved.Path, "/") {
+		return &resolved, nil
+	}
+	basePath := base.Path
+	if basePath == "" {
+		basePath = "/"
+	}
+	if lastSlash := strings.LastIndex(basePath, "/"); lastSlash >= 0 {
+		basePath = basePath[:lastSlash+1]
+	} else {
+		basePath = "/"
+	}
+	resolved.Path = cleanRedirectPath(basePath + resolved.Path)
+	return &resolved, nil
+}
+
+func cleanRedirectPath(path string) string {
+	if path == "" {
+		return "/"
+	}
+	absolute := strings.HasPrefix(path, "/")
+	parts := strings.Split(path, "/")
+	stack := make([]string, 0, len(parts))
+	for i := 0; i < len(parts); i++ {
+		part := parts[i]
+		switch part {
+		case "", ".":
+			continue
+		case "..":
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+			}
+		default:
+			stack = append(stack, part)
+		}
+	}
+	result := strings.Join(stack, "/")
+	if absolute {
+		result = "/" + result
+	}
+	if result == "" {
+		return "/"
+	}
+	return result
 }

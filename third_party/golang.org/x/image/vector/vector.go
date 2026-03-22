@@ -24,7 +24,7 @@ package vector // import "golang.org/x/image/vector"
 import (
 	"image"
 	"image/color"
-	"image/draw"
+	imagedraw "image/draw"
 	"math"
 )
 
@@ -102,23 +102,23 @@ type Rasterizer struct {
 
 	// DrawOp is the operator used for the Draw method.
 	//
-	// The zero value is draw.Over.
-	DrawOp draw.Op
+	// The zero value is imagedraw.Over.
+	DrawOp imagedraw.Op
 
 	// TODO: an exported field equivalent to the mask point in the
-	// draw.DrawMask function in the stdlib image/draw package?
+	// imagedraw.DrawMask function in the stdlib image/draw package?
 }
 
 // Reset resets a Rasterizer as if it was just returned by NewRasterizer.
 //
-// This includes setting z.DrawOp to draw.Over.
+// This includes setting z.DrawOp to imagedraw.Over.
 func (z *Rasterizer) Reset(w, h int) {
 	z.size = image.Point{w, h}
 	z.firstX = 0
 	z.firstY = 0
 	z.penX = 0
 	z.penY = 0
-	z.DrawOp = draw.Over
+	z.DrawOp = imagedraw.Over
 
 	z.setUseFloatingPointMath(w > floatingPointMathThreshold || h > floatingPointMathThreshold)
 }
@@ -265,7 +265,7 @@ func devSquared(ax, ay, bx, by, cx, cy float32) float32 {
 //
 // The vector paths previously added via the XxxTo calls become the mask for
 // drawing src onto dst.
-func (z *Rasterizer) Draw(dst draw.Image, r image.Rectangle, src image.Image, sp image.Point) {
+func (z *Rasterizer) Draw(dst imagedraw.Image, r image.Rectangle, src image.Image, sp image.Point) {
 	// TODO: adjust r and sp (and mp?) if src.Bounds() doesn't contain
 	// r.Add(sp.Sub(r.Min)).
 
@@ -275,7 +275,7 @@ func (z *Rasterizer) Draw(dst draw.Image, r image.Rectangle, src image.Image, sp
 		case *image.Alpha:
 			// Fast path for glyph rendering.
 			if srcA == 0xffff {
-				if z.DrawOp == draw.Over {
+				if z.DrawOp == imagedraw.Over {
 					z.rasterizeDstAlphaSrcOpaqueOpOver(dst, r)
 				} else {
 					z.rasterizeDstAlphaSrcOpaqueOpSrc(dst, r)
@@ -283,7 +283,7 @@ func (z *Rasterizer) Draw(dst draw.Image, r image.Rectangle, src image.Image, sp
 				return
 			}
 		case *image.RGBA:
-			if z.DrawOp == draw.Over {
+			if z.DrawOp == imagedraw.Over {
 				z.rasterizeDstRGBASrcUniformOpOver(dst, r, srcR, srcG, srcB, srcA)
 			} else {
 				z.rasterizeDstRGBASrcUniformOpSrc(dst, r, srcR, srcG, srcB, srcA)
@@ -292,7 +292,7 @@ func (z *Rasterizer) Draw(dst draw.Image, r image.Rectangle, src image.Image, sp
 		}
 	}
 
-	if z.DrawOp == draw.Over {
+	if z.DrawOp == imagedraw.Over {
 		z.rasterizeOpOver(dst, r, src, sp)
 	} else {
 		z.rasterizeOpSrc(dst, r, src, sp)
@@ -427,7 +427,7 @@ func (z *Rasterizer) rasterizeDstRGBASrcUniformOpSrc(dst *image.RGBA, r image.Re
 	}
 }
 
-func (z *Rasterizer) rasterizeOpOver(dst draw.Image, r image.Rectangle, src image.Image, sp image.Point) {
+func (z *Rasterizer) rasterizeOpOver(dst imagedraw.Image, r image.Rectangle, src image.Image, sp image.Point) {
 	z.accumulateMask()
 	out := color.RGBA64{}
 	outc := color.Color(&out)
@@ -450,7 +450,7 @@ func (z *Rasterizer) rasterizeOpOver(dst draw.Image, r image.Rectangle, src imag
 	}
 }
 
-func (z *Rasterizer) rasterizeOpSrc(dst draw.Image, r image.Rectangle, src image.Image, sp image.Point) {
+func (z *Rasterizer) rasterizeOpSrc(dst imagedraw.Image, r image.Rectangle, src image.Image, sp image.Point) {
 	z.accumulateMask()
 	out := color.RGBA64{}
 	outc := color.Color(&out)

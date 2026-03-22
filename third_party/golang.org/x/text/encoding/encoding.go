@@ -3,7 +3,7 @@
 // license that can be found in the LICENSE file.
 
 // Package encoding defines interfaces and helpers for character set encoders.
-package encoding // import "golang.org/x/text/encoding"
+package textencoding // import "golang.org/x/text/encoding"
 
 import (
 	"errors"
@@ -86,4 +86,11 @@ func (e *Encoder) Reader(r io.Reader) io.Reader {
 // Writer returns a writer that encodes to w.
 func (e *Encoder) Writer(w io.Writer) io.Writer {
 	return transform.NewWriter(w, e)
+}
+
+// HTMLEscapeUnsupported is a compatibility stub for x/text users that expect
+// unsupported runes to be HTML-escaped during encoding. The current KolibriOS
+// port keeps the encoder unchanged.
+func HTMLEscapeUnsupported(e *Encoder) *Encoder {
+	return e
 }

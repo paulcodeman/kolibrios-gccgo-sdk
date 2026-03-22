@@ -16,7 +16,7 @@ import (
 	"flag"
 	"image"
 	"image/color"
-	"image/draw"
+	imagedraw "image/draw"
 	"image/png"
 	"io/ioutil"
 	"log"
@@ -75,7 +75,7 @@ func main() {
 	}
 
 	dst := image.NewRGBA(image.Rect(0, 0, 800, 300))
-	draw.Draw(dst, dst.Bounds(), image.Black, image.Point{}, draw.Src)
+	imagedraw.Draw(dst, dst.Bounds(), image.Black, image.Point{}, imagedraw.Src)
 
 	d := &font.Drawer{
 		Dst:  dst,

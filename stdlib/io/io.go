@@ -250,6 +250,134 @@ func WriteString(w Writer, s string) (n int, err error) {
 	return w.Write([]byte(s))
 }
 
+type eofReader struct{}
+
+func (eofReader) Read([]byte) (int, error) {
+	return 0, EOF
+}
+
+type multiReader struct {
+	readers []Reader
+}
+
+func (mr *multiReader) Read(p []byte) (n int, err error) {
+	for len(mr.readers) > 0 {
+		if len(mr.readers) == 1 {
+			if r, ok := mr.readers[0].(*multiReader); ok {
+				mr.readers = r.readers
+				continue
+			}
+		}
+		n, err = mr.readers[0].Read(p)
+		if err == EOF {
+			mr.readers[0] = eofReader{}
+			mr.readers = mr.readers[1:]
+		}
+		if n > 0 || err != EOF {
+			if err == EOF && len(mr.readers) > 0 {
+				err = nil
+			}
+			return
+		}
+	}
+	return 0, EOF
+}
+
+func (mr *multiReader) WriteTo(w Writer) (sum int64, err error) {
+	buffer := make([]byte, 1024*32)
+	for i, r := range mr.readers {
+		var n int64
+		if sub, ok := r.(*multiReader); ok {
+			n, err = sub.WriteTo(w)
+		} else {
+			n, err = CopyBuffer(w, r, buffer)
+		}
+		sum += n
+		if err != nil {
+			mr.readers = mr.readers[i:]
+			return sum, err
+		}
+		mr.readers[i] = nil
+	}
+	mr.readers = nil
+	return sum, nil
+}
+
+func MultiReader(readers ...Reader) Reader {
+	r := make([]Reader, len(readers))
+	copy(r, readers)
+	return &multiReader{readers: r}
+}
+
+type multiWriter struct {
+	writers []Writer
+}
+
+func (mw *multiWriter) Write(p []byte) (n int, err error) {
+	for _, w := range mw.writers {
+		n, err = w.Write(p)
+		if err != nil {
+			return
+		}
+		if n != len(p) {
+			return n, ErrShortWrite
+		}
+	}
+	return len(p), nil
+}
+
+func (mw *multiWriter) WriteString(s string) (n int, err error) {
+	var p []byte
+	for _, w := range mw.writers {
+		if sw, ok := w.(StringWriter); ok {
+			n, err = sw.WriteString(s)
+		} else {
+			if p == nil {
+				p = []byte(s)
+			}
+			n, err = w.Write(p)
+		}
+		if err != nil {
+			return
+		}
+		if n != len(s) {
+			return n, ErrShortWrite
+		}
+	}
+	return len(s), nil
+}
+
+func MultiWriter(writers ...Writer) Writer {
+	allWriters := make([]Writer, 0, len(writers))
+	for _, w := range writers {
+		if mw, ok := w.(*multiWriter); ok {
+			allWriters = append(allWriters, mw.writers...)
+		} else {
+			allWriters = append(allWriters, w)
+		}
+	}
+	return &multiWriter{writers: allWriters}
+}
+
+type teeReader struct {
+	r Reader
+	w Writer
+}
+
+func (tr *teeReader) Read(p []byte) (n int, err error) {
+	n, err = tr.r.Read(p)
+	if n > 0 {
+		if _, writeErr := tr.w.Write(p[:n]); writeErr != nil {
+			return n, writeErr
+		}
+	}
+	return
+}
+
+func TeeReader(r Reader, w Writer) Reader {
+	return &teeReader{r: r, w: w}
+}
+
 type discard struct{}
 
 func (discard) Write(p []byte) (int, error) { return len(p), nil }

@@ -8,7 +8,7 @@ package charmap // import "golang.org/x/text/encoding/charmap"
 import (
 	"unicode/utf8"
 
-	"golang.org/x/text/encoding"
+	textencoding "golang.org/x/text/encoding"
 	"golang.org/x/text/transform"
 )
 
@@ -28,13 +28,13 @@ func (c *Charmap) String() string {
 }
 
 // NewDecoder returns a new decoder for this charmap.
-func (c *Charmap) NewDecoder() *encoding.Decoder {
-	return &encoding.Decoder{Transformer: &charmapDecoder{charmap: c}}
+func (c *Charmap) NewDecoder() *textencoding.Decoder {
+	return &textencoding.Decoder{Transformer: &charmapDecoder{charmap: c}}
 }
 
 // NewEncoder returns a new encoder for this charmap.
-func (c *Charmap) NewEncoder() *encoding.Encoder {
-	return &encoding.Encoder{Transformer: &charmapEncoder{charmap: c}}
+func (c *Charmap) NewEncoder() *textencoding.Encoder {
+	return &textencoding.Encoder{Transformer: &charmapEncoder{charmap: c}}
 }
 
 // EncodeRune returns the encoded byte for r and reports whether it is representable.
@@ -103,11 +103,11 @@ func (e *charmapEncoder) Transform(dst, src []byte, atEOF bool) (nDst, nSrc int,
 			if !atEOF && !utf8.FullRune(src[nSrc:]) {
 				return nDst, nSrc, transform.ErrShortSrc
 			}
-			return nDst, nSrc, encoding.ErrInvalidUTF8
+			return nDst, nSrc, textencoding.ErrInvalidUTF8
 		}
 		b, ok := e.charmap.encode[r]
 		if !ok {
-			return nDst, nSrc, encoding.RepertoireError{Rune: r}
+			return nDst, nSrc, textencoding.RepertoireError{Rune: r}
 		}
 		dst[nDst] = b
 		nDst++

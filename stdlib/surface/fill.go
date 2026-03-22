@@ -1,0 +1,228 @@
+package surface
+
+import "kos"
+
+func (buffer *Buffer) fillRectValue(x int, y int, width int, height int, value uint32) {
+	x, y, width, height, ok := buffer.clampRect(x, y, width, height)
+	if !ok {
+		return
+	}
+	rowStart := 2 + y*buffer.width + x
+	if x == 0 && width == buffer.width {
+		fill32(buffer.data[rowStart:rowStart+width*height], value)
+		return
+	}
+	for row := 0; row < height; row++ {
+		index := rowStart + row*buffer.width
+		fill32(buffer.data[index:index+width], value)
+	}
+}
+
+func (buffer *Buffer) ClearTransparent() {
+	if buffer == nil || len(buffer.data) < 2 {
+		return
+	}
+	fill32(buffer.data[2:], 0)
+}
+
+func (buffer *Buffer) ClearRectTransparent(x int, y int, width int, height int) {
+	if buffer == nil || len(buffer.data) < 2 {
+		return
+	}
+	if !buffer.alpha {
+		buffer.fillRectValue(x, y, width, height, 0xFF000000)
+		return
+	}
+	x, y, width, height, ok := buffer.clampRect(x, y, width, height)
+	if !ok {
+		return
+	}
+	rowStart := 2 + y*buffer.width + x
+	for row := 0; row < height; row++ {
+		index := rowStart + row*buffer.width
+		fill32(buffer.data[index:index+width], 0)
+	}
+}
+
+func (buffer *Buffer) FillRoundedRect(x int, y int, width int, height int, radii CornerRadii, color kos.Color) {
+	if buffer == nil || width <= 0 || height <= 0 {
+		return
+	}
+	rgb, alpha := colorValueAndAlpha(color)
+	if alpha < 255 {
+		buffer.FillRoundedRectAlpha(x, y, width, height, radii, kos.Color(rgb), alpha)
+		return
+	}
+	if !radii.Active() {
+		buffer.FillRect(x, y, width, height, kos.Color(rgb))
+		return
+	}
+	x, y, width, height, ok := buffer.clampRect(x, y, width, height)
+	if !ok {
+		return
+	}
+	radii = normalizeRadii(width, height, radii)
+	if !radii.Active() {
+		buffer.FillRect(x, y, width, height, color)
+		return
+	}
+	colorValue := rgb
+	value := colorValue | 0xFF000000
+	for row := 0; row < height; row++ {
+		leftWidth, rightWidth := cornerWidthsForRow(row, height, radii)
+		rowStart := 2 + (y+row)*buffer.width + x
+		middleStart := leftWidth
+		middleEnd := width - rightWidth
+		if middleEnd > middleStart {
+			fill32(buffer.data[rowStart+middleStart:rowStart+middleEnd], value)
+		}
+		if leftWidth > 0 {
+			for col := 0; col < leftWidth; col++ {
+				alpha := roundedPixelCoverageAlpha(col, row, width, height, radii)
+				if alpha == 0 {
+					continue
+				}
+				if alpha >= 255 {
+					buffer.data[rowStart+col] = value
+					continue
+				}
+				buffer.data[rowStart+col] = buffer.blendPixel(buffer.data[rowStart+col], colorValue, alpha)
+			}
+		}
+		if rightWidth > 0 {
+			start := width - rightWidth
+			if start < leftWidth {
+				start = leftWidth
+			}
+			for col := start; col < width; col++ {
+				alpha := roundedPixelCoverageAlpha(col, row, width, height, radii)
+				if alpha == 0 {
+					continue
+				}
+				if alpha >= 255 {
+					buffer.data[rowStart+col] = value
+					continue
+				}
+				buffer.data[rowStart+col] = buffer.blendPixel(buffer.data[rowStart+col], colorValue, alpha)
+			}
+		}
+	}
+}
+
+func (buffer *Buffer) StrokeRect(x int, y int, width int, height int, color kos.Color) {
+	if buffer == nil || width <= 0 || height <= 0 {
+		return
+	}
+	buffer.FillRect(x, y, width, 1, color)
+	buffer.FillRect(x, y+height-1, width, 1, color)
+	buffer.FillRect(x, y, 1, height, color)
+	buffer.FillRect(x+width-1, y, 1, height, color)
+}
+
+func (buffer *Buffer) StrokeRectWidth(x int, y int, width int, height int, stroke int, color kos.Color) {
+	if buffer == nil || width <= 0 || height <= 0 || stroke <= 0 {
+		return
+	}
+	maxStroke := width / 2
+	if value := height / 2; value < maxStroke {
+		maxStroke = value
+	}
+	if stroke > maxStroke {
+		stroke = maxStroke
+	}
+	for i := 0; i < stroke; i++ {
+		buffer.StrokeRect(x+i, y+i, width-2*i, height-2*i, color)
+	}
+}
+
+func (buffer *Buffer) StrokeRoundedRectWidth(x int, y int, width int, height int, radii CornerRadii, stroke int, color kos.Color) {
+	if buffer == nil || width <= 0 || height <= 0 || stroke <= 0 {
+		return
+	}
+	rgb, alpha := colorValueAndAlpha(color)
+	if alpha == 0 {
+		return
+	}
+	if !radii.Active() {
+		buffer.StrokeRectWidth(x, y, width, height, stroke, kos.Color(rgb))
+		return
+	}
+	x, y, width, height, ok := buffer.clampRect(x, y, width, height)
+	if !ok {
+		return
+	}
+	radii = normalizeRadii(width, height, radii)
+	if !radii.Active() {
+		buffer.StrokeRectWidth(x, y, width, height, stroke, kos.Color(rgb))
+		return
+	}
+	maxStroke := width / 2
+	if value := height / 2; value < maxStroke {
+		maxStroke = value
+	}
+	if stroke > maxStroke {
+		stroke = maxStroke
+	}
+	if stroke <= 0 {
+		return
+	}
+	if stroke*2 >= width || stroke*2 >= height {
+		buffer.FillRoundedRect(x, y, width, height, radii, kos.Color(rgb))
+		return
+	}
+	innerW := width - stroke*2
+	innerH := height - stroke*2
+	innerRadii := CornerRadii{
+		TopLeft:     maxIntValue(0, radii.TopLeft-stroke),
+		TopRight:    maxIntValue(0, radii.TopRight-stroke),
+		BottomRight: maxIntValue(0, radii.BottomRight-stroke),
+		BottomLeft:  maxIntValue(0, radii.BottomLeft-stroke),
+	}
+	innerRadii = normalizeRadii(innerW, innerH, innerRadii)
+	colorValue := rgb
+	value := colorValue | 0xFF000000
+	for row := 0; row < height; row++ {
+		rowStart := 2 + (y+row)*buffer.width + x
+		for col := 0; col < width; col++ {
+			outerAlpha := roundedPixelCoverageAlpha(col, row, width, height, radii)
+			if outerAlpha == 0 {
+				continue
+			}
+			innerAlpha := 0
+			if innerW > 0 && innerH > 0 {
+				ix := col - stroke
+				iy := row - stroke
+				if ix >= 0 && iy >= 0 && ix < innerW && iy < innerH {
+					if innerRadii.Active() {
+						innerAlpha = int(roundedPixelCoverageAlpha(ix, iy, innerW, innerH, innerRadii))
+					} else {
+						innerAlpha = 255
+					}
+				}
+			}
+			cov := int(outerAlpha) - innerAlpha
+			if cov <= 0 {
+				continue
+			}
+			effective := uint8(cov)
+			if alpha < 255 {
+				effective = combineAlpha(effective, alpha)
+				if effective == 0 {
+					continue
+				}
+			}
+			if effective >= 255 {
+				buffer.data[rowStart+col] = value
+				continue
+			}
+			buffer.data[rowStart+col] = buffer.blendPixel(buffer.data[rowStart+col], colorValue, effective)
+		}
+	}
+}
+
+func maxIntValue(a int, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}

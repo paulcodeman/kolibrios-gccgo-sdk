@@ -12,7 +12,7 @@ import (
 	"image"
 	"image/color"
 	"image/color/palette"
-	"image/draw"
+	imagedraw "image/draw"
 	"io"
 )
 
@@ -360,11 +360,11 @@ type Options struct {
 
 	// Quantizer is used to produce a palette with size NumColors.
 	// palette.Plan9 is used in place of a nil Quantizer.
-	Quantizer draw.Quantizer
+	Quantizer imagedraw.Quantizer
 
 	// Drawer is used to convert the source image to the desired palette.
-	// draw.FloydSteinberg is used in place of a nil Drawer.
-	Drawer draw.Drawer
+	// imagedraw.FloydSteinberg is used in place of a nil Drawer.
+	Drawer imagedraw.Drawer
 }
 
 // EncodeAll writes the images in g to w in GIF format with the
@@ -430,7 +430,7 @@ func Encode(w io.Writer, m image.Image, o *Options) error {
 		opts.NumColors = 256
 	}
 	if opts.Drawer == nil {
-		opts.Drawer = draw.FloydSteinberg
+		opts.Drawer = imagedraw.FloydSteinberg
 	}
 
 	pm, _ := m.(*image.Paletted)

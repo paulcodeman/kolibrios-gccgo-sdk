@@ -334,21 +334,29 @@ func Sleep(duration Duration) {
 }
 
 type Timer struct {
-	mu      sync.Mutex
-	stopped bool
+	C chan Time
+
+	mu     sync.Mutex
+	active bool
+	seq    uint64
+	fn     func()
+}
+
+func After(duration Duration) <-chan Time {
+	return NewTimer(duration).C
+}
+
+func NewTimer(duration Duration) *Timer {
+	timer := &Timer{
+		C: make(chan Time, 1),
+	}
+	timer.Reset(duration)
+	return timer
 }
 
 func AfterFunc(duration Duration, f func()) *Timer {
-	timer := &Timer{}
-	go func() {
-		Sleep(duration)
-		timer.mu.Lock()
-		stopped := timer.stopped
-		timer.mu.Unlock()
-		if !stopped {
-			f()
-		}
-	}()
+	timer := &Timer{fn: f}
+	timer.Reset(duration)
 	return timer
 }
 
@@ -358,10 +366,55 @@ func (timer *Timer) Stop() bool {
 	}
 
 	timer.mu.Lock()
-	wasActive := !timer.stopped
-	timer.stopped = true
+	wasActive := timer.active
+	if wasActive {
+		timer.seq++
+		timer.active = false
+	}
 	timer.mu.Unlock()
 	return wasActive
+}
+
+func (timer *Timer) Reset(duration Duration) bool {
+	if timer == nil {
+		return false
+	}
+
+	timer.mu.Lock()
+	wasActive := timer.active
+	timer.seq++
+	seq := timer.seq
+	timer.active = true
+	timer.mu.Unlock()
+
+	go timer.waitAndFire(seq, duration)
+	return wasActive
+}
+
+func (timer *Timer) waitAndFire(seq uint64, duration Duration) {
+	Sleep(duration)
+
+	timer.mu.Lock()
+	if !timer.active || timer.seq != seq {
+		timer.mu.Unlock()
+		return
+	}
+	timer.active = false
+	fn := timer.fn
+	ch := timer.C
+	timer.mu.Unlock()
+
+	if fn != nil {
+		fn()
+		return
+	}
+	if ch == nil {
+		return
+	}
+	select {
+	case ch <- Now():
+	default:
+	}
 }
 
 func Until(value Time) Duration {

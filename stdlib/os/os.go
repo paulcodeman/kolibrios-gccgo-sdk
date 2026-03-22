@@ -546,6 +546,9 @@ func isVolumeRootPath(name string) bool {
 	if equalFoldASCII(first, "rd") || equalFoldASCII(first, "fd") {
 		return true
 	}
+	if hasASCIIPrefixFold(first, "tmp") {
+		return len(first) > 3 && isASCIIUnsignedDecimal(first[3:])
+	}
 	if hasASCIIPrefixFold(first, "hd") || hasASCIIPrefixFold(first, "cd") {
 		return len(first) > 2 && isASCIIUnsignedDecimal(first[2:])
 	}

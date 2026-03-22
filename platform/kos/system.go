@@ -55,3 +55,7 @@ func Reboot() bool {
 func RestartKernel() bool {
 	return Shutdown(ShutdownRestartKernel)
 }
+
+func Exit() {
+	ExitRaw()
+}
