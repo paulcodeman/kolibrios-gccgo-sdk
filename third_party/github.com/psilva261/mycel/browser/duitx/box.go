@@ -204,6 +204,10 @@ func (ui *Box) Layout(dui *duit.DUI, self *duit.Kid, sizeAvail image.Point, forc
 	ui.size = image.Pt(xmax, cur.Y).Add(padding.Size())
 	if ui.Width < 0 {
 		ui.size.X = osize.X
+	} else if ui.Disp == Block || ui.Disp == Flex {
+		if minWidth := sizeAvail.X + padding.Dx(); ui.size.X < minWidth {
+			ui.size.X = minWidth
+		}
 	}
 	if ui.Height < 0 && ui.size.Y < osize.Y {
 		ui.size.Y = osize.Y

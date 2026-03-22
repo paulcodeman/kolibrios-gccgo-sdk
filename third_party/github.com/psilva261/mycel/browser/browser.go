@@ -1237,31 +1237,22 @@ func (t *Table) Element(r int, b *Browser, n *nodes.Node) *Element {
 			}
 		}
 
-		colSpans := make([]int, 0, len(uis))
-		rowSpans := make([]int, 0, len(uis))
-		halign := make([]duit.Halign, 0, len(uis))
-		valign := make([]duit.Valign, 0, len(uis))
+		halign := make([]duit.Halign, 0, numCols)
+		valign := make([]duit.Valign, 0, numCols)
 
 		for j := 0; j < numCols; j++ {
-			for i := 0; i < len(t.rows); i++ {
-				colSpans = append(colSpans, 1)
-				rowSpans = append(rowSpans, 1)
-			}
 			halign = append(halign, duit.HalignLeft)
 			valign = append(valign, duit.ValignTop)
 		}
 
 		return NewElement(
 			b,
-			&duitx.Grid{
-				Columns:  numCols,
-				Rows:     len(t.rows),
-				ColSpans: colSpans,
-				RowSpans: rowSpans,
-				Padding:  duit.NSpace(numCols, duit.SpaceXY(0, 3)),
-				Halign:   halign,
-				Valign:   valign,
-				Kids:     duit.NewKids(uis...),
+			&duit.Grid{
+				Columns: numCols,
+				Padding: duit.NSpace(numCols, duit.SpaceXY(0, 3)),
+				Halign:  halign,
+				Valign:  valign,
+				Kids:    duit.NewKids(uis...),
 			},
 			n,
 		)
@@ -1373,16 +1364,18 @@ func nodeToBox(r int, b *Browser, n *nodes.Node, visits *int) (el *Element) {
 		case "textarea":
 			return NewTextArea(b, n)
 		case "button":
-			if t := n.Attr("type"); t == "" || t == "submit" {
+			t := strings.TrimSpace(strings.ToLower(n.Attr("type")))
+			if t == "submit" || (t == "" && n.Ancestor("form") != nil) {
 				return NewSubmitButton(b, n)
 			}
-
-			btn := &duit.Button{
-				Text: n.ContentString(false),
-				Font: n.Font(),
+			if nodes.IsPureTextContent(*n) {
+				btn := &duit.Button{
+					Text: n.ContentString(false),
+					Font: n.Font(),
+				}
+				return NewElement(b, btn, n)
 			}
-
-			return NewElement(b, btn, n)
+			return innerNodesToBox(r+1, b, n, visits)
 		case "table":
 			if t := NewTable(n); t != nil {
 				return t.Element(r+1, b, n)
@@ -1530,6 +1523,10 @@ func traverseTree(r int, ui duit.UI, f func(ui duit.UI)) {
 		for _, kid := range v.Kids {
 			traverseTree(r+1, kid.UI, f)
 		}
+	case *duit.Grid:
+		for _, kid := range v.Kids {
+			traverseTree(r+1, kid.UI, f)
+		}
 	case *duit.Image:
 	case *duit.Label, *duitx.Label:
 	case *Label:
@@ -1585,6 +1582,11 @@ func printTree(r int, ui duit.UI) {
 		fmt.Printf("Element\n")
 		printTree(r+1, v.UI)
 	case *duitx.Grid:
+		fmt.Printf("Grid %vx%v\n", len(v.Kids)/v.Columns, v.Columns)
+		for _, kid := range v.Kids {
+			printTree(r+1, kid.UI)
+		}
+	case *duit.Grid:
 		fmt.Printf("Grid %vx%v\n", len(v.Kids)/v.Columns, v.Columns)
 		for _, kid := range v.Kids {
 			printTree(r+1, kid.UI)
