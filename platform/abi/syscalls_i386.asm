@@ -2,7 +2,7 @@ SECTION .text
 
 extern runtime_prepare_window_title
 extern runtime_prepare_window_title_with_prefix
-extern go_0kos.ThreadBootstrap
+extern kos.ThreadBootstrap
 
 global go_0kos.Sleep
 global go_0kos.GetKey
@@ -102,6 +102,104 @@ global go_0kos.DebugSuspendRaw
 global go_0kos.DebugResumeRaw
 global go_0kos.DebugReadMemoryRaw
 global go_0kos.PortWriteByteRaw
+
+%macro KOS_ALIAS 1
+global kos.%1
+kos.%1 equ go_0kos.%1
+%endmacro
+
+KOS_ALIAS Sleep
+KOS_ALIAS GetKey
+KOS_ALIAS GetControlKeysRaw
+KOS_ALIAS SetKeyboardLayoutRaw
+KOS_ALIAS SetKeyboardLanguageRaw
+KOS_ALIAS SetSystemLanguageRaw
+KOS_ALIAS GetKeyboardLayoutRaw
+KOS_ALIAS GetKeyboardLanguageRaw
+KOS_ALIAS GetSystemLanguageRaw
+KOS_ALIAS Event
+KOS_ALIAS CheckEvent
+KOS_ALIAS GetThreadInfo
+KOS_ALIAS CreateThreadRaw
+KOS_ALIAS GetCurrentThreadSlotRaw
+KOS_ALIAS ThreadEntryAddrRaw
+KOS_ALIAS SyscallRaw
+KOS_ALIAS GetButtonID
+KOS_ALIAS CreateButton
+KOS_ALIAS ExitRaw
+KOS_ALIAS Redraw
+KOS_ALIAS Window
+KOS_ALIAS WriteText
+KOS_ALIAS WriteTextEx
+KOS_ALIAS GetTime
+KOS_ALIAS GetDate
+KOS_ALIAS GetTimeCounter
+KOS_ALIAS GetTimeCounterPro
+KOS_ALIAS GetScreenSize
+KOS_ALIAS GetScreenWorkingArea
+KOS_ALIAS GetSkinHeight
+KOS_ALIAS GetSkinMarginsRaw
+KOS_ALIAS GetFontSmoothingRaw
+KOS_ALIAS SetFontSmoothingRaw
+KOS_ALIAS WaitEventTimeout
+KOS_ALIAS SetEventMask
+KOS_ALIAS SetPortsRaw
+KOS_ALIAS SetIPCArea
+KOS_ALIAS SendIPCMessage
+KOS_ALIAS FocusWindowBySlot
+KOS_ALIAS GetActiveWindowSlotRaw
+KOS_ALIAS SetMousePointerPositionRaw
+KOS_ALIAS SimulateMouseButtonsRaw
+KOS_ALIAS SetWindowLayerBehaviourRaw
+KOS_ALIAS GetKernelVersion
+KOS_ALIAS SystemShutdown
+KOS_ALIAS GetFreeRAM
+KOS_ALIAS GetTotalRAM
+KOS_ALIAS InitHeapRaw
+KOS_ALIAS HeapAllocRaw
+KOS_ALIAS HeapFreeRaw
+KOS_ALIAS HeapReallocRaw
+KOS_ALIAS LoadDLLWithEncoding
+KOS_ALIAS LoadDLL
+KOS_ALIAS GetCurrentFolderRaw
+KOS_ALIAS SetCaption
+KOS_ALIAS SetCaptionWithPrefix
+KOS_ALIAS SendMessage
+KOS_ALIAS FileSystem
+KOS_ALIAS FileSystemEncoded
+KOS_ALIAS PosixReadRaw
+KOS_ALIAS PosixWriteRaw
+KOS_ALIAS PosixPipe2Raw
+KOS_ALIAS GetMouseScreenPosition
+KOS_ALIAS GetMouseWindowPosition
+KOS_ALIAS GetMouseButtonState
+KOS_ALIAS GetMouseButtonEventState
+KOS_ALIAS LoadCursorRaw
+KOS_ALIAS SetCursorRaw
+KOS_ALIAS DeleteCursorRaw
+KOS_ALIAS GetMouseScrollData
+KOS_ALIAS GetPixelColorFromScreenRaw
+KOS_ALIAS LoadCursorWithEncoding
+KOS_ALIAS ClipboardSlotCountRaw
+KOS_ALIAS ClipboardSlotDataRaw
+KOS_ALIAS ClipboardWriteRaw
+KOS_ALIAS ClipboardDeleteLastRaw
+KOS_ALIAS ClipboardUnlockBufferRaw
+KOS_ALIAS DrawLine
+KOS_ALIAS DrawBar
+KOS_ALIAS PutPaletteImage
+KOS_ALIAS SetSkin
+KOS_ALIAS SetSkinWithEncoding
+KOS_ALIAS DebugOutHex
+KOS_ALIAS DebugOutChar
+KOS_ALIAS DebugOutStr
+KOS_ALIAS DebugReadRaw
+KOS_ALIAS DebugSetMessageAreaRaw
+KOS_ALIAS DebugGetRegistersRaw
+KOS_ALIAS DebugSuspendRaw
+KOS_ALIAS DebugResumeRaw
+KOS_ALIAS DebugReadMemoryRaw
+KOS_ALIAS PortWriteByteRaw
 
 go_0kos.Sleep:
     push ebp
@@ -247,7 +345,7 @@ go_0kos.threadEntry:
     and esp, 0xFFFFFFF0
     sub esp, 8
     push eax
-    call go_0kos.ThreadBootstrap
+    call kos.ThreadBootstrap
     add esp, 12
     call go_0kos.ExitRaw
     ret

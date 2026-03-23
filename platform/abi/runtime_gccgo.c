@@ -56,7 +56,7 @@ extern int32_t runtime_kos_create_thread_raw(uint32_t entry, uint32_t stack) __a
 extern int32_t runtime_kos_get_thread_info_raw(uint8_t* buffer, int32_t slot) __asm__("go_0kos.GetThreadInfo");
 extern void runtime_kos_exit_raw(void) __asm__("go_0kos.ExitRaw");
 extern void runtime_kolibri_thread_entry(void);
-extern void runtime_kolibri_locked_entry(void* arg) __asm__("go_0kos.ThreadBootstrap");
+extern void runtime_kolibri_locked_entry(void* arg) __asm__("kos.ThreadBootstrap");
 void runtime_console_bridge_close(uint32_t close_window);
 
 typedef struct {
@@ -12480,74 +12480,74 @@ __asm__(".set runtime.registerGCRoots, runtime_register_gcroots");
 __asm__(".global runtime.registerTypeDescriptors");
 __asm__(".set runtime.registerTypeDescriptors, runtime_register_type_descriptors");
 
-__asm__(".global runtime..import");
+__asm__(".weak runtime..import");
 __asm__(".set runtime..import, runtime_noop_import");
 
-__asm__(".global internal_1cpu..import");
+__asm__(".weak internal_1cpu..import");
 __asm__(".set internal_1cpu..import, runtime_noop_import");
 
-__asm__(".global internal_1reflectlite..import");
+__asm__(".weak internal_1reflectlite..import");
 __asm__(".set internal_1reflectlite..import, runtime_noop_import");
 
-__asm__(".global internal_1oserror..import");
+__asm__(".weak internal_1oserror..import");
 __asm__(".set internal_1oserror..import, runtime_noop_import");
 
-__asm__(".global sync..import");
+__asm__(".weak sync..import");
 __asm__(".set sync..import, runtime_noop_import");
 
-__asm__(".global internal_1unsafeheader..import");
+__asm__(".weak internal_1unsafeheader..import");
 __asm__(".set internal_1unsafeheader..import, runtime_noop_import");
 
-__asm__(".global runtime..types");
+__asm__(".weak runtime..types");
 __asm__(".set runtime..types, runtime_empty_types");
 
-__asm__(".global internal_1cpu..types");
+__asm__(".weak internal_1cpu..types");
 __asm__(".set internal_1cpu..types, runtime_empty_types");
 
-__asm__(".global internal_1reflectlite..types");
+__asm__(".weak internal_1reflectlite..types");
 __asm__(".set internal_1reflectlite..types, runtime_empty_types");
 
-__asm__(".global internal_1oserror..types");
+__asm__(".weak internal_1oserror..types");
 __asm__(".set internal_1oserror..types, runtime_empty_types");
 
-__asm__(".global internal_1itoa..types");
+__asm__(".weak internal_1itoa..types");
 __asm__(".set internal_1itoa..types, runtime_empty_types");
 
-__asm__(".global internal_1race..types");
+__asm__(".weak internal_1race..types");
 __asm__(".set internal_1race..types, runtime_empty_types");
 
-__asm__(".global sync..types");
+__asm__(".weak sync..types");
 __asm__(".set sync..types, runtime_empty_types");
 
-__asm__(".global sync_1atomic..types");
+__asm__(".weak sync_1atomic..types");
 __asm__(".set sync_1atomic..types, runtime_empty_types");
 
-__asm__(".global internal_1unsafeheader..types");
+__asm__(".weak internal_1unsafeheader..types");
 __asm__(".set internal_1unsafeheader..types, runtime_empty_types");
 
-__asm__(".global internal_1abi..types");
+__asm__(".weak internal_1abi..types");
 __asm__(".set internal_1abi..types, runtime_empty_types");
 
-__asm__(".global internal_1bytealg..types");
+__asm__(".weak internal_1bytealg..types");
 __asm__(".set internal_1bytealg..types, runtime_empty_types");
 
-__asm__(".global internal_1goarch..types");
+__asm__(".weak internal_1goarch..types");
 __asm__(".set internal_1goarch..types, runtime_empty_types");
 
-__asm__(".global internal_1goexperiment..types");
+__asm__(".weak internal_1goexperiment..types");
 __asm__(".set internal_1goexperiment..types, runtime_empty_types");
 
-__asm__(".global internal_1goos..types");
+__asm__(".weak internal_1goos..types");
 __asm__(".set internal_1goos..types, runtime_empty_types");
 
 #ifndef KOLIBRI_USE_LIBGO_RUNTIME
-__asm__(".global runtime_1internal_1atomic..types");
+__asm__(".weak runtime_1internal_1atomic..types");
 __asm__(".set runtime_1internal_1atomic..types, runtime_empty_types");
 
-__asm__(".global runtime_1internal_1math..types");
+__asm__(".weak runtime_1internal_1math..types");
 __asm__(".set runtime_1internal_1math..types, runtime_empty_types");
 
-__asm__(".global runtime_1internal_1sys..types");
+__asm__(".weak runtime_1internal_1sys..types");
 __asm__(".set runtime_1internal_1sys..types, runtime_empty_types");
 
 __asm__(".global runtime_1internal_1atomic.LoadAcquintptr");
