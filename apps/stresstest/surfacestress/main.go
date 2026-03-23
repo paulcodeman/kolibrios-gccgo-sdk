@@ -565,7 +565,7 @@ func (app *stressApp) drawStageHeader(frame int) {
 		Direction: surface.GradientHorizontal,
 	})
 	app.canvas.DrawText(18, 16, colorWhite, "surface frame-stage profile")
-	app.canvas.DrawText(18, 34, colorMuted, "clear / header / rounded / shadow / text / blit / present")
+	app.canvas.DrawText(18, 34, colorMuted, "clear / header / rounded / shadow / vectors / text / blit / present")
 }
 
 func (app *stressApp) drawStagePanelsFill(frame int) {
@@ -602,7 +602,7 @@ func (app *stressApp) drawStagePanelsStroke(frame int) {
 	}
 }
 
-func (app *stressApp) drawStageVectors(frame int) {
+func (app *stressApp) drawStageShadow(frame int) {
 	graph := surface.Rect{X: 18, Y: 242, Width: app.canvas.Width() - 36, Height: 128}
 	app.canvas.FillRoundedRect(graph.X, graph.Y, graph.Width, graph.Height, uniformRadii(16), colorPanel)
 	app.canvas.DrawShadowRounded(graph, surface.Shadow{
@@ -612,6 +612,10 @@ func (app *stressApp) drawStageVectors(frame int) {
 		Color:   colorBlack,
 		Alpha:   76,
 	}, uniformRadii(16))
+}
+
+func (app *stressApp) drawStageVectorLines(frame int) {
+	graph := surface.Rect{X: 18, Y: 242, Width: app.canvas.Width() - 36, Height: 128}
 	for x := graph.X + 10; x < graph.X+graph.Width; x += 28 {
 		app.canvas.DrawLine(x, graph.Y+10, x, graph.Y+graph.Height-10, colorLine)
 	}
@@ -669,7 +673,8 @@ func (app *stressApp) runStageProfile() ([]stageResult, stageResult) {
 		{name: "header-static", fn: app.drawStageHeader},
 		{name: "rounded-fill", fn: app.drawStagePanelsFill},
 		{name: "rounded-stroke", fn: app.drawStagePanelsStroke},
-		{name: "shadow+vectors", fn: app.drawStageVectors},
+		{name: "shadow-only", fn: app.drawStageShadow},
+		{name: "vector-lines", fn: app.drawStageVectorLines},
 		{name: "text-blocks", fn: app.drawStageText},
 		{name: "blit+scroll", fn: app.drawStageBlits},
 	}
