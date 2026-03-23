@@ -524,6 +524,7 @@ func (app *stressApp) runMicroBenchmarks() []benchResult {
 		})
 	}
 	presentRectIterations := 34 * app.scale
+	presentClientIterations := 16 * app.scale
 	presentFullIterations := 8 * app.scale
 	cases = append(cases,
 		benchCase{
@@ -533,6 +534,15 @@ func (app *stressApp) runMicroBenchmarks() []benchResult {
 			setup:      app.preparePresentScene,
 			fn: func(iter int) {
 				app.presenter.PresentRect(app.canvas, surface.Rect{X: 18, Y: 84, Width: app.canvas.Width() - 36, Height: app.canvas.Height() - 102})
+			},
+		},
+		benchCase{
+			name:       "present/client",
+			group:      "present",
+			iterations: presentClientIterations,
+			setup:      app.preparePresentScene,
+			fn: func(iter int) {
+				app.presenter.PresentClient(app.canvas)
 			},
 		},
 		benchCase{

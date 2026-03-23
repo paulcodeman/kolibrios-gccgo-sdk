@@ -275,7 +275,12 @@ func (window *Window) blitDirty() {
 		rect = UnionRect(rect, window.presentRect)
 	}
 	if presenter := window.presenter(); presenter != nil {
-		presenter.PresentRect(window.canvas, rect)
+		full := Rect{Width: window.client.Width, Height: window.client.Height}
+		if rect == full {
+			presenter.PresentClient(window.canvas)
+		} else {
+			presenter.PresentRect(window.canvas, rect)
+		}
 	}
 	window.clearDirtyState()
 	window.clearPresentRect()

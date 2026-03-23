@@ -9,6 +9,7 @@ type Surface interface {
 
 type Presenter interface {
 	PresentFull(*Canvas)
+	PresentClient(*Canvas)
 	PresentRect(*Canvas, Rect)
 }
 
@@ -60,6 +61,14 @@ func (presenter windowPresenter) PresentFull(canvas *Canvas) {
 		return
 	}
 	newWindowPresenter(window).PresentFull(surfaceBuffer(canvas))
+}
+
+func (presenter windowPresenter) PresentClient(canvas *Canvas) {
+	window := presenter.window
+	if window == nil {
+		return
+	}
+	newWindowPresenter(window).PresentClient(surfaceBuffer(canvas))
 }
 
 func (presenter windowPresenter) PresentRect(canvas *Canvas, rect Rect) {
