@@ -35,16 +35,23 @@ func (buffer *Buffer) paintRoundedRowOpaqueValue(rowStart int, row int, width in
 	if buffer == nil || width <= 0 || height <= 0 {
 		return
 	}
-	leftWidth, rightWidth := cornerWidthsForRow(row, height, radii)
+	shape := roundedShapeRows(width, height, radii)
+	if shape == nil {
+		fill32(buffer.data[rowStart:rowStart+width], value)
+		return
+	}
+	rowInfo := shape.rows[row]
+	leftWidth := rowInfo.leftWidth
+	rightWidth := rowInfo.rightWidth
 	middleStart := leftWidth
-	middleEnd := width - rightWidth
+	middleEnd := rowInfo.rightStart
 	if middleEnd > middleStart {
 		fill32(buffer.data[rowStart+middleStart:rowStart+middleEnd], value)
 	}
 	colorValue := value & 0xFFFFFF
 	if leftWidth > 0 {
 		for col := 0; col < leftWidth; col++ {
-			alpha := roundedPixelCoverageAlpha(col, row, width, height, radii)
+			alpha := rowInfo.leftAlpha[col]
 			if alpha == 0 {
 				continue
 			}
@@ -56,12 +63,12 @@ func (buffer *Buffer) paintRoundedRowOpaqueValue(rowStart int, row int, width in
 		}
 	}
 	if rightWidth > 0 {
-		start := width - rightWidth
+		start := rowInfo.rightStart
 		if start < leftWidth {
 			start = leftWidth
 		}
 		for col := start; col < width; col++ {
-			alpha := roundedPixelCoverageAlpha(col, row, width, height, radii)
+			alpha := rowInfo.rightAlpha[col-rowInfo.rightStart]
 			if alpha == 0 {
 				continue
 			}
@@ -78,15 +85,22 @@ func (buffer *Buffer) paintRoundedRowOpaqueSamples(rowStart int, row int, width 
 	if buffer == nil || width <= 0 || height <= 0 || len(samples) < width {
 		return
 	}
-	leftWidth, rightWidth := cornerWidthsForRow(row, height, radii)
+	shape := roundedShapeRows(width, height, radii)
+	if shape == nil {
+		copy(buffer.data[rowStart:rowStart+width], samples[:width])
+		return
+	}
+	rowInfo := shape.rows[row]
+	leftWidth := rowInfo.leftWidth
+	rightWidth := rowInfo.rightWidth
 	middleStart := leftWidth
-	middleEnd := width - rightWidth
+	middleEnd := rowInfo.rightStart
 	if middleEnd > middleStart {
 		copy(buffer.data[rowStart+middleStart:rowStart+middleEnd], samples[middleStart:middleEnd])
 	}
 	if leftWidth > 0 {
 		for col := 0; col < leftWidth; col++ {
-			alpha := roundedPixelCoverageAlpha(col, row, width, height, radii)
+			alpha := rowInfo.leftAlpha[col]
 			if alpha == 0 {
 				continue
 			}
@@ -100,12 +114,12 @@ func (buffer *Buffer) paintRoundedRowOpaqueSamples(rowStart int, row int, width 
 		}
 	}
 	if rightWidth > 0 {
-		start := width - rightWidth
+		start := rowInfo.rightStart
 		if start < leftWidth {
 			start = leftWidth
 		}
 		for col := start; col < width; col++ {
-			alpha := roundedPixelCoverageAlpha(col, row, width, height, radii)
+			alpha := rowInfo.rightAlpha[col-rowInfo.rightStart]
 			if alpha == 0 {
 				continue
 			}
@@ -124,15 +138,22 @@ func (buffer *Buffer) paintRoundedRowAlphaValue(rowStart int, row int, width int
 	if buffer == nil || width <= 0 || height <= 0 || alpha == 0 {
 		return
 	}
-	leftWidth, rightWidth := cornerWidthsForRow(row, height, radii)
+	shape := roundedShapeRows(width, height, radii)
+	if shape == nil {
+		buffer.blendRowValue(rowStart, width, colorValue, alpha)
+		return
+	}
+	rowInfo := shape.rows[row]
+	leftWidth := rowInfo.leftWidth
+	rightWidth := rowInfo.rightWidth
 	middleStart := leftWidth
-	middleEnd := width - rightWidth
+	middleEnd := rowInfo.rightStart
 	if middleEnd > middleStart {
 		buffer.blendRowValue(rowStart+middleStart, middleEnd-middleStart, colorValue, alpha)
 	}
 	if leftWidth > 0 {
 		for col := 0; col < leftWidth; col++ {
-			covAlpha := roundedPixelCoverageAlpha(col, row, width, height, radii)
+			covAlpha := rowInfo.leftAlpha[col]
 			if covAlpha == 0 {
 				continue
 			}
@@ -148,12 +169,12 @@ func (buffer *Buffer) paintRoundedRowAlphaValue(rowStart int, row int, width int
 		}
 	}
 	if rightWidth > 0 {
-		start := width - rightWidth
+		start := rowInfo.rightStart
 		if start < leftWidth {
 			start = leftWidth
 		}
 		for col := start; col < width; col++ {
-			covAlpha := roundedPixelCoverageAlpha(col, row, width, height, radii)
+			covAlpha := rowInfo.rightAlpha[col-rowInfo.rightStart]
 			if covAlpha == 0 {
 				continue
 			}
@@ -174,9 +195,16 @@ func (buffer *Buffer) paintRoundedRowAlphaSamples(rowStart int, row int, width i
 	if buffer == nil || width <= 0 || height <= 0 || len(samples) < width {
 		return
 	}
-	leftWidth, rightWidth := cornerWidthsForRow(row, height, radii)
+	shape := roundedShapeRows(width, height, radii)
+	if shape == nil {
+		buffer.blendRowSamples(rowStart, samples[:width])
+		return
+	}
+	rowInfo := shape.rows[row]
+	leftWidth := rowInfo.leftWidth
+	rightWidth := rowInfo.rightWidth
 	middleStart := leftWidth
-	middleEnd := width - rightWidth
+	middleEnd := rowInfo.rightStart
 	if middleEnd > middleStart {
 		buffer.blendRowSamples(rowStart+middleStart, samples[middleStart:middleEnd])
 	}
@@ -187,7 +215,7 @@ func (buffer *Buffer) paintRoundedRowAlphaSamples(rowStart int, row int, width i
 			if sampleAlpha == 0 {
 				continue
 			}
-			covAlpha := roundedPixelCoverageAlpha(col, row, width, height, radii)
+			covAlpha := rowInfo.leftAlpha[col]
 			if covAlpha == 0 {
 				continue
 			}
@@ -204,7 +232,7 @@ func (buffer *Buffer) paintRoundedRowAlphaSamples(rowStart int, row int, width i
 		}
 	}
 	if rightWidth > 0 {
-		start := width - rightWidth
+		start := rowInfo.rightStart
 		if start < leftWidth {
 			start = leftWidth
 		}
@@ -214,7 +242,7 @@ func (buffer *Buffer) paintRoundedRowAlphaSamples(rowStart int, row int, width i
 			if sampleAlpha == 0 {
 				continue
 			}
-			covAlpha := roundedPixelCoverageAlpha(col, row, width, height, radii)
+			covAlpha := rowInfo.rightAlpha[col-rowInfo.rightStart]
 			if covAlpha == 0 {
 				continue
 			}

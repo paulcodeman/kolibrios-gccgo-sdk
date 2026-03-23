@@ -120,44 +120,101 @@ func (buffer *Buffer) StrokeRoundedRectWidth(x int, y int, width int, height int
 	}
 	innerRadii = normalizeRadii(innerW, innerH, innerRadii)
 	colorValue := rgb
-	value := colorValue | 0xFF000000
 	for row := 0; row < height; row++ {
 		rowStart := 2 + (y+row)*buffer.width + x
-		for col := 0; col < width; col++ {
-			outerAlpha := roundedPixelCoverageAlpha(col, row, width, height, radii)
-			if outerAlpha == 0 {
-				continue
-			}
-			innerAlpha := 0
-			if innerW > 0 && innerH > 0 {
-				ix := col - stroke
-				iy := row - stroke
-				if ix >= 0 && iy >= 0 && ix < innerW && iy < innerH {
-					if innerRadii.Active() {
-						innerAlpha = int(roundedPixelCoverageAlpha(ix, iy, innerW, innerH, innerRadii))
-					} else {
-						innerAlpha = 255
-					}
-				}
-			}
-			cov := int(outerAlpha) - innerAlpha
-			if cov <= 0 {
-				continue
-			}
-			effective := uint8(cov)
-			if alpha < 255 {
-				effective = combineAlpha(effective, alpha)
-				if effective == 0 {
-					continue
-				}
-			}
-			if effective >= 255 {
-				buffer.data[rowStart+col] = value
-				continue
-			}
-			buffer.data[rowStart+col] = buffer.blendPixel(buffer.data[rowStart+col], colorValue, effective)
+		buffer.paintRoundedStrokeRow(rowStart, row, width, height, radii, stroke, innerW, innerH, innerRadii, colorValue, alpha)
+	}
+}
+
+func (buffer *Buffer) paintRoundedStrokeRow(rowStart int, row int, width int, height int, radii CornerRadii, stroke int, innerW int, innerH int, innerRadii CornerRadii, colorValue uint32, alpha uint8) {
+	if buffer == nil || width <= 0 || height <= 0 {
+		return
+	}
+	outerLeftWidth, outerRightWidth := cornerWidthsForRow(row, height, radii)
+	outerMiddleStart := outerLeftWidth
+	outerMiddleEnd := width - outerRightWidth
+	innerLeftWidth := 0
+	innerRightWidth := 0
+	innerRow := row - stroke
+	innerActive := innerW > 0 && innerH > 0 && innerRow >= 0 && innerRow < innerH
+	if innerActive && innerRadii.Active() {
+		innerLeftWidth, innerRightWidth = cornerWidthsForRow(innerRow, innerH, innerRadii)
+	}
+	if innerActive {
+		leftSpanEnd := stroke + innerLeftWidth
+		if leftSpanEnd > outerMiddleEnd {
+			leftSpanEnd = outerMiddleEnd
+		}
+		buffer.paintStrokeSpan(rowStart, outerMiddleStart, leftSpanEnd, colorValue, alpha)
+		rightSpanStart := width - stroke - innerRightWidth
+		if rightSpanStart < outerMiddleStart {
+			rightSpanStart = outerMiddleStart
+		}
+		buffer.paintStrokeSpan(rowStart, rightSpanStart, outerMiddleEnd, colorValue, alpha)
+	} else {
+		buffer.paintStrokeSpan(rowStart, outerMiddleStart, outerMiddleEnd, colorValue, alpha)
+	}
+	if outerLeftWidth > 0 {
+		for col := 0; col < outerLeftWidth; col++ {
+			buffer.paintRoundedStrokePixel(rowStart+col, col, row, width, height, radii, stroke, innerW, innerH, innerRadii, colorValue, alpha)
 		}
 	}
+	if outerRightWidth > 0 {
+		start := width - outerRightWidth
+		if start < outerLeftWidth {
+			start = outerLeftWidth
+		}
+		for col := start; col < width; col++ {
+			buffer.paintRoundedStrokePixel(rowStart+col, col, row, width, height, radii, stroke, innerW, innerH, innerRadii, colorValue, alpha)
+		}
+	}
+}
+
+func (buffer *Buffer) paintStrokeSpan(rowStart int, start int, end int, colorValue uint32, alpha uint8) {
+	if buffer == nil || end <= start || alpha == 0 {
+		return
+	}
+	if alpha >= 255 {
+		fill32(buffer.data[rowStart+start:rowStart+end], 0xFF000000|colorValue)
+		return
+	}
+	buffer.blendRowValue(rowStart+start, end-start, colorValue, alpha)
+}
+
+func (buffer *Buffer) paintRoundedStrokePixel(index int, col int, row int, width int, height int, radii CornerRadii, stroke int, innerW int, innerH int, innerRadii CornerRadii, colorValue uint32, alpha uint8) {
+	if buffer == nil {
+		return
+	}
+	outerAlpha := roundedPixelCoverageAlpha(col, row, width, height, radii)
+	if outerAlpha == 0 {
+		return
+	}
+	innerAlpha := 0
+	ix := col - stroke
+	iy := row - stroke
+	if ix >= 0 && iy >= 0 && ix < innerW && iy < innerH {
+		if innerRadii.Active() {
+			innerAlpha = int(roundedPixelCoverageAlpha(ix, iy, innerW, innerH, innerRadii))
+		} else {
+			innerAlpha = 255
+		}
+	}
+	coverage := int(outerAlpha) - innerAlpha
+	if coverage <= 0 {
+		return
+	}
+	effective := uint8(coverage)
+	if alpha < 255 {
+		effective = combineAlpha(effective, alpha)
+		if effective == 0 {
+			return
+		}
+	}
+	if effective >= 255 {
+		buffer.data[index] = 0xFF000000 | colorValue
+		return
+	}
+	buffer.data[index] = buffer.blendPixel(buffer.data[index], colorValue, effective)
 }
 
 func maxIntValue(a int, b int) int {

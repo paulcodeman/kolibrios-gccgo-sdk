@@ -21,7 +21,31 @@ var cornerSampleOffsets = [...]float64{0.125, 0.375, 0.625, 0.875}
 var (
 	cornerCoverageMu    sync.Mutex
 	cornerCoverageCache = map[int][]uint8{}
+
+	roundedShapeMu    sync.Mutex
+	roundedShapeCache = map[roundedShapeKey]*roundedShapeInfo{}
 )
+
+type roundedShapeKey struct {
+	width       int
+	height      int
+	topLeft     int
+	topRight    int
+	bottomRight int
+	bottomLeft  int
+}
+
+type roundedRowInfo struct {
+	leftWidth  int
+	rightWidth int
+	rightStart int
+	leftAlpha  []uint8
+	rightAlpha []uint8
+}
+
+type roundedShapeInfo struct {
+	rows []roundedRowInfo
+}
 
 func normalizeRadii(width int, height int, radii CornerRadii) CornerRadii {
 	if !radii.Active() || width <= 0 || height <= 0 {
@@ -174,6 +198,64 @@ func cornerWidthsForRow(row int, height int, radii CornerRadii) (int, int) {
 		rightWidth = radii.BottomRight
 	}
 	return leftWidth, rightWidth
+}
+
+func roundedShapeRows(width int, height int, radii CornerRadii) *roundedShapeInfo {
+	if width <= 0 || height <= 0 || !radii.Active() {
+		return nil
+	}
+	key := roundedShapeKey{
+		width:       width,
+		height:      height,
+		topLeft:     radii.TopLeft,
+		topRight:    radii.TopRight,
+		bottomRight: radii.BottomRight,
+		bottomLeft:  radii.BottomLeft,
+	}
+	roundedShapeMu.Lock()
+	rows := roundedShapeCache[key]
+	roundedShapeMu.Unlock()
+	if rows != nil {
+		return rows
+	}
+	rows = buildRoundedShapeInfo(width, height, radii)
+	roundedShapeMu.Lock()
+	if existing := roundedShapeCache[key]; existing != nil {
+		roundedShapeMu.Unlock()
+		return existing
+	}
+	roundedShapeCache[key] = rows
+	roundedShapeMu.Unlock()
+	return rows
+}
+
+func buildRoundedShapeInfo(width int, height int, radii CornerRadii) *roundedShapeInfo {
+	info := &roundedShapeInfo{
+		rows: make([]roundedRowInfo, height),
+	}
+	for row := 0; row < height; row++ {
+		leftWidth, rightWidth := cornerWidthsForRow(row, height, radii)
+		rowInfo := roundedRowInfo{
+			leftWidth:  leftWidth,
+			rightWidth: rightWidth,
+			rightStart: width - rightWidth,
+		}
+		if leftWidth > 0 {
+			rowInfo.leftAlpha = make([]uint8, leftWidth)
+			for col := 0; col < leftWidth; col++ {
+				rowInfo.leftAlpha[col] = roundedPixelCoverageAlpha(col, row, width, height, radii)
+			}
+		}
+		if rightWidth > 0 {
+			rowInfo.rightAlpha = make([]uint8, rightWidth)
+			for index := 0; index < rightWidth; index++ {
+				col := rowInfo.rightStart + index
+				rowInfo.rightAlpha[index] = roundedPixelCoverageAlpha(col, row, width, height, radii)
+			}
+		}
+		info.rows[row] = rowInfo
+	}
+	return info
 }
 
 func minFloat(a float64, b float64) float64 {

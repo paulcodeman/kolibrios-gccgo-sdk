@@ -78,7 +78,8 @@ type stressApp struct {
 	runID      int
 	status     string
 	micro      []benchResult
-	stages     []stageResult
+	cpuStages  []stageResult
+	present    stageResult
 }
 
 func alphaColor(color kos.Color, alpha uint8) kos.Color {
@@ -432,8 +433,8 @@ func (app *stressApp) runMicroBenchmarks() []benchResult {
 			setup:      app.prepareWorkPattern,
 			fn: func(iter int) {
 				for pixel := 0; pixel < pixelOps; pixel++ {
-					x := 12 + ((pixel * 11) + iter*7)%(app.work.Width()-24)
-					y := 18 + ((pixel * 7) + iter*13)%(app.work.Height()-36)
+					x := 12 + ((pixel*11)+iter*7)%(app.work.Width()-24)
+					y := 18 + ((pixel*7)+iter*13)%(app.work.Height()-36)
 					alpha := uint8(96 + (pixel & 127))
 					color := colorRose
 					if pixel&1 == 0 {
@@ -552,19 +553,22 @@ func (app *stressApp) runMicroBenchmarks() []benchResult {
 	return results
 }
 
-func (app *stressApp) drawStageBase(frame int) {
-	bounds := app.canvas.Bounds()
+func (app *stressApp) drawStageClear(frame int) {
 	app.canvas.Clear(colorInk)
+}
+
+func (app *stressApp) drawStageHeader(frame int) {
+	bounds := app.canvas.Bounds()
 	app.canvas.FillRectGradient(0, 0, bounds.Width, 56, surface.Gradient{
 		From:      colorPanel2,
 		To:        colorBlue,
 		Direction: surface.GradientHorizontal,
 	})
 	app.canvas.DrawText(18, 16, colorWhite, "surface frame-stage profile")
-	app.canvas.DrawText(18, 34, colorMuted, "clear / panels / gradients / shadows / text / blit / present")
+	app.canvas.DrawText(18, 34, colorMuted, "clear / header / rounded / shadow / text / blit / present")
 }
 
-func (app *stressApp) drawStagePanels(frame int) {
+func (app *stressApp) drawStagePanelsFill(frame int) {
 	cards := []surface.Rect{
 		{X: 18, Y: 78, Width: 246, Height: 144},
 		{X: 282, Y: 78, Width: 246, Height: 144},
@@ -584,6 +588,16 @@ func (app *stressApp) drawStagePanels(frame int) {
 			gradient.To = colorCyan
 		}
 		app.canvas.FillRoundedRectGradient(rect.X, rect.Y, rect.Width, rect.Height, uniformRadii(18), gradient)
+	}
+}
+
+func (app *stressApp) drawStagePanelsStroke(frame int) {
+	cards := []surface.Rect{
+		{X: 18, Y: 78, Width: 246, Height: 144},
+		{X: 282, Y: 78, Width: 246, Height: 144},
+		{X: 546, Y: 78, Width: app.canvas.Width() - 564, Height: 144},
+	}
+	for _, rect := range cards {
 		app.canvas.StrokeRoundedRectWidth(rect.X, rect.Y, rect.Width, rect.Height, uniformRadii(18), 1, alphaColor(colorWhite, 42))
 	}
 }
@@ -641,7 +655,7 @@ func (app *stressApp) drawStageBlits(frame int) {
 	app.canvas.BlitFrom(app.alphaStamp, app.alphaStamp.Bounds(), app.canvas.Width()-app.alphaStamp.Width()-28, 98)
 }
 
-func (app *stressApp) runStageProfile() []stageResult {
+func (app *stressApp) runStageProfile() ([]stageResult, stageResult) {
 	type stageSpec struct {
 		name string
 		fn   func(frame int)
@@ -651,8 +665,10 @@ func (app *stressApp) runStageProfile() []stageResult {
 		frames = stageFramesBase
 	}
 	specs := []stageSpec{
-		{name: "base-clear", fn: app.drawStageBase},
-		{name: "rounded-panels", fn: app.drawStagePanels},
+		{name: "clear/full", fn: app.drawStageClear},
+		{name: "header-static", fn: app.drawStageHeader},
+		{name: "rounded-fill", fn: app.drawStagePanelsFill},
+		{name: "rounded-stroke", fn: app.drawStagePanelsStroke},
 		{name: "shadow+vectors", fn: app.drawStageVectors},
 		{name: "text-blocks", fn: app.drawStageText},
 		{name: "blit+scroll", fn: app.drawStageBlits},
@@ -668,7 +684,7 @@ func (app *stressApp) runStageProfile() []stageResult {
 		app.presenter.PresentFull(app.canvas)
 		totals["present-full"] += kos.UptimeNanoseconds() - start
 	}
-	results := make([]stageResult, 0, len(totals))
+	results := make([]stageResult, 0, len(specs))
 	for _, spec := range specs {
 		total := totals[spec.name]
 		results = append(results, stageResult{
@@ -678,20 +694,18 @@ func (app *stressApp) runStageProfile() []stageResult {
 			nsPerFrame: total / uint64(frames),
 		})
 	}
-	total := totals["present-full"]
-	results = append(results, stageResult{
-		name:       "present-full",
-		frames:     frames,
-		totalNS:    total,
-		nsPerFrame: total / uint64(frames),
-	})
 	sort.Slice(results, func(i int, j int) bool {
 		if results[i].nsPerFrame == results[j].nsPerFrame {
 			return results[i].totalNS > results[j].totalNS
 		}
 		return results[i].nsPerFrame > results[j].nsPerFrame
 	})
-	return results
+	return results, stageResult{
+		name:       "present-full",
+		frames:     frames,
+		totalNS:    totals["present-full"],
+		nsPerFrame: totals["present-full"] / uint64(frames),
+	}
 }
 
 func totalMicroNS(results []benchResult) uint64 {
@@ -710,8 +724,15 @@ func totalStageNS(results []stageResult) uint64 {
 	return total
 }
 
-func formatNSPerOp(ns uint64) string {
-	return fmt.Sprintf("%7.2fus", float64(ns)/1000.0)
+func formatDurationShort(ns uint64) string {
+	switch {
+	case ns >= 1000000:
+		return fmt.Sprintf("%7.2fms", float64(ns)/1000000.0)
+	case ns >= 1000:
+		return fmt.Sprintf("%7.2fus", float64(ns)/1000.0)
+	default:
+		return fmt.Sprintf("%7dns", ns)
+	}
 }
 
 func formatMilliseconds(ns uint64) string {
@@ -726,7 +747,7 @@ func formatStageShare(value uint64, total uint64) string {
 }
 
 func (app *stressApp) printReport() {
-	if len(app.micro) == 0 || len(app.stages) == 0 {
+	if len(app.micro) == 0 || len(app.cpuStages) == 0 {
 		return
 	}
 	app.logf("\nsurface stress run=%d scale=%d client=%dx%d font=%s\n",
@@ -736,8 +757,8 @@ func (app *stressApp) printReport() {
 		app.canvas.Height(),
 		app.fontLabel,
 	)
-	app.logf("microbench ranked by ns/op\n")
-	app.logf("%-22s %-10s %8s %12s %12s\n", "name", "group", "ops", "total_ns", "ns_per_op")
+	app.logf("microbench ranked by time/op\n")
+	app.logf("%-22s %-10s %8s %12s %12s\n", "name", "group", "ops", "total_ns", "time_per_op")
 	for _, result := range app.micro {
 		app.logf("%-22s %-10s %8d %12d %12d\n",
 			result.name,
@@ -747,10 +768,10 @@ func (app *stressApp) printReport() {
 			result.nsPerOp,
 		)
 	}
-	stageTotal := totalStageNS(app.stages)
-	app.logf("\nframe stages ranked by ns/frame\n")
+	stageTotal := totalStageNS(app.cpuStages)
+	app.logf("\ncpu frame stages ranked by ns/frame\n")
 	app.logf("%-22s %8s %12s %10s\n", "name", "frames", "ns_per_frame", "share")
-	for _, result := range app.stages {
+	for _, result := range app.cpuStages {
 		app.logf("%-22s %8d %12d %10s\n",
 			result.name,
 			result.frames,
@@ -758,6 +779,11 @@ func (app *stressApp) printReport() {
 			formatStageShare(result.totalNS, stageTotal),
 		)
 	}
+	app.logf("\npresent/full: frames=%d ns_per_frame=%d total_ns=%d\n",
+		app.present.frames,
+		app.present.nsPerFrame,
+		app.present.totalNS,
+	)
 	app.logf("\n")
 }
 
@@ -805,10 +831,10 @@ func (app *stressApp) renderDashboard() {
 	leftRect := surface.Rect{X: 18, Y: 74, Width: 452, Height: bounds.Height - 92}
 	rightTop := surface.Rect{X: 488, Y: 74, Width: bounds.Width - 506, Height: 218}
 	rightBottom := surface.Rect{X: 488, Y: 308, Width: bounds.Width - 506, Height: bounds.Height - 326}
-	app.drawPanel(leftRect, "Slowest API Paths", "ranked by ns/op")
-	app.drawPanel(rightTop, "Slowest Frame Stages", "ranked by ns/frame")
+	app.drawPanel(leftRect, "Slowest API Paths", "ranked by time/op")
+	app.drawPanel(rightTop, "Slowest CPU Frame Stages", "offscreen only / time/frame")
 	app.drawPanel(rightBottom, "Notes", "")
-	app.canvas.DrawText(leftRect.X+16, leftRect.Y+52, colorMuted, "name                 ns/op      total")
+	app.canvas.DrawText(leftRect.X+16, leftRect.Y+52, colorMuted, "name               time/op    total")
 	rowY := leftRect.Y + 72
 	for index, result := range app.micro {
 		if index >= 12 {
@@ -822,14 +848,14 @@ func (app *stressApp) renderDashboard() {
 		} else if index == 2 {
 			color = colorMint
 		}
-		line := fmt.Sprintf("%-18s %9s %9s", result.name, formatNSPerOp(result.nsPerOp), formatMilliseconds(result.totalNS))
+		line := fmt.Sprintf("%-18s %9s %9s", result.name, formatDurationShort(result.nsPerOp), formatMilliseconds(result.totalNS))
 		app.canvas.DrawText(leftRect.X+16, rowY, color, line)
 		rowY += 18
 	}
-	stageTotal := totalStageNS(app.stages)
+	stageTotal := totalStageNS(app.cpuStages)
 	app.canvas.DrawText(rightTop.X+16, rightTop.Y+52, colorMuted, "stage                ms/frame   share")
 	rowY = rightTop.Y + 72
-	for index, result := range app.stages {
+	for index, result := range app.cpuStages {
 		if index >= 8 {
 			break
 		}
@@ -842,14 +868,19 @@ func (app *stressApp) renderDashboard() {
 		rowY += 18
 	}
 	noteY := rightBottom.Y + 18
+	cpuFrameTotal := totalStageNS(app.cpuStages)
+	fullFrameTotal := cpuFrameTotal + app.present.totalNS
 	notes := []string{
 		"Press R, Space or Enter to rerun.",
 		"Press Esc or close button to exit.",
 		"Microbench total: " + formatMilliseconds(totalMicroNS(app.micro)),
-		"Frame profile total/frame: " + formatMilliseconds(stageTotal/uint64(maxInt(1, stageFramesBase*app.scale))),
+		"CPU frame total/frame: " + formatMilliseconds(cpuFrameTotal/uint64(maxInt(1, app.present.frames))),
+		"Present full/frame: " + formatMilliseconds(app.present.nsPerFrame),
+		"CPU+present/frame: " + formatMilliseconds(fullFrameTotal/uint64(maxInt(1, app.present.frames))),
 		"Font path: " + app.fontLabel,
 		"Scale: " + strconv.Itoa(app.scale) + "x",
-		"present/full is measured with the real window blit path.",
+		"CPU stage profile excludes PresentFull.",
+		"present/full uses the real window blit path.",
 		"text/ttf-warm excludes font file load and first glyph rasterization.",
 	}
 	for _, note := range notes {
@@ -860,9 +891,12 @@ func (app *stressApp) renderDashboard() {
 		top := app.micro[0]
 		app.canvas.DrawText(rightBottom.X+16, noteY+6, colorWhite, "Top API suspect: "+top.name+" / "+top.group)
 	}
-	if len(app.stages) > 0 {
-		top := app.stages[0]
-		app.canvas.DrawText(rightBottom.X+16, noteY+24, colorWhite, "Top frame suspect: "+top.name)
+	if len(app.cpuStages) > 0 {
+		top := app.cpuStages[0]
+		app.canvas.DrawText(rightBottom.X+16, noteY+24, colorWhite, "Top CPU frame suspect: "+top.name)
+	}
+	if app.present.nsPerFrame > 0 {
+		app.canvas.DrawText(rightBottom.X+16, noteY+42, colorWhite, "Present path: "+formatMilliseconds(app.present.nsPerFrame)+" / frame")
 	}
 }
 
@@ -873,16 +907,16 @@ func (app *stressApp) rerun() {
 	app.renderDashboard()
 	app.presenter.PresentFull(app.canvas)
 	app.micro = app.runMicroBenchmarks()
-	app.stages = app.runStageProfile()
+	app.cpuStages, app.present = app.runStageProfile()
 	topMicro := ""
-	topStage := ""
+	topCPU := ""
 	if len(app.micro) > 0 {
 		topMicro = app.micro[0].name
 	}
-	if len(app.stages) > 0 {
-		topStage = app.stages[0].name
+	if len(app.cpuStages) > 0 {
+		topCPU = app.cpuStages[0].name
 	}
-	app.status = "run " + strconv.Itoa(app.runID) + ": top api=" + topMicro + " / top frame=" + topStage
+	app.status = "run " + strconv.Itoa(app.runID) + ": top api=" + topMicro + " / top cpu-frame=" + topCPU + " / present=" + app.present.name
 	app.printReport()
 	app.renderDashboard()
 	app.setTitles("done")
