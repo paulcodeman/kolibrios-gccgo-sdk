@@ -2865,6 +2865,10 @@ void runtime_m_start(runtime_m_start_record* start) {
     runtime_kos_exit_raw();
 }
 
+void runtime_mstart(void* start) {
+    runtime_m_start((runtime_m_start_record*)start);
+}
+
 static runtime_m* runtime_spawn_m_with_start(runtime_g* start_g, uint32_t stack_size) {
     runtime_m* m;
     runtime_g* g0;
@@ -3034,11 +3038,13 @@ static runtime_g* runtime_newg(void (*entry)(void*), void* arg) {
     return g;
 }
 
+#ifndef KOLIBRI_USE_LIBGO_RUNTIME
 runtime_g* __go_go(uintptr_t fn, void* arg) {
     runtime_g* g = runtime_newg((void (*)(void*))(uintptr_t)fn, arg);
     runtime_runq_enqueue(g);
     return g;
 }
+#endif
 
 static void runtime_schedule(void) {
     runtime_m* m = runtime_getm();
@@ -5895,6 +5901,7 @@ int runtime_procPin(void) {
 void runtime_procUnpin(void) {
 }
 
+#ifndef KOLIBRI_USE_LIBGO_RUNTIME
 uintptr_t runtime_internal_atomic_load_acquintptr(const uintptr_t* value) {
     return runtime_atomic_load_uintptr(value);
 }
@@ -5903,6 +5910,7 @@ uintptr_t runtime_internal_atomic_store_reluintptr(uintptr_t* value, uintptr_t n
     runtime_atomic_store_uintptr(value, next);
     return next;
 }
+#endif
 
 static size_t kos_slice_allocation_size(const go_type_descriptor* descriptor, intptr_t count) {
     size_t element_size;
@@ -12532,6 +12540,7 @@ __asm__(".set internal_1goexperiment..types, runtime_empty_types");
 __asm__(".global internal_1goos..types");
 __asm__(".set internal_1goos..types, runtime_empty_types");
 
+#ifndef KOLIBRI_USE_LIBGO_RUNTIME
 __asm__(".global runtime_1internal_1atomic..types");
 __asm__(".set runtime_1internal_1atomic..types, runtime_empty_types");
 
@@ -12546,3 +12555,4 @@ __asm__(".set runtime_1internal_1atomic.LoadAcquintptr, runtime_internal_atomic_
 
 __asm__(".global runtime_1internal_1atomic.StoreReluintptr");
 __asm__(".set runtime_1internal_1atomic.StoreReluintptr, runtime_internal_atomic_store_reluintptr");
+#endif

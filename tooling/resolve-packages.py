@@ -4,6 +4,12 @@ import os
 import re
 import sys
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+
+from go_file_filter import list_package_go_files
+
 
 IMPORT_RE = re.compile(r"(?m)^\s*import\s*(\([^)]*\)|\"[^\"]+\"|`[^`]+`)")
 
@@ -48,28 +54,6 @@ def find_pkg_dir(
     return None
 
 
-def list_go_files(pkg_dir: str):
-    source_dirs = [pkg_dir]
-    dirs_file = os.path.join(pkg_dir, "package_dirs.txt")
-    if os.path.exists(dirs_file):
-        with open(dirs_file, "r", encoding="utf-8", errors="ignore") as f:
-            for raw in f:
-                value = raw.split("#", 1)[0].strip()
-                if not value:
-                    continue
-                source_dirs.append(os.path.join(pkg_dir, value))
-    files = []
-    for source_dir in source_dirs:
-        if not os.path.isdir(source_dir):
-            continue
-        files.extend(
-            os.path.join(source_dir, name)
-            for name in os.listdir(source_dir)
-            if name.endswith(".go") and not name.endswith("_test.go")
-        )
-    return files
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True)
@@ -78,6 +62,9 @@ def main():
     parser.add_argument("--packages", default="")
     parser.add_argument("--first-party", default="")
     parser.add_argument("--third-party", default="")
+    parser.add_argument("--goos", default="kolibrios")
+    parser.add_argument("--goarch", default="386")
+    parser.add_argument("--tags", default="gccgo")
     args = parser.parse_args()
 
     root = args.root
@@ -127,7 +114,12 @@ def main():
         if not pkg_dir:
             return
         visiting.add(pkg)
-        for go_file in list_go_files(pkg_dir):
+        for go_file in list_package_go_files(
+            pkg_dir,
+            args.goos,
+            args.goarch,
+            [item for item in args.tags.split() if item],
+        ):
             for imp in parse_imports(go_file):
                 if imp in builtin or imp == "C":
                     continue
