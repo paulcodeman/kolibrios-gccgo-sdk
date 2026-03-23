@@ -122,9 +122,11 @@ fi
 
 env "${env_vars[@]}" make -C "${target_dir}" "${MAKE_TARGET}"
 
-if [[ "${MAKE_TARGET}" == "clean" ]]; then
+case "${MAKE_TARGET}" in
+  clean|clean-cache|distclean)
   exit 0
-fi
+  ;;
+esac
 
 target_base=$(basename "${target_dir}")
 output_path="${target_dir}/${target_base}.kex"

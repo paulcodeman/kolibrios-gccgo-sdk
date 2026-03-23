@@ -146,9 +146,10 @@ Library `.obj` outputs are written next to each library target.
   `third_party/`.
 - The build defaults to `gccgo-15`; override with `GO=gccgo` if your binary name
   differs.
-- Set `KEEP_PKG=1` to reuse `.pkg` artifacts across multiple builds.
-- Set `KEEP_ABI=1` to reuse ABI objects across multiple builds.
+- Builds now reuse package and ABI artifacts from `.build-cache/` by default.
+- Set `KEEP_PKG=0` or `KEEP_ABI=0` to disable cache reuse for a build.
 - Set `FAST_PKG=1` to avoid package rebuild cascades in batch builds.
+- Use `make clean-cache` or `make distclean` in a target directory to drop the shared build cache.
 - Set `KPACK=1` to run `kpack` on the final `.kex` (override the binary with
   `KPACK_BIN=/path/to/kpack`).
 - Library-only knobs (via `tooling/kolibri-lib.mk`): `OBJ_FORMAT=coff-i386`
@@ -162,7 +163,7 @@ Library `.obj` outputs are written next to each library target.
   artifact and runs `kpack` by default. Grab it from the latest run in the
   Actions build workflow:
   [Actions build workflow](https://github.com/paulcodeman/kolibrios-gccgo-sdk/actions/workflows/build.yml).
-- `.kex`, `.obj`, `.gccgo.o`, `.gox`, `.o`, and `.pkg/` build outputs are ignored by git.
+- `.kex`, `.obj`, `.gccgo.o`, `.gox`, `.o`, `.pkg/`, and `.build-cache/` build outputs are ignored by git.
 - The bundled `tooling/bin/kpack` is a Linux x86_64 binary; override
   `KPACK_BIN` on other hosts.
 

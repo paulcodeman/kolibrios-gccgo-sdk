@@ -7,8 +7,11 @@ FIRST_PARTY_DIRS ?= platform
 THIRD_PARTY_DIRS ?= third_party
 FIRST_PARTY_DIRS_ABS := $(foreach dir,$(FIRST_PARTY_DIRS),$(if $(filter /%,$(dir)),$(dir),$(ROOT_ABS)/$(dir)))
 THIRD_PARTY_DIRS_ABS := $(foreach dir,$(THIRD_PARTY_DIRS),$(if $(filter /%,$(dir)),$(dir),$(ROOT_ABS)/$(dir)))
-PACKAGE_ARTIFACT_ROOT := $(ROOT)/.pkg
-PACKAGE_ARTIFACT_ROOT_ABS := $(ROOT_ABS)/.pkg
+BUILD_CACHE_ROOT ?= $(ROOT)/.build-cache
+BUILD_CACHE_ROOT_ABS := $(abspath $(BUILD_CACHE_ROOT))
+PACKAGE_ARTIFACT_ROOT := $(BUILD_CACHE_ROOT)/pkg
+PACKAGE_ARTIFACT_ROOT_ABS := $(BUILD_CACHE_ROOT_ABS)/pkg
+ABI_ARTIFACT_ROOT := $(BUILD_CACHE_ROOT)/abi
 
 ABI_DIR = $(ROOT)/platform/abi
 MK_DIR = $(ROOT)/tooling
@@ -48,8 +51,8 @@ OBJCOPY ?= $(firstword \
 SED = sed
 OPT_LEVEL ?= -Os
 GO_OPT_LEVEL ?= -Os
-KEEP_PKG ?= 0
-KEEP_ABI ?= 0
+KEEP_PKG ?= 1
+KEEP_ABI ?= 1
 FAST_PKG ?= 0
 KPACK ?= 0
 KPACK_BIN ?= $(ROOT)/tooling/bin/kpack
@@ -109,8 +112,8 @@ PACKAGE_SOURCE_SUBDIRS_$(1) := $$(strip $$(shell if [ -f "$$(PACKAGE_DIRS_FILE_$
 PACKAGE_SOURCE_DIRS_$(1) := $$(PACKAGE_SOURCE_DIR_$(1)) $$(foreach rel,$$(PACKAGE_SOURCE_SUBDIRS_$(1)),$$(PACKAGE_SOURCE_DIR_$(1))/$$(rel))
 PACKAGE_SOURCES_$(1) := $$(sort $$(foreach dir,$$(PACKAGE_SOURCE_DIRS_$(1)),$$(filter-out $$(dir)/%_gc_kolibrios.go $$(dir)/%_test.go,$$(wildcard $$(dir)/*.go))))
 PACKAGE_SOURCE_FILES_$(1) := $$(patsubst $$(PACKAGE_SOURCE_DIR_$(1))/%,%,$$(PACKAGE_SOURCES_$(1)))
-PACKAGE_ARTIFACT_PREFIX_$(1) := $(if $(findstring /,$(1)),$(PACKAGE_ARTIFACT_ROOT)/$(1),$(ROOT)/$(1))
-PACKAGE_ARTIFACT_PREFIX_ABS_$(1) := $(if $(findstring /,$(1)),$(PACKAGE_ARTIFACT_ROOT_ABS)/$(1),$(ROOT_ABS)/$(1))
+PACKAGE_ARTIFACT_PREFIX_$(1) := $(PACKAGE_ARTIFACT_ROOT)/$(1)
+PACKAGE_ARTIFACT_PREFIX_ABS_$(1) := $(PACKAGE_ARTIFACT_ROOT_ABS)/$(1)
 PACKAGE_OBJ_$(1) := $$(PACKAGE_ARTIFACT_PREFIX_$(1)).gccgo.o
 PACKAGE_GOX_$(1) := $$(PACKAGE_ARTIFACT_PREFIX_$(1)).gox
 ifneq ($(FAST_PKG),0)
@@ -141,20 +144,30 @@ LIBGCC = $(shell $(GCC) -m32 -print-libgcc-file-name)
 LIBGCC_EH = $(shell $(GCC) -m32 -print-file-name=libgcc_eh.a)
 RUNTIME_LIBS = $(LIBGCC_EH) $(LIBGCC)
 
-ABI_OBJS = $(ABI_DIR)/syscalls_i386.o $(ABI_DIR)/runtime_gccgo.o $(ABI_DIR)/go-unwind.o $(ABI_DIR)/runtime_context_386.o
+ABI_SYSCALLS_OBJ = $(ABI_ARTIFACT_ROOT)/syscalls_i386.o
+ABI_RUNTIME_OBJ = $(ABI_ARTIFACT_ROOT)/runtime_gccgo.o
+ABI_UNWIND_OBJ = $(ABI_ARTIFACT_ROOT)/go-unwind.o
+ABI_CONTEXT_OBJ = $(ABI_ARTIFACT_ROOT)/runtime_context_386.o
+ABI_OBJS = $(ABI_SYSCALLS_OBJ) $(ABI_RUNTIME_OBJ) $(ABI_UNWIND_OBJ) $(ABI_CONTEXT_OBJ)
 STARTUP_ARTIFACTS = $(STARTUP_SOURCE) $(STARTUP_OBJ)
 OBJS = $(ABI_OBJS) $(PACKAGE_OBJS) $(APP_OBJ)
 OBJS += $(STARTUP_OBJ)
 PACKAGE_ARTIFACTS = $(PACKAGE_OBJS) $(PACKAGE_GOXS)
 INTERMEDIATE_ARTIFACTS = $(ABI_OBJS) $(APP_OBJ) $(LDSCRIPT) $(STARTUP_ARTIFACTS)
 
-.PHONY: all clean link
+.DEFAULT_GOAL := all
+.PHONY: all clean clean-cache distclean link
 
 all: $(PROGRAM).kex
 
 clean:
-	rm -rf $(BUILD_DIR) $(PACKAGE_ARTIFACT_ROOT)
-	rm -f $(INTERMEDIATE_ARTIFACTS) $(PACKAGE_ARTIFACTS) $(PROGRAM).kex
+	rm -rf $(BUILD_DIR)
+	rm -f $(APP_OBJ) $(PROGRAM).kex
+
+clean-cache:
+	rm -rf $(BUILD_CACHE_ROOT)
+
+distclean: clean clean-cache
 
 link: $(PROGRAM).kex
 
@@ -190,14 +203,18 @@ endif
 $(APP_OBJ): $(APP_SOURCES) $(PACKAGE_GOXS)
 	$(GO) $(GO_COMPILER_FLAGS) -o $@ $(APP_SOURCES)
 
-$(ABI_DIR)/runtime_gccgo.o: $(ABI_DIR)/runtime_gccgo.c
+$(ABI_RUNTIME_OBJ): $(ABI_DIR)/runtime_gccgo.c
+	mkdir -p $(dir $@)
 	$(GCC) $(GCC_COMPILER_FLAGS) -fexceptions $< -o $@
 
-$(ABI_DIR)/syscalls_i386.o: $(ABI_DIR)/syscalls_i386.asm
+$(ABI_SYSCALLS_OBJ): $(ABI_DIR)/syscalls_i386.asm
+	mkdir -p $(dir $@)
 	$(NASM) $< -o $@
 
-$(ABI_DIR)/go-unwind.o: $(ABI_DIR)/go-unwind.c
+$(ABI_UNWIND_OBJ): $(ABI_DIR)/go-unwind.c
+	mkdir -p $(dir $@)
 	$(GCC) $(GCC_COMPILER_FLAGS) -fexceptions $< -o $@
 
-$(ABI_DIR)/runtime_context_386.o: $(ABI_DIR)/runtime_context_386.S
+$(ABI_CONTEXT_OBJ): $(ABI_DIR)/runtime_context_386.S
+	mkdir -p $(dir $@)
 	$(GCC) $(GCC_COMPILER_FLAGS) $< -o $@

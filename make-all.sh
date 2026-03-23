@@ -48,7 +48,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 clean_intermediate_artifacts() {
-  rm -rf "${REPO_ROOT}/.pkg"
+  rm -rf "${REPO_ROOT}/.build-cache" "${REPO_ROOT}/.pkg"
   find "${REPO_ROOT}/platform/abi" -maxdepth 1 -name '*.o' -delete
   find "${REPO_ROOT}" -type d -name '.build' -prune -exec rm -rf {} +
   find "${REPO_ROOT}" -type f \( -name '*.gccgo.o' -o -name '*.gox' \) -delete
@@ -79,7 +79,7 @@ for dir in "${targets[@]}"; do
   if [[ -n "${KPACK_BIN}" ]]; then
     build_args+=(--kpack-bin "${KPACK_BIN}")
   fi
-  KEEP_PKG=1 KEEP_ABI=1 FAST_PKG=1 ./build-app.sh "${build_args[@]}" "${dir}"
+  FAST_PKG=1 ./build-app.sh "${build_args[@]}" "${dir}"
 done
 
 clean_intermediate_artifacts

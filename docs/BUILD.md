@@ -137,10 +137,8 @@ You can override these variables per target:
 - `PACKAGE_DIRS` to precompile additional shared packages
 - `FIRST_PARTY_DIRS` to add extra in-repo package roots
 - `THIRD_PARTY_DIRS` to add extra external package roots
-- `KEEP_PKG=1` to keep `.pkg` package artifacts between builds (useful when
-  building many targets in a row)
-- `KEEP_ABI=1` to keep ABI objects (`syscalls_i386.o`, `runtime_gccgo.o`,
-  `go-unwind.o`) between builds in a batch
+- `KEEP_PKG=0` to disable reuse of cached package artifacts for a build
+- `KEEP_ABI=0` to disable reuse of cached ABI objects for a build
 - `FAST_PKG=1` to treat package ordering as order-only and avoid rebuild
   cascades when compiling many targets in a row
 - `KPACK=1` to run `kpack` on the final `.kex`
@@ -166,7 +164,8 @@ make -C apps/examples/uiwindow OPT_LEVEL=-O0
 
 - The final `.kex` is written next to each target directory.
 - `make` (or `make obj`) in a library target writes `$(PROGRAM).obj`.
-- Intermediate `.o` and `.gox` files are removed after a successful build.
-- `.kex`, `.obj`, `.gccgo.o`, `.gox`, `.o`, and `.pkg/` build outputs are ignored by git.
+- Shared package and ABI artifacts are cached in `.build-cache/` by default.
+- `make clean` removes local target outputs, `make clean-cache` drops the shared cache, and `make distclean` does both.
+- `.kex`, `.obj`, `.gccgo.o`, `.gox`, `.o`, `.pkg/`, and `.build-cache/` build outputs are ignored by git.
 - The bundled `tooling/bin/kpack` is a Linux x86_64 binary; override
   `KPACK_BIN` if you are on another host.

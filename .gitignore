@@ -5,4 +5,5 @@
 *.gox
 *.o
 .pkg/
+.build-cache/
 .build/
