@@ -112,6 +112,10 @@ func insetRect(rect surface.Rect, left int, top int, right int, bottom int) surf
 	}
 }
 
+func (app *stressApp) stageGraphRect() surface.Rect {
+	return surface.Rect{X: 18, Y: 242, Width: app.canvas.Width() - 36, Height: 128}
+}
+
 func maxInt(a int, b int) int {
 	if a > b {
 		return a
@@ -565,7 +569,7 @@ func (app *stressApp) drawStageHeader(frame int) {
 		Direction: surface.GradientHorizontal,
 	})
 	app.canvas.DrawText(18, 16, colorWhite, "surface frame-stage profile")
-	app.canvas.DrawText(18, 34, colorMuted, "clear / header / rounded / shadow / vectors / text / blit / present")
+	app.canvas.DrawText(18, 34, colorMuted, "clear / header / rounded / shadow-fill / shadow-mask / vectors / text / blit / present")
 }
 
 func (app *stressApp) drawStagePanelsFill(frame int) {
@@ -602,9 +606,13 @@ func (app *stressApp) drawStagePanelsStroke(frame int) {
 	}
 }
 
-func (app *stressApp) drawStageShadow(frame int) {
-	graph := surface.Rect{X: 18, Y: 242, Width: app.canvas.Width() - 36, Height: 128}
+func (app *stressApp) drawStageShadowBase(frame int) {
+	graph := app.stageGraphRect()
 	app.canvas.FillRoundedRect(graph.X, graph.Y, graph.Width, graph.Height, uniformRadii(16), colorPanel)
+}
+
+func (app *stressApp) drawStageShadowMask(frame int) {
+	graph := app.stageGraphRect()
 	app.canvas.DrawShadowRounded(graph, surface.Shadow{
 		OffsetX: 0,
 		OffsetY: 2,
@@ -615,7 +623,7 @@ func (app *stressApp) drawStageShadow(frame int) {
 }
 
 func (app *stressApp) drawStageVectorLines(frame int) {
-	graph := surface.Rect{X: 18, Y: 242, Width: app.canvas.Width() - 36, Height: 128}
+	graph := app.stageGraphRect()
 	for x := graph.X + 10; x < graph.X+graph.Width; x += 28 {
 		app.canvas.DrawLine(x, graph.Y+10, x, graph.Y+graph.Height-10, colorLine)
 	}
@@ -650,13 +658,25 @@ func (app *stressApp) drawStageText(frame int) {
 }
 
 func (app *stressApp) drawStageBlits(frame int) {
-	app.prepareSample()
 	app.sample.ScrollRectY(surface.Rect{X: 8, Y: 34, Width: app.sample.Width() - 16, Height: 78}, -16)
 	app.sample.FillRect(8, app.sample.Height()-18, app.sample.Width()-16, 16, colorGold)
 	app.sample.DrawText(12, app.sample.Height()-16, colorBlack, "tail after scroll")
 	app.sample.BlitSelf(surface.Rect{X: 8, Y: 8, Width: 96, Height: 14}, 128, 8)
 	app.canvas.BlitFrom(app.sample, app.sample.Bounds(), 28, 94)
 	app.canvas.BlitFrom(app.alphaStamp, app.alphaStamp.Bounds(), app.canvas.Width()-app.alphaStamp.Width()-28, 98)
+}
+
+func (app *stressApp) warmStageCaches() {
+	app.canvas.Clear(colorInk)
+	app.drawStageHeader(0)
+	app.drawStagePanelsFill(0)
+	app.drawStagePanelsStroke(0)
+	app.drawStageShadowBase(0)
+	app.drawStageShadowMask(0)
+	app.drawStageText(0)
+	app.prepareSample()
+	app.drawStageBlits(0)
+	app.drawStageClear(0)
 }
 
 func (app *stressApp) runStageProfile() ([]stageResult, stageResult) {
@@ -668,12 +688,14 @@ func (app *stressApp) runStageProfile() ([]stageResult, stageResult) {
 	if frames < stageFramesBase {
 		frames = stageFramesBase
 	}
+	app.warmStageCaches()
 	specs := []stageSpec{
 		{name: "clear/full", fn: app.drawStageClear},
 		{name: "header-static", fn: app.drawStageHeader},
 		{name: "rounded-fill", fn: app.drawStagePanelsFill},
 		{name: "rounded-stroke", fn: app.drawStagePanelsStroke},
-		{name: "shadow-only", fn: app.drawStageShadow},
+		{name: "shadow-fill-base", fn: app.drawStageShadowBase},
+		{name: "shadow-mask", fn: app.drawStageShadowMask},
 		{name: "vector-lines", fn: app.drawStageVectorLines},
 		{name: "text-blocks", fn: app.drawStageText},
 		{name: "blit+scroll", fn: app.drawStageBlits},
@@ -885,6 +907,7 @@ func (app *stressApp) renderDashboard() {
 		"Font path: " + app.fontLabel,
 		"Scale: " + strconv.Itoa(app.scale) + "x",
 		"CPU stage profile excludes PresentFull.",
+		"CPU stage profile is measured after cache warmup.",
 		"present/full uses the real window blit path.",
 		"text/ttf-warm excludes font file load and first glyph rasterization.",
 	}

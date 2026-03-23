@@ -30,18 +30,47 @@ func blendPixelValue(dst uint32, colorValue uint32, alpha uint8) uint32 {
 	if alpha >= 255 {
 		return 0xFF000000 | colorValue
 	}
-	srcR := int((colorValue >> 16) & 0xFF)
-	srcG := int((colorValue >> 8) & 0xFF)
-	srcB := int(colorValue & 0xFF)
-	dstR := int((dst >> 16) & 0xFF)
-	dstG := int((dst >> 8) & 0xFF)
-	dstB := int(dst & 0xFF)
-	a := int(alpha)
-	inv := 255 - a
-	outR := (srcR*a + dstR*inv + 127) / 255
-	outG := (srcG*a + dstG*inv + 127) / 255
-	outB := (srcB*a + dstB*inv + 127) / 255
-	return 0xFF000000 | uint32(outR<<16|outG<<8|outB)
+	a := uint32(alpha)
+	inv := uint32(255 - alpha)
+	rb := (dst&0x00FF00FF)*inv + colorValue&0x00FF00FF*a + 0x00800080
+	rb = (rb + ((rb >> 8) & 0x00FF00FF)) >> 8
+	g := ((dst>>8)&0xFF)*inv + ((colorValue>>8)&0xFF)*a + 0x80
+	g = (g + (g >> 8)) >> 8
+	return 0xFF000000 | (rb & 0x00FF00FF) | ((g & 0xFF) << 8)
+}
+
+func darkenPixelValue(dst uint32, alpha uint8) uint32 {
+	if alpha == 0 {
+		return dst
+	}
+	if alpha >= 255 {
+		return 0xFF000000
+	}
+	inv := uint32(255 - alpha)
+	rb := (dst&0x00FF00FF)*inv + 0x00800080
+	rb = (rb + ((rb >> 8) & 0x00FF00FF)) >> 8
+	rb &= 0x00FF00FF
+	g := ((dst>>8)&0xFF)*inv + 0x80
+	g = (g + (g >> 8)) >> 8
+	return 0xFF000000 | rb | ((g & 0xFF) << 8)
+}
+
+func blendPremultipliedOpaque(dst uint32, src uint32) uint32 {
+	sa := uint8(src >> 24)
+	if sa == 0 {
+		return dst
+	}
+	if sa >= 255 {
+		return src
+	}
+	inv := uint32(255 - sa)
+	rb := (dst&0x00FF00FF)*inv + 0x00800080
+	rb = (rb + ((rb >> 8) & 0x00FF00FF)) >> 8
+	rb = (rb & 0x00FF00FF) + (src & 0x00FF00FF)
+	g := ((dst>>8)&0xFF)*inv + 0x80
+	g = (g + (g >> 8)) >> 8
+	g = ((g & 0xFF) << 8) + (src & 0x0000FF00)
+	return 0xFF000000 | (rb & 0x00FF00FF) | (g & 0x0000FF00)
 }
 
 func premultiplyColorValue(colorValue uint32, alpha uint8) uint32 {

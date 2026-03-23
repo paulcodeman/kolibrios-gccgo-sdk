@@ -24,11 +24,34 @@ func (buffer *Buffer) BlitFrom(src *Buffer, srcRect Rect, dstX int, dstY int) {
 	srcRect.Width = dstRect.Width
 	srcRect.Height = dstRect.Height
 	if src.alpha {
+		if !buffer.alpha {
+			for row := 0; row < dstRect.Height; row++ {
+				dstIndex := 2 + (dstRect.Y+row)*buffer.width + dstRect.X
+				srcIndex := 2 + (srcRect.Y+row)*src.width + srcRect.X
+				for col := 0; col < dstRect.Width; col++ {
+					srcPixel := src.data[srcIndex+col]
+					if srcPixel>>24 == 0 {
+						continue
+					}
+					buffer.data[dstIndex+col] = blendPremultipliedOpaque(buffer.data[dstIndex+col], srcPixel)
+				}
+			}
+			return
+		}
 		for row := 0; row < dstRect.Height; row++ {
 			dstIndex := 2 + (dstRect.Y+row)*buffer.width + dstRect.X
 			srcIndex := 2 + (srcRect.Y+row)*src.width + srcRect.X
 			for col := 0; col < dstRect.Width; col++ {
-				buffer.data[dstIndex+col] = blendPremultiplied(buffer.data[dstIndex+col], src.data[srcIndex+col])
+				srcPixel := src.data[srcIndex+col]
+				sa := srcPixel >> 24
+				if sa == 0 {
+					continue
+				}
+				if sa >= 255 {
+					buffer.data[dstIndex+col] = srcPixel
+					continue
+				}
+				buffer.data[dstIndex+col] = blendPremultiplied(buffer.data[dstIndex+col], srcPixel)
 			}
 		}
 		return
@@ -36,7 +59,7 @@ func (buffer *Buffer) BlitFrom(src *Buffer, srcRect Rect, dstX int, dstY int) {
 	for row := 0; row < dstRect.Height; row++ {
 		dstIndex := 2 + (dstRect.Y+row)*buffer.width + dstRect.X
 		srcIndex := 2 + (srcRect.Y+row)*src.width + srcRect.X
-		copy(buffer.data[dstIndex:dstIndex+dstRect.Width], src.data[srcIndex:srcIndex+dstRect.Width])
+		copy32(buffer.data[dstIndex:dstIndex+dstRect.Width], src.data[srcIndex:srcIndex+dstRect.Width])
 	}
 }
 
@@ -66,14 +89,14 @@ func (buffer *Buffer) BlitSelf(srcRect Rect, dstX int, dstY int) {
 		for row := dstRect.Height - 1; row >= 0; row-- {
 			srcIndex := 2 + (srcRect.Y+row)*buffer.width + srcRect.X
 			dstIndex := 2 + (dstRect.Y+row)*buffer.width + dstRect.X
-			copy(buffer.data[dstIndex:dstIndex+dstRect.Width], buffer.data[srcIndex:srcIndex+dstRect.Width])
+			move32(buffer.data[dstIndex:dstIndex+dstRect.Width], buffer.data[srcIndex:srcIndex+dstRect.Width])
 		}
 		return
 	}
 	for row := 0; row < dstRect.Height; row++ {
 		srcIndex := 2 + (srcRect.Y+row)*buffer.width + srcRect.X
 		dstIndex := 2 + (dstRect.Y+row)*buffer.width + dstRect.X
-		copy(buffer.data[dstIndex:dstIndex+dstRect.Width], buffer.data[srcIndex:srcIndex+dstRect.Width])
+		move32(buffer.data[dstIndex:dstIndex+dstRect.Width], buffer.data[srcIndex:srcIndex+dstRect.Width])
 	}
 }
 
@@ -94,7 +117,7 @@ func (buffer *Buffer) ScrollRectY(rect Rect, deltaY int) {
 			dstY := srcY + deltaY
 			srcIndex := 2 + srcY*buffer.width + rect.X
 			dstIndex := 2 + dstY*buffer.width + rect.X
-			copy(buffer.data[dstIndex:dstIndex+rect.Width], buffer.data[srcIndex:srcIndex+rect.Width])
+			move32(buffer.data[dstIndex:dstIndex+rect.Width], buffer.data[srcIndex:srcIndex+rect.Width])
 		}
 		return
 	}
@@ -104,6 +127,6 @@ func (buffer *Buffer) ScrollRectY(rect Rect, deltaY int) {
 		dstY := srcY - shift
 		srcIndex := 2 + srcY*buffer.width + rect.X
 		dstIndex := 2 + dstY*buffer.width + rect.X
-		copy(buffer.data[dstIndex:dstIndex+rect.Width], buffer.data[srcIndex:srcIndex+rect.Width])
+		move32(buffer.data[dstIndex:dstIndex+rect.Width], buffer.data[srcIndex:srcIndex+rect.Width])
 	}
 }

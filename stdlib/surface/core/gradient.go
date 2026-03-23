@@ -138,12 +138,19 @@ func (buffer *Buffer) fillGradient(x int, y int, width int, height int, gradient
 		}
 		den := gradientDen(length)
 		samples := buffer.scratchPixels(width)
+		uniformStopAlpha := stops.fromAlpha == stops.toAlpha
+		uniformAlpha := uint8(0)
+		useUniformAlphaSamples := false
+		if uniformStopAlpha {
+			uniformAlpha = combineAlpha(alpha, stops.fromAlpha)
+			useUniformAlphaSamples = uniformAlpha > 0 && !opaque
+		}
 		for col := 0; col < width; col++ {
 			pos := col
 			if useArea {
 				pos = clampGradientPos(x+col-offset, length)
 			}
-			if opaque {
+			if opaque || useUniformAlphaSamples {
 				samples[col] = stops.opaqueSample(pos, den)
 			} else {
 				samples[col] = stops.sample(pos, den, alpha)
@@ -154,10 +161,14 @@ func (buffer *Buffer) fillGradient(x int, y int, width int, height int, gradient
 			switch {
 			case rounded && opaque:
 				buffer.paintRoundedRowOpaqueSamples(rowStart, row, width, height, radii, samples)
+			case rounded && useUniformAlphaSamples:
+				buffer.paintRoundedRowAlphaColorSamples(rowStart, row, width, height, radii, samples, uniformAlpha)
 			case rounded:
 				buffer.paintRoundedRowAlphaSamples(rowStart, row, width, height, radii, samples)
 			case opaque:
 				copy(buffer.data[rowStart:rowStart+width], samples)
+			case useUniformAlphaSamples:
+				buffer.blendRowColorSamples(rowStart, samples[:width], uniformAlpha)
 			default:
 				buffer.blendRowSamples(rowStart, samples)
 			}

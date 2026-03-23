@@ -20,6 +20,14 @@ type shadowMask struct {
 	width  int
 	height int
 	data   []uint8
+	rows   []shadowMaskRow
+}
+
+type shadowMaskRow struct {
+	firstStart  int
+	firstEnd    int
+	secondStart int
+	secondEnd   int
 }
 
 var (
@@ -154,9 +162,50 @@ func buildShadowMask(key shadowMaskKey) *shadowMask {
 		width:  maskWidth,
 		height: maskHeight,
 		data:   make([]uint8, maskWidth*maskHeight),
+		rows:   make([]shadowMaskRow, maskHeight),
 	}
-	for index := range mask.data {
-		mask.data[index] = uint8(maskBuffer.data[index+2] >> 24)
+	for row := 0; row < maskHeight; row++ {
+		rowOffset := row * maskWidth
+		rowInfo := shadowMaskRow{
+			firstStart:  -1,
+			firstEnd:    -1,
+			secondStart: -1,
+			secondEnd:   -1,
+		}
+		currentStart := -1
+		runCount := 0
+		for col := 0; col < maskWidth; col++ {
+			alpha := uint8(maskBuffer.data[rowOffset+col+2] >> 24)
+			mask.data[rowOffset+col] = alpha
+			if alpha != 0 {
+				if currentStart < 0 {
+					currentStart = col
+				}
+				continue
+			}
+			if currentStart < 0 {
+				continue
+			}
+			if runCount == 0 {
+				rowInfo.firstStart = currentStart
+				rowInfo.firstEnd = col
+			} else if runCount == 1 {
+				rowInfo.secondStart = currentStart
+				rowInfo.secondEnd = col
+			}
+			runCount++
+			currentStart = -1
+		}
+		if currentStart >= 0 {
+			if runCount == 0 {
+				rowInfo.firstStart = currentStart
+				rowInfo.firstEnd = maskWidth
+			} else if runCount == 1 {
+				rowInfo.secondStart = currentStart
+				rowInfo.secondEnd = maskWidth
+			}
+		}
+		mask.rows[row] = rowInfo
 	}
 	return mask
 }
@@ -209,13 +258,9 @@ func (buffer *Buffer) blitShadowMaskOpaque(drawRect Rect, srcX int, srcY int, ma
 	for row := 0; row < drawRect.Height; row++ {
 		dstIndex := 2 + (drawRect.Y+row)*buffer.width + drawRect.X
 		srcIndex := (srcY+row)*mask.width + srcX
-		for col := 0; col < drawRect.Width; col++ {
-			alpha := mask.data[srcIndex+col]
-			if alpha == 0 {
-				continue
-			}
-			buffer.data[dstIndex+col] = blendPixelValue(buffer.data[dstIndex+col], colorValue, alpha)
-		}
+		rowInfo := mask.rows[srcY+row]
+		buffer.blitShadowMaskOpaqueSpan(dstIndex, srcIndex, srcX, drawRect.Width, rowInfo.firstStart, rowInfo.firstEnd, mask, colorValue)
+		buffer.blitShadowMaskOpaqueSpan(dstIndex, srcIndex, srcX, drawRect.Width, rowInfo.secondStart, rowInfo.secondEnd, mask, colorValue)
 	}
 }
 
@@ -223,13 +268,71 @@ func (buffer *Buffer) blitShadowMaskAlpha(drawRect Rect, srcX int, srcY int, mas
 	for row := 0; row < drawRect.Height; row++ {
 		dstIndex := 2 + (drawRect.Y+row)*buffer.width + drawRect.X
 		srcIndex := (srcY+row)*mask.width + srcX
-		for col := 0; col < drawRect.Width; col++ {
+		rowInfo := mask.rows[srcY+row]
+		buffer.blitShadowMaskAlphaSpan(dstIndex, srcIndex, srcX, drawRect.Width, rowInfo.firstStart, rowInfo.firstEnd, mask, colorValue)
+		buffer.blitShadowMaskAlphaSpan(dstIndex, srcIndex, srcX, drawRect.Width, rowInfo.secondStart, rowInfo.secondEnd, mask, colorValue)
+	}
+}
+
+func (buffer *Buffer) blitShadowMaskOpaqueSpan(dstIndex int, srcIndex int, srcX int, width int, spanStart int, spanEnd int, mask *shadowMask, colorValue uint32) {
+	if buffer == nil || mask == nil || spanStart < 0 || spanEnd <= spanStart || width <= 0 {
+		return
+	}
+	clipStart := srcX
+	clipEnd := srcX + width
+	if spanStart < clipStart {
+		spanStart = clipStart
+	}
+	if spanEnd > clipEnd {
+		spanEnd = clipEnd
+	}
+	if spanEnd <= spanStart {
+		return
+	}
+	start := spanStart - srcX
+	end := spanEnd - srcX
+	if colorValue == 0 {
+		for col := start; col < end; col++ {
 			alpha := mask.data[srcIndex+col]
 			if alpha == 0 {
 				continue
 			}
-			src := premultiplyColorValue(colorValue, alpha)
-			buffer.data[dstIndex+col] = blendPremultiplied(buffer.data[dstIndex+col], src)
+			buffer.data[dstIndex+col] = darkenPixelValue(buffer.data[dstIndex+col], alpha)
 		}
+		return
+	}
+	for col := start; col < end; col++ {
+		alpha := mask.data[srcIndex+col]
+		if alpha == 0 {
+			continue
+		}
+		buffer.data[dstIndex+col] = blendPixelValue(buffer.data[dstIndex+col], colorValue, alpha)
+	}
+}
+
+func (buffer *Buffer) blitShadowMaskAlphaSpan(dstIndex int, srcIndex int, srcX int, width int, spanStart int, spanEnd int, mask *shadowMask, colorValue uint32) {
+	if buffer == nil || mask == nil || spanStart < 0 || spanEnd <= spanStart || width <= 0 {
+		return
+	}
+	clipStart := srcX
+	clipEnd := srcX + width
+	if spanStart < clipStart {
+		spanStart = clipStart
+	}
+	if spanEnd > clipEnd {
+		spanEnd = clipEnd
+	}
+	if spanEnd <= spanStart {
+		return
+	}
+	start := spanStart - srcX
+	end := spanEnd - srcX
+	for col := start; col < end; col++ {
+		alpha := mask.data[srcIndex+col]
+		if alpha == 0 {
+			continue
+		}
+		src := premultiplyColorValue(colorValue, alpha)
+		buffer.data[dstIndex+col] = blendPremultiplied(buffer.data[dstIndex+col], src)
 	}
 }

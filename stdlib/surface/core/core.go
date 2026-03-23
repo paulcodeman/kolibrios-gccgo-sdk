@@ -16,6 +16,7 @@ const (
 	windowClientBottom = 4
 
 	runtimeMemfill32MinWords = 64
+	runtimeMemcpy32MinWords  = 32
 )
 
 type Rect struct {
@@ -548,7 +549,45 @@ func fill32(slice []uint32, value uint32) {
 	}
 }
 
+func copy32(dst []uint32, src []uint32) {
+	count := len(dst)
+	if count == 0 {
+		return
+	}
+	if len(src) < count {
+		count = len(src)
+		if count == 0 {
+			return
+		}
+	}
+	if count >= runtimeMemcpy32MinWords {
+		runtimeMemcpy32(unsafe.Pointer(&dst[0]), unsafe.Pointer(&src[0]), uintptr(count))
+		return
+	}
+	copy(dst[:count], src[:count])
+}
+
+func move32(dst []uint32, src []uint32) {
+	count := len(dst)
+	if count == 0 {
+		return
+	}
+	if len(src) < count {
+		count = len(src)
+		if count == 0 {
+			return
+		}
+	}
+	if count >= runtimeMemcpy32MinWords {
+		runtimeMemmove32(unsafe.Pointer(&dst[0]), unsafe.Pointer(&src[0]), uintptr(count))
+		return
+	}
+	copy(dst[:count], src[:count])
+}
+
 func runtimeMemfill32(dst unsafe.Pointer, value uint32, count uintptr) __asm__("runtime.memfill32")
+func runtimeMemcpy32(dst unsafe.Pointer, src unsafe.Pointer, count uintptr) __asm__("runtime.memcpy32")
+func runtimeMemmove32(dst unsafe.Pointer, src unsafe.Pointer, count uintptr) __asm__("runtime.memmove32")
 
 func textColumnCount(value string) int {
 	if value == "" {

@@ -11851,6 +11851,8 @@ static void* runtime_memmove_export(void* dest, const void* src, size_t size) {
 }
 
 void runtime_memfill32_export(uint32_t* dest, uint32_t value, size_t count) __asm__("runtime.memfill32");
+void runtime_memcpy32_export(uint32_t* dest, const uint32_t* src, size_t count) __asm__("runtime.memcpy32");
+void runtime_memmove32_export(uint32_t* dest, const uint32_t* src, size_t count) __asm__("runtime.memmove32");
 
 void runtime_memfill32_export(uint32_t* dest, uint32_t value, size_t count) {
     if (dest == NULL || count == 0) {
@@ -11866,6 +11868,51 @@ void runtime_memfill32_export(uint32_t* dest, uint32_t value, size_t count) {
 #else
     while (count-- != 0) {
         *dest++ = value;
+    }
+#endif
+}
+
+void runtime_memcpy32_export(uint32_t* dest, const uint32_t* src, size_t count) {
+    if (dest == NULL || src == NULL || count == 0) {
+        return;
+    }
+#if defined(__i386__) || defined(__x86_64__)
+    __asm__ __volatile__(
+        "cld\n\t"
+        "rep movsl"
+        : "+D"(dest), "+S"(src), "+c"(count)
+        :
+        : "memory");
+#else
+    while (count-- != 0) {
+        *dest++ = *src++;
+    }
+#endif
+}
+
+void runtime_memmove32_export(uint32_t* dest, const uint32_t* src, size_t count) {
+    if (dest == NULL || src == NULL || count == 0 || dest == src) {
+        return;
+    }
+    if (dest < src || dest >= src + count) {
+        runtime_memcpy32_export(dest, src, count);
+        return;
+    }
+#if defined(__i386__) || defined(__x86_64__)
+    dest += count - 1u;
+    src += count - 1u;
+    __asm__ __volatile__(
+        "std\n\t"
+        "rep movsl\n\t"
+        "cld"
+        : "+D"(dest), "+S"(src), "+c"(count)
+        :
+        : "memory");
+#else
+    dest += count;
+    src += count;
+    while (count-- != 0) {
+        *--dest = *--src;
     }
 #endif
 }
