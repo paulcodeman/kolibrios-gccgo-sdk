@@ -119,26 +119,33 @@ func (buffer *Buffer) StrokeRoundedRectWidth(x int, y int, width int, height int
 		BottomLeft:  maxIntValue(0, radii.BottomLeft-stroke),
 	}
 	innerRadii = normalizeRadii(innerW, innerH, innerRadii)
+	outerShape := roundedShapeRows(width, height, radii)
+	innerShape := roundedShapeRows(innerW, innerH, innerRadii)
 	colorValue := rgb
 	for row := 0; row < height; row++ {
 		rowStart := 2 + (y+row)*buffer.width + x
-		buffer.paintRoundedStrokeRow(rowStart, row, width, height, radii, stroke, innerW, innerH, innerRadii, colorValue, alpha)
+		buffer.paintRoundedStrokeRow(rowStart, row, width, height, outerShape, stroke, innerW, innerH, innerShape, colorValue, alpha)
 	}
 }
 
-func (buffer *Buffer) paintRoundedStrokeRow(rowStart int, row int, width int, height int, radii CornerRadii, stroke int, innerW int, innerH int, innerRadii CornerRadii, colorValue uint32, alpha uint8) {
+func (buffer *Buffer) paintRoundedStrokeRow(rowStart int, row int, width int, height int, outerShape *roundedShapeInfo, stroke int, innerW int, innerH int, innerShape *roundedShapeInfo, colorValue uint32, alpha uint8) {
 	if buffer == nil || width <= 0 || height <= 0 {
 		return
 	}
-	outerLeftWidth, outerRightWidth := cornerWidthsForRow(row, height, radii)
+	outerRow := &outerShape.rows[row]
+	outerLeftWidth := outerRow.leftWidth
+	outerRightWidth := outerRow.rightWidth
 	outerMiddleStart := outerLeftWidth
-	outerMiddleEnd := width - outerRightWidth
+	outerMiddleEnd := outerRow.rightStart
 	innerLeftWidth := 0
 	innerRightWidth := 0
 	innerRow := row - stroke
 	innerActive := innerW > 0 && innerH > 0 && innerRow >= 0 && innerRow < innerH
-	if innerActive && innerRadii.Active() {
-		innerLeftWidth, innerRightWidth = cornerWidthsForRow(innerRow, innerH, innerRadii)
+	var innerRowInfo *roundedRowInfo
+	if innerActive && innerShape != nil {
+		innerRowInfo = &innerShape.rows[innerRow]
+		innerLeftWidth = innerRowInfo.leftWidth
+		innerRightWidth = innerRowInfo.rightWidth
 	}
 	if innerActive {
 		leftSpanEnd := stroke + innerLeftWidth
@@ -156,7 +163,7 @@ func (buffer *Buffer) paintRoundedStrokeRow(rowStart int, row int, width int, he
 	}
 	if outerLeftWidth > 0 {
 		for col := 0; col < outerLeftWidth; col++ {
-			buffer.paintRoundedStrokePixel(rowStart+col, col, row, width, height, radii, stroke, innerW, innerH, innerRadii, colorValue, alpha)
+			buffer.paintRoundedStrokePixel(rowStart+col, col, outerRow, innerRowInfo, innerActive, stroke, innerW, colorValue, alpha)
 		}
 	}
 	if outerRightWidth > 0 {
@@ -165,7 +172,7 @@ func (buffer *Buffer) paintRoundedStrokeRow(rowStart int, row int, width int, he
 			start = outerLeftWidth
 		}
 		for col := start; col < width; col++ {
-			buffer.paintRoundedStrokePixel(rowStart+col, col, row, width, height, radii, stroke, innerW, innerH, innerRadii, colorValue, alpha)
+			buffer.paintRoundedStrokePixel(rowStart+col, col, outerRow, innerRowInfo, innerActive, stroke, innerW, colorValue, alpha)
 		}
 	}
 }
@@ -181,20 +188,19 @@ func (buffer *Buffer) paintStrokeSpan(rowStart int, start int, end int, colorVal
 	buffer.blendRowValue(rowStart+start, end-start, colorValue, alpha)
 }
 
-func (buffer *Buffer) paintRoundedStrokePixel(index int, col int, row int, width int, height int, radii CornerRadii, stroke int, innerW int, innerH int, innerRadii CornerRadii, colorValue uint32, alpha uint8) {
+func (buffer *Buffer) paintRoundedStrokePixel(index int, col int, outerRow *roundedRowInfo, innerRow *roundedRowInfo, innerActive bool, stroke int, innerW int, colorValue uint32, alpha uint8) {
 	if buffer == nil {
 		return
 	}
-	outerAlpha := roundedPixelCoverageAlpha(col, row, width, height, radii)
+	outerAlpha := roundedRowCoverageAlpha(outerRow, col)
 	if outerAlpha == 0 {
 		return
 	}
 	innerAlpha := 0
 	ix := col - stroke
-	iy := row - stroke
-	if ix >= 0 && iy >= 0 && ix < innerW && iy < innerH {
-		if innerRadii.Active() {
-			innerAlpha = int(roundedPixelCoverageAlpha(ix, iy, innerW, innerH, innerRadii))
+	if innerActive && ix >= 0 && ix < innerW {
+		if innerRow != nil {
+			innerAlpha = int(roundedRowCoverageAlpha(innerRow, ix))
 		} else {
 			innerAlpha = 255
 		}

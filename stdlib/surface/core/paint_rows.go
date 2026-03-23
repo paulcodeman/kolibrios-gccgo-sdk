@@ -8,6 +8,27 @@ func (buffer *Buffer) blendRowValue(rowStart int, width int, colorValue uint32, 
 		fill32(buffer.data[rowStart:rowStart+width], 0xFF000000|colorValue)
 		return
 	}
+	if !buffer.alpha {
+		srcR := int((colorValue >> 16) & 0xFF)
+		srcG := int((colorValue >> 8) & 0xFF)
+		srcB := int(colorValue & 0xFF)
+		alphaInt := int(alpha)
+		invAlpha := 255 - alphaInt
+		srcRA := srcR * alphaInt
+		srcGA := srcG * alphaInt
+		srcBA := srcB * alphaInt
+		for col := 0; col < width; col++ {
+			dst := buffer.data[rowStart+col]
+			dstR := int((dst >> 16) & 0xFF)
+			dstG := int((dst >> 8) & 0xFF)
+			dstB := int(dst & 0xFF)
+			outR := (srcRA + dstR*invAlpha + 127) / 255
+			outG := (srcGA + dstG*invAlpha + 127) / 255
+			outB := (srcBA + dstB*invAlpha + 127) / 255
+			buffer.data[rowStart+col] = 0xFF000000 | uint32(outR<<16|outG<<8|outB)
+		}
+		return
+	}
 	for col := 0; col < width; col++ {
 		buffer.data[rowStart+col] = buffer.blendPixel(buffer.data[rowStart+col], colorValue, alpha)
 	}

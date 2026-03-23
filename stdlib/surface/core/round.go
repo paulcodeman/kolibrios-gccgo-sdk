@@ -47,6 +47,19 @@ type roundedShapeInfo struct {
 	rows []roundedRowInfo
 }
 
+func roundedRowCoverageAlpha(row *roundedRowInfo, col int) uint8 {
+	if row == nil {
+		return 255
+	}
+	if col < row.leftWidth {
+		return row.leftAlpha[col]
+	}
+	if col >= row.rightStart && col-row.rightStart < len(row.rightAlpha) {
+		return row.rightAlpha[col-row.rightStart]
+	}
+	return 255
+}
+
 func normalizeRadii(width int, height int, radii CornerRadii) CornerRadii {
 	if !radii.Active() || width <= 0 || height <= 0 {
 		return CornerRadii{}
