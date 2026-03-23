@@ -9,6 +9,7 @@ RUNTIME_FLAVOR ?= bootstrap
 ifeq ($(RUNTIME_FLAVOR),libgo)
 FIRST_PARTY_DIRS := $(FIRST_PARTY_DIRS) native/libgo/staging/go
 BUILD_CACHE_NAMESPACE ?= libgo
+BUILD_TAGS += libgo_runtime
 endif
 FIRST_PARTY_DIRS_ABS := $(foreach dir,$(FIRST_PARTY_DIRS),$(if $(filter /%,$(dir)),$(dir),$(ROOT_ABS)/$(dir)))
 THIRD_PARTY_DIRS_ABS := $(foreach dir,$(THIRD_PARTY_DIRS),$(if $(filter /%,$(dir)),$(dir),$(ROOT_ABS)/$(dir)))
@@ -26,7 +27,9 @@ BUILD_DIR = .build
 GOOS_TARGET ?= kolibrios
 GOARCH_TARGET ?= 386
 BUILD_TAGS ?= gccgo
-SELECT_GO_FILES := $(MK_DIR)/select-go-files.py
+PYTHON ?= python3
+SELECT_GO_FILES := $(PYTHON) $(MK_DIR)/select-go-files.py
+RESOLVE_PACKAGES := $(PYTHON) $(MK_DIR)/resolve-packages.py
 
 TOOLING_BIN ?= $(ROOT_ABS)/tooling/bin
 GO ?= $(firstword \
@@ -91,7 +94,7 @@ PACKAGE_NATIVE_INCLUDE_FLAGS += -I$(ROOT_ABS)/native/libgo/overlay/include -I$(R
 ABI_RUNTIME_CPPFLAGS += -DKOLIBRI_USE_LIBGO_RUNTIME=1
 ABI_RUNTIME_INCLUDE_FLAGS += -I$(ROOT_ABS)/native/libgo/staging/runtime
 ABI_RUNTIME_SOURCE := $(ABI_DIR)/runtime_libgo_bridge.c
-LIBGO_RUNTIME_GLOBALIZE_SYMBOLS := runtime.writeBarrier runtime.pointerequal..f runtime.memequal0..f runtime.memequal8..f runtime.memequal16..f runtime.memequal32..f runtime.memequal64..f runtime.memequal128..f runtime.f32equal..f runtime.f64equal..f runtime.c64equal..f runtime.c128equal..f runtime.strequal..f runtime.interequal..f runtime.nilinterequal..f
+LIBGO_RUNTIME_GLOBALIZE_SYMBOLS := runtime.writeBarrier runtime.pointerequal..f runtime.memequal0..f runtime.memequal8..f runtime.memequal16..f runtime.memequal32..f runtime.memequal64..f runtime.memequal128..f runtime.f32equal..f runtime.f64equal..f runtime.c64equal..f runtime.c128equal..f runtime.strequal..f runtime.interequal..f runtime.nilinterequal..f runtime.memhash0..f runtime.memhash8..f runtime.memhash16..f runtime.memhash128..f
 endif
 LDFLAGS = -n -T $(LDSCRIPT) -m elf_i386 -z noexecstack -z relro -z now --gc-sections --eh-frame-hdr --entry=$(ENTRYPOINT)
 
@@ -112,7 +115,7 @@ PACKAGE_DIRS ?= kos ui
 DEBUG_PKG ?= 0
 AUTO_DEPS ?= 1
 ifneq ($(AUTO_DEPS),0)
-RESOLVED_PACKAGE_DIRS := $(shell $(MK_DIR)/resolve-packages.py --root $(ROOT_ABS) --stdlib $(STDLIB_DIR_ABS) --first-party "$(FIRST_PARTY_DIRS)" --third-party "$(THIRD_PARTY_DIRS)" --app-dir $(CURDIR) --packages "$(PACKAGE_DIRS)" --goos $(GOOS_TARGET) --goarch $(GOARCH_TARGET) --tags "$(BUILD_TAGS)")
+RESOLVED_PACKAGE_DIRS := $(shell $(RESOLVE_PACKAGES) --root $(ROOT_ABS) --stdlib $(STDLIB_DIR_ABS) --first-party "$(FIRST_PARTY_DIRS)" --third-party "$(THIRD_PARTY_DIRS)" --app-dir $(CURDIR) --packages "$(PACKAGE_DIRS)" --goos $(GOOS_TARGET) --goarch $(GOARCH_TARGET) --tags "$(BUILD_TAGS)")
 override PACKAGE_DIRS := $(RESOLVED_PACKAGE_DIRS)
 endif
 PACKAGE_OBJS =
@@ -286,7 +289,7 @@ $(ABI_ARTIFACT_ROOT)/libgo-runtime/%.o: $(ROOT_ABS)/native/libgo/staging/runtime
 
 $(ABI_ARTIFACT_ROOT)/libc_compat.o: $(ABI_DIR)/libc_compat.c
 	mkdir -p $(dir $@)
-	$(GCC) $(GCC_COMPILER_FLAGS) $(ABI_RUNTIME_CPPFLAGS) -fexceptions $< -o $@
+	$(GCC) $(GCC_COMPILER_FLAGS) $(ABI_RUNTIME_CPPFLAGS) -fno-builtin -fexceptions $< -o $@
 endif
 
 $(ABI_SYSCALLS_OBJ): $(ABI_DIR)/syscalls_i386.asm
