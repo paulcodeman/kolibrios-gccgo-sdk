@@ -1,8 +1,6 @@
 package core
 
-import "kos"
-
-func (buffer *Buffer) DrawLine(x0 int, y0 int, x1 int, y1 int, color kos.Color) {
+func (buffer *Buffer) DrawLine(x0 int, y0 int, x1 int, y1 int, color uint32) {
 	if buffer == nil {
 		return
 	}

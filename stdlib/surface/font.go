@@ -4,6 +4,7 @@ import (
 	"image"
 	"os"
 	"sync"
+	"unicode/utf8"
 
 	xfont "golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
@@ -102,6 +103,29 @@ func loadFont(path string, size int) *Font {
 	}
 }
 
+func DefaultFontMetrics() FontMetrics {
+	return DefaultFontMetricsForSize(DefaultFontHeight)
+}
+
+func DefaultFontMetricsForSize(size int) FontMetrics {
+	if size <= 0 {
+		size = DefaultFontHeight
+	}
+	width := size / 2
+	if width < DefaultCharWidth {
+		width = DefaultCharWidth
+	}
+	ascent := size * 3 / 4
+	if ascent <= 0 {
+		ascent = 1
+	}
+	return FontMetrics{
+		Width:  width,
+		Height: size,
+		Ascent: ascent,
+	}
+}
+
 func computeFontMetrics(face xfont.Face) FontMetrics {
 	if face == nil {
 		return DefaultFontMetrics()
@@ -129,14 +153,6 @@ func computeFontMetrics(face xfont.Face) FontMetrics {
 		width = DefaultCharWidth
 	}
 	return FontMetrics{Width: width, Height: height, Ascent: ascent}
-}
-
-func DefaultFontMetrics() FontMetrics {
-	return FontMetrics{
-		Width:  DefaultCharWidth,
-		Height: DefaultFontHeight,
-		Ascent: DefaultFontHeight * 3 / 4,
-	}
 }
 
 func glyphAdvancePixels(face xfont.Face, r rune) int {
@@ -198,7 +214,42 @@ func (font *Font) Metrics() FontMetrics {
 	return font.metrics
 }
 
-func (font *Font) glyphAdvance(r rune) fixed.Int26_6 {
+func (font *Font) LineHeight() int {
+	return font.Metrics().Height
+}
+
+func (font *Font) Ascent() int {
+	return font.Metrics().Ascent
+}
+
+func (font *Font) MeasureString(text string) int {
+	width := font.MeasureStringFixed(text).Ceil()
+	if width < 0 {
+		return -width
+	}
+	return width
+}
+
+func (font *Font) MeasureStringFixed(text string) fixed.Int26_6 {
+	if font == nil || text == "" {
+		return 0
+	}
+	if font.face == nil {
+		return fixed.I(utf8.RuneCountInString(text) * font.metrics.Width)
+	}
+	width := fixed.Int26_6(0)
+	prev := rune(-1)
+	for _, r := range text {
+		if prev >= 0 {
+			width += font.Kern(prev, r)
+		}
+		width += font.GlyphAdvance(r)
+		prev = r
+	}
+	return width
+}
+
+func (font *Font) GlyphAdvance(r rune) fixed.Int26_6 {
 	if font == nil || font.face == nil {
 		return 0
 	}
@@ -215,25 +266,25 @@ func (font *Font) glyphAdvance(r rune) fixed.Int26_6 {
 	return advance
 }
 
-func (font *Font) kern(left rune, right rune) fixed.Int26_6 {
+func (font *Font) Kern(left rune, right rune) fixed.Int26_6 {
 	if font == nil || font.face == nil || left < 0 || right < 0 {
 		return 0
 	}
 	key := glyphPairKey(left, right)
 	font.mu.Lock()
-	if kern, ok := font.kerns[key]; ok {
+	if value, ok := font.kerns[key]; ok {
 		font.mu.Unlock()
-		return kern
+		return value
 	}
 	font.mu.Unlock()
-	kern := font.face.Kern(left, right)
+	value := font.face.Kern(left, right)
 	font.mu.Lock()
-	font.kerns[key] = kern
+	font.kerns[key] = value
 	font.mu.Unlock()
-	return kern
+	return value
 }
 
-func (font *Font) glyph(dot fixed.Point26_6, r rune) (image.Rectangle, image.Image, image.Point, fixed.Int26_6, bool) {
+func (font *Font) Glyph(dot fixed.Point26_6, r rune) (image.Rectangle, image.Image, image.Point, fixed.Int26_6, bool) {
 	if font == nil || font.face == nil {
 		return image.Rectangle{}, nil, image.Point{}, 0, false
 	}
@@ -244,10 +295,9 @@ func (font *Font) glyph(dot fixed.Point26_6, r rune) (image.Rectangle, image.Ima
 		return glyph.rect.Add(image.Point{X: fixedFloor(dot.X), Y: fixedFloor(dot.Y)}), glyph.mask, glyph.maskp, glyph.advance, glyph.ok
 	}
 	font.mu.Unlock()
-	cacheDot := fixed.Point26_6{X: fixed.Int26_6(key.phase)}
-	rect, mask, maskp, advance, ok := font.face.Glyph(cacheDot, r)
+	dr, mask, maskp, advance, ok := font.face.Glyph(dot, r)
 	glyph := cachedGlyph{
-		rect:    rect,
+		rect:    dr.Sub(image.Point{X: fixedFloor(dot.X), Y: fixedFloor(dot.Y)}),
 		mask:    cloneGlyphMask(mask),
 		maskp:   maskp,
 		advance: advance,
@@ -257,30 +307,4 @@ func (font *Font) glyph(dot fixed.Point26_6, r rune) (image.Rectangle, image.Ima
 	font.glyphs[key] = glyph
 	font.mu.Unlock()
 	return glyph.rect.Add(image.Point{X: fixedFloor(dot.X), Y: fixedFloor(dot.Y)}), glyph.mask, glyph.maskp, glyph.advance, glyph.ok
-}
-
-func (font *Font) measureStringFixed(text string) fixed.Int26_6 {
-	if font == nil || font.face == nil || text == "" {
-		return 0
-	}
-	var width fixed.Int26_6
-	prev := rune(-1)
-	for _, r := range text {
-		if prev >= 0 {
-			width += font.kern(prev, r)
-		}
-		width += font.glyphAdvance(r)
-		prev = r
-	}
-	if width < 0 {
-		return -width
-	}
-	return width
-}
-
-func (font *Font) MeasureString(text string) int {
-	if font == nil || font.face == nil {
-		return textColumnCount(text) * DefaultCharWidth
-	}
-	return font.measureStringFixed(text).Ceil()
 }

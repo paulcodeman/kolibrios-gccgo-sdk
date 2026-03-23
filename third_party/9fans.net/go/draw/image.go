@@ -5,7 +5,6 @@ import (
 	"image/color"
 	"math"
 
-	"kos"
 	core "surface/core"
 )
 
@@ -83,7 +82,7 @@ func (img *Image) fill(c Color) {
 		img.buffer.ClearTransparent()
 		return
 	}
-	img.buffer.Clear(kosColorFromARGB(value))
+	img.buffer.Clear(value)
 }
 
 func (img *Image) resizeRect(r Rectangle) {
@@ -156,10 +155,6 @@ func premultipliedARGB(c Color) uint32 {
 	b := uint32(c>>8) & 0xFF
 	a := uint32(c) & 0xFF
 	return a<<24 | r<<16 | g<<8 | b
-}
-
-func kosColorFromARGB(value uint32) kos.Color {
-	return kos.Color(value)
 }
 
 func (img *Image) planeToLocal(x int, y int) (int, int, bool) {
@@ -264,7 +259,7 @@ func (dst *Image) fastDrawRect(r Rectangle, src *Image, p Point) bool {
 			return true
 		}
 		if value>>24 == 0xFF {
-			dst.buffer.FillRect(r.Min.X-dst.R.Min.X, r.Min.Y-dst.R.Min.Y, r.Dx(), r.Dy(), kosColorFromARGB(value))
+			dst.buffer.FillRect(r.Min.X-dst.R.Min.X, r.Min.Y-dst.R.Min.Y, r.Dx(), r.Dy(), value)
 			return true
 		}
 	}
@@ -326,9 +321,9 @@ func (dst *Image) drawString(p Point, src *Image, f *Font, s string, bg *Image) 
 	}
 	colorValue := colorAtImage(src)
 	if f.surface != nil {
-		dst.buffer.DrawTextFont(p.X, p.Y, kos.Color(colorValue), s, f.surface)
+		dst.buffer.DrawTextFont(p.X, p.Y, colorValue, s, f.surface)
 	} else {
-		dst.buffer.DrawText(p.X, p.Y, kos.Color(colorValue), s)
+		dst.buffer.DrawText(p.X, p.Y, colorValue, s)
 	}
 	p.X += f.StringWidth(s)
 	return p
@@ -352,14 +347,13 @@ func (dst *Image) drawLineColor(p0 Point, p1 Point, thick int, value uint32) {
 	if thick <= 0 {
 		thick = 1
 	}
-	color := kosColorFromARGB(value)
 	if thick == 1 {
-		dst.buffer.DrawLine(p0.X-dst.R.Min.X, p0.Y-dst.R.Min.Y, p1.X-dst.R.Min.X, p1.Y-dst.R.Min.Y, color)
+		dst.buffer.DrawLine(p0.X-dst.R.Min.X, p0.Y-dst.R.Min.Y, p1.X-dst.R.Min.X, p1.Y-dst.R.Min.Y, value)
 		return
 	}
 	half := thick / 2
 	for dy := -half; dy <= half; dy++ {
-		dst.buffer.DrawLine(p0.X-dst.R.Min.X, p0.Y-dst.R.Min.Y+dy, p1.X-dst.R.Min.X, p1.Y-dst.R.Min.Y+dy, color)
+		dst.buffer.DrawLine(p0.X-dst.R.Min.X, p0.Y-dst.R.Min.Y+dy, p1.X-dst.R.Min.X, p1.Y-dst.R.Min.Y+dy, value)
 	}
 }
 

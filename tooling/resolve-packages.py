@@ -49,11 +49,25 @@ def find_pkg_dir(
 
 
 def list_go_files(pkg_dir: str):
-    return [
-        os.path.join(pkg_dir, name)
-        for name in os.listdir(pkg_dir)
-        if name.endswith(".go") and not name.endswith("_test.go")
-    ]
+    source_dirs = [pkg_dir]
+    dirs_file = os.path.join(pkg_dir, "package_dirs.txt")
+    if os.path.exists(dirs_file):
+        with open(dirs_file, "r", encoding="utf-8", errors="ignore") as f:
+            for raw in f:
+                value = raw.split("#", 1)[0].strip()
+                if not value:
+                    continue
+                source_dirs.append(os.path.join(pkg_dir, value))
+    files = []
+    for source_dir in source_dirs:
+        if not os.path.isdir(source_dir):
+            continue
+        files.extend(
+            os.path.join(source_dir, name)
+            for name in os.listdir(source_dir)
+            if name.endswith(".go") and not name.endswith("_test.go")
+        )
+    return files
 
 
 def main():

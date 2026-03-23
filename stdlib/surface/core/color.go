@@ -1,12 +1,15 @@
 package core
 
-import "kos"
+func colorToRGB(color uint32) (int, int, int) {
+	value := uint32(color)
+	return int((value >> 16) & 0xFF), int((value >> 8) & 0xFF), int(value & 0xFF)
+}
 
-func colorValue(color kos.Color) uint32 {
+func colorValue(color uint32) uint32 {
 	return uint32(color) & 0xFFFFFF
 }
 
-func colorValueAndAlpha(color kos.Color) (uint32, uint8) {
+func colorValueAndAlpha(color uint32) (uint32, uint8) {
 	value := uint32(color)
 	rgb := value & 0xFFFFFF
 	if value > 0xFFFFFF {

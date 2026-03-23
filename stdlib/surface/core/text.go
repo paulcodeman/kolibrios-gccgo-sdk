@@ -7,11 +7,19 @@ import (
 	"kos"
 )
 
-func (buffer *Buffer) drawTextAlpha(x int, y int, color kos.Color, text string, alpha uint8) {
+type textFont interface {
+	MeasureString(text string) int
+	LineHeight() int
+	Ascent() int
+	Kern(left rune, right rune) fixed.Int26_6
+	Glyph(dot fixed.Point26_6, r rune) (image.Rectangle, image.Image, image.Point, fixed.Int26_6, bool)
+}
+
+func (buffer *Buffer) drawTextAlpha(x int, y int, color uint32, text string, alpha uint8) {
 	buffer.drawTextAlphaClipped(x, y, color, text, alpha, Rect{})
 }
 
-func (buffer *Buffer) drawTextAlphaClipped(x int, y int, color kos.Color, text string, alpha uint8, clip Rect) {
+func (buffer *Buffer) drawTextAlphaClipped(x int, y int, color uint32, text string, alpha uint8, clip Rect) {
 	if buffer == nil || text == "" || alpha == 0 {
 		return
 	}
@@ -63,20 +71,20 @@ func (buffer *Buffer) drawTextAlphaClipped(x int, y int, color kos.Color, text s
 		visX1 = visX0 + visible.Width
 		visY1 = visY0 + visible.Height
 	}
-	backup := make([]uint32, width*height)
+	backup := buffer.scratchPixels(width * height)
 	rowStart := 2 + y*buffer.width + x
 	for row := 0; row < height; row++ {
 		srcIndex := rowStart + row*buffer.width
 		dstIndex := row * width
 		copy(backup[dstIndex:dstIndex+width], buffer.data[srcIndex:srcIndex+width])
 	}
+	colorValue := colorValue(color)
 	sentinel := uint32(0x00FF00FF)
-	if (uint32(color) & 0xFFFFFF) == (sentinel & 0xFFFFFF) {
+	if colorValue == (sentinel & 0xFFFFFF) {
 		sentinel = 0x0000FF00
 	}
 	buffer.fillRectValue(x, y, width, height, sentinel)
-	kos.DrawTextBuffer(x, y, color, text, buffer.headerPtr())
-	colorValue := uint32(color) & 0xFFFFFF
+	kos.DrawTextBuffer(x, y, kos.Color(colorValue), text, buffer.headerPtr())
 	opaque := 0xFF000000 | colorValue
 	for row := 0; row < height; row++ {
 		index := rowStart + row*buffer.width
@@ -104,7 +112,7 @@ func (buffer *Buffer) drawTextAlphaClipped(x int, y int, color kos.Color, text s
 	}
 }
 
-func (buffer *Buffer) DrawTextFont(x int, y int, color kos.Color, text string, font *Font) {
+func (buffer *Buffer) DrawTextFont(x int, y int, color uint32, text string, font textFont) {
 	if buffer == nil || font == nil || text == "" {
 		return
 	}
@@ -125,7 +133,7 @@ func (buffer *Buffer) DrawTextFont(x int, y int, color kos.Color, text string, f
 	if x >= clip.X+clip.Width {
 		return
 	}
-	lineHeight := font.metrics.Height
+	lineHeight := font.LineHeight()
 	if lineHeight <= 0 {
 		lineHeight = DefaultFontHeight
 	}
@@ -136,24 +144,24 @@ func (buffer *Buffer) DrawTextFont(x int, y int, color kos.Color, text string, f
 	if textWidth > 0 && x+textWidth <= clip.X {
 		return
 	}
-	buffer.drawTextFontClipped(x, y, kos.Color(rgb), alpha, text, font, clip)
+	buffer.drawTextFontClipped(x, y, rgb, alpha, text, font, clip)
 }
 
-func (buffer *Buffer) drawTextFontClipped(x int, y int, color kos.Color, alpha uint8, text string, font *Font, clip Rect) {
+func (buffer *Buffer) drawTextFontClipped(x int, y int, color uint32, alpha uint8, text string, font textFont, clip Rect) {
 	if buffer == nil || font == nil || text == "" || alpha == 0 {
 		return
 	}
-	colorValue := uint32(color) & 0xFFFFFF
-	baseline := y + font.metrics.Ascent
+	colorValue := colorValue(color)
+	baseline := y + font.Ascent()
 	dotY := fixed.I(baseline)
 	dotX := fixed.I(x)
 	prev := rune(-1)
 	for _, r := range text {
 		if prev >= 0 {
-			dotX += font.kern(prev, r)
+			dotX += font.Kern(prev, r)
 		}
 		dot := fixed.Point26_6{X: dotX, Y: dotY}
-		dr, mask, maskp, advance, ok := font.glyph(dot, r)
+		dr, mask, maskp, advance, ok := font.Glyph(dot, r)
 		if ok && mask != nil && !dr.Empty() {
 			buffer.drawGlyphMask(dr, mask, maskp, colorValue, alpha, clip)
 		}

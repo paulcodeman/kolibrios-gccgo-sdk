@@ -1,15 +1,9 @@
 package core
 
 import (
-	"image"
-	"os"
-	"sync"
 	"unicode/utf8"
 	"unsafe"
 
-	xfont "golang.org/x/image/font"
-	"golang.org/x/image/font/opentype"
-	"golang.org/x/image/math/fixed"
 	"kos"
 )
 
@@ -21,288 +15,6 @@ const (
 	windowClientRight  = 4
 	windowClientBottom = 4
 )
-
-type FontMetrics struct {
-	Width  int
-	Height int
-	Ascent int
-}
-
-type Font struct {
-	path    string
-	size    int
-	face    xfont.Face
-	metrics FontMetrics
-
-	mu       sync.Mutex
-	advances map[rune]fixed.Int26_6
-	kerns    map[uint64]fixed.Int26_6
-	glyphs   map[glyphCacheKey]cachedGlyph
-}
-
-type fontKey struct {
-	path string
-	size int
-}
-
-type glyphCacheKey struct {
-	r     rune
-	phase uint8
-}
-
-type cachedGlyph struct {
-	rect    image.Rectangle
-	mask    image.Image
-	maskp   image.Point
-	advance fixed.Int26_6
-	ok      bool
-}
-
-var fontCache = struct {
-	sync.Mutex
-	entries map[fontKey]*Font
-}{
-	entries: map[fontKey]*Font{},
-}
-
-func GetFont(path string, size int) *Font {
-	if path == "" {
-		return nil
-	}
-	if size <= 0 {
-		size = DefaultFontHeight
-	}
-	key := fontKey{path: path, size: size}
-	fontCache.Lock()
-	if entry, ok := fontCache.entries[key]; ok {
-		fontCache.Unlock()
-		return entry
-	}
-	fontCache.Unlock()
-	entry := loadFont(path, size)
-	fontCache.Lock()
-	fontCache.entries[key] = entry
-	fontCache.Unlock()
-	return entry
-}
-
-func loadFont(path string, size int) *Font {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	parsed, err := opentype.Parse(data)
-	if err != nil {
-		return nil
-	}
-	face, err := opentype.NewFace(parsed, &opentype.FaceOptions{
-		Size:    float64(size),
-		DPI:     72,
-		Hinting: xfont.HintingFull,
-	})
-	if err != nil {
-		return nil
-	}
-	return &Font{
-		path:     path,
-		size:     size,
-		face:     face,
-		metrics:  computeFontMetrics(face),
-		advances: map[rune]fixed.Int26_6{},
-		kerns:    map[uint64]fixed.Int26_6{},
-		glyphs:   map[glyphCacheKey]cachedGlyph{},
-	}
-}
-
-func DefaultFontMetrics() FontMetrics {
-	return DefaultFontMetricsForSize(DefaultFontHeight)
-}
-
-func DefaultFontMetricsForSize(size int) FontMetrics {
-	if size <= 0 {
-		size = DefaultFontHeight
-	}
-	width := size / 2
-	if width < DefaultCharWidth {
-		width = DefaultCharWidth
-	}
-	ascent := size * 3 / 4
-	if ascent <= 0 {
-		ascent = 1
-	}
-	return FontMetrics{
-		Width:  width,
-		Height: size,
-		Ascent: ascent,
-	}
-}
-
-func computeFontMetrics(face xfont.Face) FontMetrics {
-	if face == nil {
-		return DefaultFontMetrics()
-	}
-	m := face.Metrics()
-	height := m.Height.Ceil()
-	if height <= 0 {
-		height = DefaultFontHeight
-	}
-	ascent := m.Ascent.Ceil()
-	if ascent <= 0 {
-		ascent = height * 3 / 4
-	}
-	if ascent > height {
-		ascent = height
-	}
-	width := glyphAdvancePixels(face, 'M')
-	if width <= 0 {
-		width = glyphAdvancePixels(face, '0')
-	}
-	if width <= 0 {
-		width = glyphAdvancePixels(face, ' ')
-	}
-	if width <= 0 {
-		width = DefaultCharWidth
-	}
-	return FontMetrics{Width: width, Height: height, Ascent: ascent}
-}
-
-func glyphAdvancePixels(face xfont.Face, r rune) int {
-	if face == nil {
-		return 0
-	}
-	advance, ok := face.GlyphAdvance(r)
-	if !ok {
-		return 0
-	}
-	width := advance.Ceil()
-	if width < 0 {
-		width = -width
-	}
-	return width
-}
-
-func glyphPairKey(left rune, right rune) uint64 {
-	return uint64(uint32(left))<<32 | uint64(uint32(right))
-}
-
-func fixedFloor(value fixed.Int26_6) int {
-	return int(value >> 6)
-}
-
-func fixedPhase(value fixed.Int26_6) uint8 {
-	return uint8(int(value) & 63)
-}
-
-func cloneGlyphMask(mask image.Image) image.Image {
-	if mask == nil {
-		return nil
-	}
-	if alpha, ok := mask.(*image.Alpha); ok {
-		cloned := image.NewAlpha(alpha.Rect)
-		for y := alpha.Rect.Min.Y; y < alpha.Rect.Max.Y; y++ {
-			src := (y - alpha.Rect.Min.Y) * alpha.Stride
-			dst := (y - cloned.Rect.Min.Y) * cloned.Stride
-			copy(cloned.Pix[dst:dst+cloned.Rect.Dx()], alpha.Pix[src:src+alpha.Rect.Dx()])
-		}
-		return cloned
-	}
-	bounds := mask.Bounds()
-	cloned := image.NewAlpha(bounds)
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		row := (y - bounds.Min.Y) * cloned.Stride
-		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			_, _, _, a := mask.At(x, y).RGBA()
-			cloned.Pix[row+(x-bounds.Min.X)] = uint8(a >> 8)
-		}
-	}
-	return cloned
-}
-
-func (font *Font) Metrics() FontMetrics {
-	if font == nil {
-		return DefaultFontMetrics()
-	}
-	return font.metrics
-}
-
-func (font *Font) MeasureString(text string) int {
-	if font == nil || text == "" {
-		return 0
-	}
-	if font.face == nil {
-		return textColumnCount(text) * font.metrics.Width
-	}
-	width := fixed.Int26_6(0)
-	prev := rune(-1)
-	for _, r := range text {
-		if prev >= 0 {
-			width += font.kern(prev, r)
-		}
-		width += font.glyphAdvance(r)
-		prev = r
-	}
-	return width.Ceil()
-}
-
-func (font *Font) glyphAdvance(r rune) fixed.Int26_6 {
-	if font == nil || font.face == nil {
-		return 0
-	}
-	font.mu.Lock()
-	if advance, ok := font.advances[r]; ok {
-		font.mu.Unlock()
-		return advance
-	}
-	font.mu.Unlock()
-	advance, _ := font.face.GlyphAdvance(r)
-	font.mu.Lock()
-	font.advances[r] = advance
-	font.mu.Unlock()
-	return advance
-}
-
-func (font *Font) kern(left rune, right rune) fixed.Int26_6 {
-	if font == nil || font.face == nil || left < 0 || right < 0 {
-		return 0
-	}
-	key := glyphPairKey(left, right)
-	font.mu.Lock()
-	if value, ok := font.kerns[key]; ok {
-		font.mu.Unlock()
-		return value
-	}
-	font.mu.Unlock()
-	value := font.face.Kern(left, right)
-	font.mu.Lock()
-	font.kerns[key] = value
-	font.mu.Unlock()
-	return value
-}
-
-func (font *Font) glyph(dot fixed.Point26_6, r rune) (image.Rectangle, image.Image, image.Point, fixed.Int26_6, bool) {
-	if font == nil || font.face == nil {
-		return image.Rectangle{}, nil, image.Point{}, 0, false
-	}
-	key := glyphCacheKey{r: r, phase: fixedPhase(dot.X)}
-	font.mu.Lock()
-	if glyph, ok := font.glyphs[key]; ok {
-		font.mu.Unlock()
-		return glyph.rect.Add(image.Point{X: fixedFloor(dot.X), Y: fixedFloor(dot.Y)}), glyph.mask, glyph.maskp, glyph.advance, glyph.ok
-	}
-	font.mu.Unlock()
-	dr, mask, maskp, advance, ok := font.face.Glyph(dot, r)
-	glyph := cachedGlyph{
-		rect:    dr.Sub(image.Point{X: fixedFloor(dot.X), Y: fixedFloor(dot.Y)}),
-		mask:    cloneGlyphMask(mask),
-		maskp:   maskp,
-		advance: advance,
-		ok:      ok,
-	}
-	font.mu.Lock()
-	font.glyphs[key] = glyph
-	font.mu.Unlock()
-	return glyph.rect.Add(image.Point{X: fixedFloor(dot.X), Y: fixedFloor(dot.Y)}), glyph.mask, glyph.maskp, glyph.advance, glyph.ok
-}
 
 type Rect struct {
 	X      int
@@ -324,6 +36,37 @@ func (rect Rect) Contains(x int, y int) bool {
 	return !rect.Empty() &&
 		x >= rect.X && y >= rect.Y &&
 		x < rect.X+rect.Width && y < rect.Y+rect.Height
+}
+
+func UnionRect(a Rect, b Rect) Rect {
+	if a.Empty() {
+		return b
+	}
+	if b.Empty() {
+		return a
+	}
+	left := a.X
+	if b.X < left {
+		left = b.X
+	}
+	top := a.Y
+	if b.Y < top {
+		top = b.Y
+	}
+	right := a.X + a.Width
+	if value := b.X + b.Width; value > right {
+		right = value
+	}
+	bottom := a.Y + a.Height
+	if value := b.Y + b.Height; value > bottom {
+		bottom = value
+	}
+	return Rect{
+		X:      left,
+		Y:      top,
+		Width:  right - left,
+		Height: bottom - top,
+	}
 }
 
 func IntersectRect(a Rect, b Rect) Rect {
@@ -358,12 +101,13 @@ func IntersectRect(a Rect, b Rect) Rect {
 }
 
 type Buffer struct {
-	width  int
-	height int
-	data   []uint32
-	alpha  bool
-	clip   clipState
-	stack  []clipState
+	width   int
+	height  int
+	data    []uint32
+	alpha   bool
+	clip    clipState
+	stack   []clipState
+	scratch []uint32
 }
 
 func NewBuffer(width int, height int) *Buffer {
@@ -409,6 +153,7 @@ func (buffer *Buffer) Resize(width int, height int) {
 		buffer.data = nil
 		buffer.clip = clipState{}
 		buffer.stack = nil
+		buffer.scratch = nil
 		return
 	}
 	area := int64(width) * int64(height)
@@ -418,6 +163,7 @@ func (buffer *Buffer) Resize(width int, height int) {
 		buffer.data = nil
 		buffer.clip = clipState{}
 		buffer.stack = nil
+		buffer.scratch = nil
 		return
 	}
 	size := 2 + int(area)
@@ -461,14 +207,14 @@ func (buffer *Buffer) PopClip() {
 	buffer.clip = last
 }
 
-func (buffer *Buffer) Clear(color kos.Color) {
+func (buffer *Buffer) Clear(color uint32) {
 	if buffer == nil || len(buffer.data) < 2 {
 		return
 	}
 	fill32(buffer.data[2:], colorValue(color)|0xFF000000)
 }
 
-func (buffer *Buffer) FillRect(x int, y int, width int, height int, color kos.Color) {
+func (buffer *Buffer) FillRect(x int, y int, width int, height int, color uint32) {
 	if buffer == nil {
 		return
 	}
@@ -511,7 +257,7 @@ func (buffer *Buffer) ClearTransparent() {
 	fill32(buffer.data[2:], 0)
 }
 
-func (buffer *Buffer) DrawText(x int, y int, color kos.Color, text string) {
+func (buffer *Buffer) DrawText(x int, y int, color uint32, text string) {
 	if buffer == nil || text == "" || buffer.width <= 0 || buffer.height <= 0 {
 		return
 	}
@@ -563,7 +309,7 @@ func (buffer *Buffer) DrawText(x int, y int, color kos.Color, text string) {
 		}
 		partialY := clip.Y > y || clip.Y+clip.Height < y+DefaultFontHeight
 		if partialY || buffer.alpha || alpha < 255 {
-			buffer.drawTextAlphaClipped(x, y, kos.Color(rgb), text, alpha, clip)
+			buffer.drawTextAlphaClipped(x, y, rgb, text, alpha, clip)
 			return
 		}
 	}
@@ -574,7 +320,7 @@ func (buffer *Buffer) DrawText(x int, y int, color kos.Color, text string) {
 		return
 	}
 	if buffer.alpha || alpha < 255 {
-		buffer.drawTextAlpha(x, y, kos.Color(rgb), text, alpha)
+		buffer.drawTextAlpha(x, y, rgb, text, alpha)
 		return
 	}
 	maxChars := (buffer.width - x) / DefaultCharWidth
@@ -678,6 +424,18 @@ func (buffer *Buffer) pixelPtr(offsetPixels int) *byte {
 	return (*byte)(unsafe.Pointer(&buffer.data[index]))
 }
 
+func (buffer *Buffer) scratchPixels(size int) []uint32 {
+	if buffer == nil || size <= 0 {
+		return nil
+	}
+	if cap(buffer.scratch) < size {
+		buffer.scratch = make([]uint32, size)
+	} else {
+		buffer.scratch = buffer.scratch[:size]
+	}
+	return buffer.scratch
+}
+
 type Presenter struct {
 	X      int
 	Y      int
@@ -769,8 +527,17 @@ func WindowClientRect(width int, height int) Rect {
 }
 
 func fill32(slice []uint32, value uint32) {
-	for i := range slice {
-		slice[i] = value
+	if len(slice) == 0 {
+		return
+	}
+	slice[0] = value
+	for filled := 1; filled < len(slice); {
+		copyCount := filled
+		if copyCount > len(slice)-filled {
+			copyCount = len(slice) - filled
+		}
+		copy(slice[filled:filled+copyCount], slice[:copyCount])
+		filled += copyCount
 	}
 }
 

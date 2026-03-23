@@ -1,0 +1,7 @@
+canvas
+document
+element
+layout
+render
+style
+window

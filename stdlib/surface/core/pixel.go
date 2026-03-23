@@ -1,7 +1,5 @@
 package core
 
-import "kos"
-
 func (buffer *Buffer) HasAlpha() bool {
 	if buffer == nil {
 		return false
@@ -49,7 +47,7 @@ func (buffer *Buffer) BlendPremultipliedPixelValue(x int, y int, value uint32) {
 	buffer.data[index] = blendPremultiplied(buffer.data[index], value)
 }
 
-func (buffer *Buffer) SetPixel(x int, y int, color kos.Color) {
+func (buffer *Buffer) SetPixel(x int, y int, color uint32) {
 	if buffer == nil || x < 0 || y < 0 || x >= buffer.width || y >= buffer.height {
 		return
 	}
@@ -63,6 +61,28 @@ func (buffer *Buffer) SetPixel(x int, y int, color kos.Color) {
 		return
 	}
 	if alpha == 0 {
+		return
+	}
+	buffer.data[index] = buffer.blendPixel(buffer.data[index], rgb, alpha)
+}
+
+func (buffer *Buffer) SetPixelAlpha(x int, y int, color uint32, alpha uint8) {
+	if buffer == nil || alpha == 0 || x < 0 || y < 0 || x >= buffer.width || y >= buffer.height {
+		return
+	}
+	if buffer.clip.set && !buffer.clip.rect.Contains(x, y) {
+		return
+	}
+	rgb, colorAlpha := colorValueAndAlpha(color)
+	if colorAlpha < 255 {
+		alpha = combineAlpha(alpha, colorAlpha)
+		if alpha == 0 {
+			return
+		}
+	}
+	index := 2 + y*buffer.width + x
+	if alpha >= 255 {
+		buffer.data[index] = 0xFF000000 | rgb
 		return
 	}
 	buffer.data[index] = buffer.blendPixel(buffer.data[index], rgb, alpha)

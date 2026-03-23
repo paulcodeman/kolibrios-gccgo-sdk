@@ -104,8 +104,11 @@ define REGISTER_PACKAGE
 $(if $(filter 1,$(DEBUG_PKG)),$(info PKG=$(1) DIR=$(call FIND_PACKAGE_DIR,$(1))))
 PACKAGE_SOURCE_DIR_$(1) := $(call FIND_PACKAGE_DIR,$(1))
 $$(if $$(PACKAGE_SOURCE_DIR_$(1)),,$$(error package source dir not found for $(1)))
-PACKAGE_SOURCES_$(1) := $$(filter-out $$(PACKAGE_SOURCE_DIR_$(1))/%_gc_kolibrios.go $$(PACKAGE_SOURCE_DIR_$(1))/%_test.go,$$(wildcard $$(PACKAGE_SOURCE_DIR_$(1))/*.go))
-PACKAGE_SOURCE_FILES_$(1) := $$(notdir $$(PACKAGE_SOURCES_$(1)))
+PACKAGE_DIRS_FILE_$(1) := $$(PACKAGE_SOURCE_DIR_$(1))/package_dirs.txt
+PACKAGE_SOURCE_SUBDIRS_$(1) := $$(strip $$(shell if [ -f "$$(PACKAGE_DIRS_FILE_$(1))" ]; then sed -e 's/#.*//' -e '/./!d' "$$(PACKAGE_DIRS_FILE_$(1))"; fi))
+PACKAGE_SOURCE_DIRS_$(1) := $$(PACKAGE_SOURCE_DIR_$(1)) $$(foreach rel,$$(PACKAGE_SOURCE_SUBDIRS_$(1)),$$(PACKAGE_SOURCE_DIR_$(1))/$$(rel))
+PACKAGE_SOURCES_$(1) := $$(sort $$(foreach dir,$$(PACKAGE_SOURCE_DIRS_$(1)),$$(filter-out $$(dir)/%_gc_kolibrios.go $$(dir)/%_test.go,$$(wildcard $$(dir)/*.go))))
+PACKAGE_SOURCE_FILES_$(1) := $$(patsubst $$(PACKAGE_SOURCE_DIR_$(1))/%,%,$$(PACKAGE_SOURCES_$(1)))
 PACKAGE_ARTIFACT_PREFIX_$(1) := $(if $(findstring /,$(1)),$(PACKAGE_ARTIFACT_ROOT)/$(1),$(ROOT)/$(1))
 PACKAGE_ARTIFACT_PREFIX_ABS_$(1) := $(if $(findstring /,$(1)),$(PACKAGE_ARTIFACT_ROOT_ABS)/$(1),$(ROOT_ABS)/$(1))
 PACKAGE_OBJ_$(1) := $$(PACKAGE_ARTIFACT_PREFIX_$(1)).gccgo.o

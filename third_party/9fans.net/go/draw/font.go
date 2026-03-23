@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	core "surface/core"
+	"surface"
 )
 
 type Font struct {
@@ -16,11 +16,11 @@ type Font struct {
 	Ascent  int
 	Scale   int
 
-	surface *core.Font
+	surface *surface.Font
 }
 
 func newFallbackFont(d *Display, name string) *Font {
-	metrics := core.DefaultFontMetrics()
+	metrics := surface.DefaultFontMetrics()
 	return &Font{
 		Display: d,
 		Name:    name,
@@ -32,7 +32,7 @@ func newFallbackFont(d *Display, name string) *Font {
 
 func loadFontFile(d *Display, path string) *Font {
 	path, size := parseFontRequest(path)
-	sf := core.GetFont(path, size)
+	sf := surface.GetFont(path, size)
 	if sf == nil {
 		return nil
 	}
@@ -49,7 +49,7 @@ func loadFontFile(d *Display, path string) *Font {
 
 func parseFontRequest(name string) (path string, size int) {
 	path = name
-	size = core.DefaultFontHeight
+	size = surface.DefaultFontHeight
 	if at := strings.LastIndex(name, "@"); at >= 0 && at+1 < len(name) {
 		if parsed, err := strconv.Atoi(name[at+1:]); err == nil && parsed > 0 {
 			path = name[:at]
@@ -82,7 +82,7 @@ func (f *Font) StringWidth(s string) int {
 	if f.surface != nil {
 		return f.surface.MeasureString(s)
 	}
-	return len(s) * core.DefaultCharWidth
+	return len(s) * surface.DefaultCharWidth
 }
 
 func (f *Font) StringSize(s string) image.Point {
