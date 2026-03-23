@@ -1,5 +1,5 @@
 PROGRAM = runtimebench
 PACKAGE_DIRS = kos fmt os strconv
-ROOT = ../..
+ROOT = ../../..
 
 include $(ROOT)/tooling/kolibri-app.mk
