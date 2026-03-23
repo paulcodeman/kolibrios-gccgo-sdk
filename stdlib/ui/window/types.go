@@ -6,6 +6,7 @@ const (
 	windowClientLeft   = 5
 	windowClientRight  = 4
 	windowClientBottom = 4
+	windowPresentRectMax = 4
 )
 
 const (
@@ -58,8 +59,8 @@ type Window struct {
 	dirty                   Rect
 	dirtySet                bool
 	visualDirtyOnly         bool
-	presentRect             Rect
-	presentRectSet          bool
+	presentRects            [windowPresentRectMax]Rect
+	presentRectCount        int
 	lastBackground          kos.Color
 	lastGCPollAt            uint32
 	lastEventAt             uint32

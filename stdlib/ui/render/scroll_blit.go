@@ -9,6 +9,42 @@ func absInt(value int) int {
 	return value
 }
 
+func mergeRectList(rects []Rect, count int, rect Rect) int {
+	if rect.Empty() {
+		return count
+	}
+	for {
+		merged := false
+		for index := 0; index < count; index++ {
+			existing := rects[index]
+			if !mergeableRects(existing, rect) {
+				continue
+			}
+			rect = UnionRect(existing, rect)
+			last := count - 1
+			rects[index] = rects[last]
+			rects[last] = Rect{}
+			count--
+			merged = true
+			break
+		}
+		if !merged {
+			break
+		}
+	}
+	if count < len(rects) {
+		rects[count] = rect
+		return count + 1
+	}
+	union := rect
+	for index := 0; index < count; index++ {
+		union = UnionRect(union, rects[index])
+		rects[index] = Rect{}
+	}
+	rects[0] = union
+	return 1
+}
+
 func scrollExposeRect(viewport Rect, scrollDelta int) Rect {
 	if viewport.Empty() || scrollDelta == 0 {
 		return Rect{}
@@ -66,20 +102,17 @@ func (window *Window) markPresentRect(rect Rect) {
 	if rect.Empty() {
 		return
 	}
-	if window.presentRectSet {
-		window.presentRect = UnionRect(window.presentRect, rect)
-		return
-	}
-	window.presentRect = rect
-	window.presentRectSet = true
+	window.presentRectCount = mergeRectList(window.presentRects[:], window.presentRectCount, rect)
 }
 
 func (window *Window) clearPresentRect() {
 	if window == nil {
 		return
 	}
-	window.presentRect = Rect{}
-	window.presentRectSet = false
+	for index := range window.presentRects {
+		window.presentRects[index] = Rect{}
+	}
+	window.presentRectCount = 0
 }
 
 func (window *Window) syncScrollDrawState() {

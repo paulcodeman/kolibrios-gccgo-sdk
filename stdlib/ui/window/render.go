@@ -270,16 +270,19 @@ func (window *Window) blitDirty() {
 	if window == nil || window.canvas == nil || !window.dirtySet {
 		return
 	}
-	rect := window.dirty
-	if window.presentRectSet {
-		rect = UnionRect(rect, window.presentRect)
-	}
 	if presenter := window.presenter(); presenter != nil {
+		var rects [windowPresentRectMax + 1]Rect
+		count := mergeRectList(rects[:], 0, window.dirty)
+		for index := 0; index < window.presentRectCount; index++ {
+			count = mergeRectList(rects[:], count, window.presentRects[index])
+		}
 		full := Rect{Width: window.client.Width, Height: window.client.Height}
-		if rect == full {
+		if count == 1 && rects[0] == full {
 			presenter.PresentClient(window.canvas)
 		} else {
-			presenter.PresentRect(window.canvas, rect)
+			for index := 0; index < count; index++ {
+				presenter.PresentRect(window.canvas, rects[index])
+			}
 		}
 	}
 	window.clearDirtyState()

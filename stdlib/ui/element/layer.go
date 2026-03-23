@@ -24,7 +24,7 @@ func (element *Element) invalidateRetainedLayerChain() {
 	}
 }
 
-func retainedLayerDirtyRectsMergeable(a Rect, b Rect) bool {
+func mergeableRects(a Rect, b Rect) bool {
 	if a.Empty() || b.Empty() {
 		return false
 	}
@@ -63,9 +63,9 @@ func (element *Element) noteRetainedSubtreeDirty(rect Rect) {
 		merged := false
 		for index := 0; index < element.subtreeLayerDirtyCount; index++ {
 			existing := element.subtreeLayerDirty[index]
-			if !retainedLayerDirtyRectsMergeable(existing, rect) {
-				continue
-			}
+				if !mergeableRects(existing, rect) {
+					continue
+				}
 			rect = UnionRect(rect, existing)
 			last := element.subtreeLayerDirtyCount - 1
 			element.subtreeLayerDirty[index] = element.subtreeLayerDirty[last]
