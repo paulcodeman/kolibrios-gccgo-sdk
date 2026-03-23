@@ -1,19 +1,18 @@
 package ui
 
-import "kos"
+import (
+	"kos"
+	surfacetinygl "surface/tinygl"
+)
 
 // TinyGLRenderer is invoked after the UI canvas is blitted to the window.
 // rect is the element content box in client coordinates.
 type TinyGLRenderer func(gl *kos.TinyGL, ctx *kos.TinyGLContext, rect Rect)
 
 type tinyGLState struct {
-	renderer  TinyGLRenderer
-	lib       kos.TinyGL
-	libReady  bool
-	libFailed bool
-	ctx       kos.TinyGLContext
-	lastRect  Rect
-	dirty     bool
+	renderer TinyGLRenderer
+	layer    surfacetinygl.Layer
+	dirty    bool
 }
 
 // SetTinyGLRenderer wires a TinyGL renderer to a tinygl element.
@@ -78,7 +77,7 @@ func (element *Element) drawTinyGL(window *Window, full bool, dirty Rect) {
 		Width:  content.Width,
 		Height: content.Height,
 	}
-	rectChanged := windowRect != state.lastRect
+	rectChanged := windowRect != state.layer.Rect()
 	if !full {
 		if WindowTinyGLRedrawOnDirty {
 			if !state.dirty && !rectChanged && IntersectRect(content, dirty).Empty() {
@@ -90,34 +89,10 @@ func (element *Element) drawTinyGL(window *Window, full bool, dirty Rect) {
 			}
 		}
 	}
-	if state.libFailed {
+	if !state.layer.Render(windowRect, func(gl *kos.TinyGL, ctx *kos.TinyGLContext) {
+		state.renderer(gl, ctx, content)
+	}) {
 		return
 	}
-	if !state.libReady {
-		lib, ok := kos.LoadTinyGL()
-		if !ok {
-			state.libFailed = true
-			return
-		}
-		state.lib = lib
-		state.libReady = true
-	}
-
-	if !state.ctx.Initialized() {
-		if !state.lib.MakeCurrent(windowRect.X, windowRect.Y, windowRect.Width, windowRect.Height, &state.ctx) {
-			return
-		}
-	} else {
-		if windowRect.Width != state.lastRect.Width || windowRect.Height != state.lastRect.Height {
-			state.lib.Viewport(0, 0, windowRect.Width, windowRect.Height)
-		}
-		if windowRect.X != state.lastRect.X || windowRect.Y != state.lastRect.Y {
-			state.ctx.SetPosition(windowRect.X, windowRect.Y)
-		}
-	}
-
-	state.lastRect = windowRect
-	state.renderer(&state.lib, &state.ctx, content)
-	state.lib.SwapBuffers()
 	state.dirty = false
 }
