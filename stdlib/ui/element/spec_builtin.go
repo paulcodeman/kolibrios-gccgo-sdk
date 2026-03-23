@@ -81,57 +81,6 @@ func measureRangeHeight(element *Element, ctx ElementMeasureContext, baseHeight 
 	return baseHeight
 }
 
-func drawButtonRaw(element *Element, style Style) bool {
-	if element == nil {
-		return false
-	}
-	x, y := element.rawPosition(style)
-	background, ok := resolveColor(style.background)
-	if !ok {
-		background = Silver
-	}
-	width := element.resolvedWidth(style)
-	height := element.resolvedHeight(style)
-	kos.DrawButton(x, y, width, height, element.ID, background)
-	element.drawRawTextRect(Rect{X: x, Y: y, Width: width, Height: height}, style)
-	return true
-}
-
-func drawTextInputRaw(element *Element, style Style) bool {
-	if element == nil {
-		return false
-	}
-	x, y := element.rawPosition(style)
-	rect := Rect{X: x, Y: y, Width: element.resolvedWidth(style), Height: element.resolvedHeight(style)}
-	foreground, ok := resolveColor(style.foreground)
-	if !ok {
-		foreground = Black
-	}
-	layout := element.textInputLayout(rect, style)
-	defer layout.release()
-	selectionColor := defaultSelectionBackground
-	element.drawEditableTextLines(layout, style,
-		func(tx int, ty int, line string) {
-			kos.DrawText(tx, ty, foreground, line)
-			drawTextDecorationsRaw(tx, ty, line, style, layout.font, layout.charWidth, foreground)
-		},
-		func(cx int, cy int) {
-			height := layout.lineHeight
-			if height <= 0 {
-				height = defaultFontHeight
-			}
-			kos.DrawBar(cx, cy, 1, height, uint32(foreground))
-		},
-		func(x int, y int, width int, height int) {
-			if width <= 0 || height <= 0 {
-				return
-			}
-			kos.DrawBar(x, y, width, height, uint32(selectionColor))
-		},
-	)
-	return true
-}
-
 func drawTinyGLRaw(element *Element, style Style) bool {
 	return true
 }
@@ -141,14 +90,29 @@ func drawElementViaSurfaceRaw(element *Element, style Style) bool {
 		return false
 	}
 	x, y := element.rawPosition(style)
-	width := element.resolvedWidth(style)
-	height := element.resolvedHeight(style)
-	if width <= 0 || height <= 0 {
+	rect := Rect{
+		X:      x,
+		Y:      y,
+		Width:  element.resolvedWidth(style),
+		Height: element.resolvedHeight(style),
+	}
+	if rect.Width <= 0 || rect.Height <= 0 {
 		return true
 	}
-	canvas := NewCanvasAlpha(width, height)
-	element.drawToRect(canvas, Rect{X: 0, Y: 0, Width: width, Height: height}, style)
-	canvas.BlitToWindow(x, y)
+	visual := element.visualBoundsFor(rect, style)
+	if visual.Empty() {
+		visual = rect
+	}
+	local := Rect{
+		X:      rect.X - visual.X,
+		Y:      rect.Y - visual.Y,
+		Width:  rect.Width,
+		Height: rect.Height,
+	}
+	canvas := NewCanvasAlpha(visual.Width, visual.Height)
+	canvas.ClearTransparent()
+	element.drawToRect(canvas, local, style)
+	canvas.BlitToWindow(visual.X, visual.Y)
 	return true
 }
 

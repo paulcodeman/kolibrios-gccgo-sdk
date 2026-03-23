@@ -1,9 +1,7 @@
 package ui
 
-import "kos"
-
-// Draw draws the element directly to the window using raw syscalls.
-// Prefer DrawTo with a Canvas for styled rendering.
+// Draw draws the element directly to the window.
+// Most specs route through the same surface-backed paint path as DrawTo.
 func (element *Element) Draw() {
 	if element == nil {
 		return
@@ -18,13 +16,7 @@ func (element *Element) Draw() {
 	if element.drawRawWithSpec(style) {
 		return
 	}
-	x, y := element.rawPosition(style)
-	element.drawRawTextRect(Rect{
-		X:      x,
-		Y:      y,
-		Width:  element.resolvedWidth(style),
-		Height: element.resolvedHeight(style),
-	}, style)
+	drawElementViaSurfaceRaw(element, style)
 }
 
 func (element *Element) DrawTo(canvas *Canvas) {
@@ -201,25 +193,6 @@ func (element *Element) cacheInfo(style Style, rect Rect) (bool, bool, Rect) {
 		needsAlpha = true
 	}
 	return true, needsAlpha, visual
-}
-
-func (element *Element) drawRawTextRect(rect Rect, style Style) bool {
-	if element == nil {
-		return false
-	}
-	text := element.text()
-	if text == "" {
-		return false
-	}
-	foreground, ok := resolveColor(style.foreground)
-	if !ok {
-		foreground = Black
-	}
-	element.forEachTextLine(rect, style, func(textX int, textY int, line string) {
-		kos.DrawText(textX, textY, foreground, line)
-		drawTextDecorationsRaw(textX, textY, line, style, nil, defaultCharWidth, foreground)
-	})
-	return true
 }
 
 func (element *Element) drawTextToRect(canvas *Canvas, rect Rect, style Style) bool {

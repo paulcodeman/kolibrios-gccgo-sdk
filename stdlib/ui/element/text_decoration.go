@@ -51,15 +51,3 @@ func drawTextDecorations(canvas *Canvas, x int, y int, line string, style Style,
 	}
 	canvas.FillRect(x, underlineYForLine(y, metrics), width, 1, color)
 }
-
-func drawTextDecorationsRaw(x int, y int, line string, style Style, font *ttfFont, charWidth int, color kos.Color) {
-	if textDecorationForStyle(style) != TextDecorationUnderline {
-		return
-	}
-	metrics := decorationMetrics(font, charWidth)
-	width := textWidthWithFont(line, font, metrics.width)
-	if width <= 0 {
-		return
-	}
-	kos.DrawBar(x, underlineYForLine(y, metrics), width, 1, uint32(color))
-}

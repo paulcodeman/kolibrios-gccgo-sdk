@@ -240,7 +240,7 @@ var (
 		ActiveStyle:   DefaultButtonActiveStyle,
 		MeasureWidth:  measureButtonWidth,
 		MeasureHeight: measureButtonHeight,
-		DrawRaw:       drawButtonRaw,
+		DrawRaw:       drawElementViaSurfaceRaw,
 	}
 	SpecLabel = &ElementSpec{
 		Kind:         ElementKindLabel,
@@ -253,7 +253,7 @@ var (
 		Flags:           ElementSpecFocusable | ElementSpecTextInput,
 		DefaultStyle:    DefaultInputStyle,
 		Paint:           paintTextInputElement,
-		DrawRaw:         drawTextInputRaw,
+		DrawRaw:         drawElementViaSurfaceRaw,
 		HandleClick:     handleTextInputClick,
 		HandleMouseMove: handleTextInputMouseMove,
 		HandleMouseDown: handleTextInputMouseDown,
