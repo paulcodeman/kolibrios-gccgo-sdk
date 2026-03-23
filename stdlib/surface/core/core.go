@@ -14,6 +14,8 @@ const (
 	windowClientLeft   = 5
 	windowClientRight  = 4
 	windowClientBottom = 4
+
+	runtimeMemfill32MinWords = 64
 )
 
 type Rect struct {
@@ -527,19 +529,26 @@ func WindowClientRect(width int, height int) Rect {
 }
 
 func fill32(slice []uint32, value uint32) {
-	if len(slice) == 0 {
+	count := len(slice)
+	if count == 0 {
+		return
+	}
+	if count >= runtimeMemfill32MinWords {
+		runtimeMemfill32(unsafe.Pointer(&slice[0]), value, uintptr(count))
 		return
 	}
 	slice[0] = value
-	for filled := 1; filled < len(slice); {
+	for filled := 1; filled < count; {
 		copyCount := filled
-		if copyCount > len(slice)-filled {
-			copyCount = len(slice) - filled
+		if copyCount > count-filled {
+			copyCount = count - filled
 		}
 		copy(slice[filled:filled+copyCount], slice[:copyCount])
 		filled += copyCount
 	}
 }
+
+func runtimeMemfill32(dst unsafe.Pointer, value uint32, count uintptr) __asm__("runtime.memfill32")
 
 func textColumnCount(value string) int {
 	if value == "" {

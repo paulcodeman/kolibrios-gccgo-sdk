@@ -11850,6 +11850,26 @@ static void* runtime_memmove_export(void* dest, const void* src, size_t size) {
     return kos_memmove(dest, src, size);
 }
 
+void runtime_memfill32_export(uint32_t* dest, uint32_t value, size_t count) __asm__("runtime.memfill32");
+
+void runtime_memfill32_export(uint32_t* dest, uint32_t value, size_t count) {
+    if (dest == NULL || count == 0) {
+        return;
+    }
+#if defined(__i386__) || defined(__x86_64__)
+    __asm__ __volatile__(
+        "cld\n\t"
+        "rep stosl"
+        : "+D"(dest), "+c"(count)
+        : "a"(value)
+        : "memory");
+#else
+    while (count-- != 0) {
+        *dest++ = value;
+    }
+#endif
+}
+
 void* memmove(void* dest, const void* src, size_t size) {
     if (dest == NULL || src == NULL) {
         return dest;
