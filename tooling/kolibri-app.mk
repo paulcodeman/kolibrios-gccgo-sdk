@@ -6,10 +6,12 @@ STDLIB_DIR_ABS := $(ROOT_ABS)/stdlib
 FIRST_PARTY_DIRS ?= platform
 THIRD_PARTY_DIRS ?= third_party
 RUNTIME_FLAVOR ?= bootstrap
+PROGRAM_OUTPUT ?= $(PROGRAM)
 ifeq ($(RUNTIME_FLAVOR),libgo)
 FIRST_PARTY_DIRS := $(FIRST_PARTY_DIRS) native/libgo/staging/go
 BUILD_CACHE_NAMESPACE ?= libgo
 BUILD_TAGS += libgo_runtime
+PROGRAM_OUTPUT := $(PROGRAM).libgo
 endif
 FIRST_PARTY_DIRS_ABS := $(foreach dir,$(FIRST_PARTY_DIRS),$(if $(filter /%,$(dir)),$(dir),$(ROOT_ABS)/$(dir)))
 THIRD_PARTY_DIRS_ABS := $(foreach dir,$(THIRD_PARTY_DIRS),$(if $(filter /%,$(dir)),$(dir),$(ROOT_ABS)/$(dir)))
@@ -74,11 +76,11 @@ KPACK_FLAGS ?= --nologo
 
 ENTRYPOINT = go_0$(PACKAGE_NAME).Main
 LDSCRIPT_TEMPLATE = $(MK_DIR)/static.lds.in
-LDSCRIPT = $(BUILD_DIR)/$(PROGRAM).lds
+LDSCRIPT = $(BUILD_DIR)/$(PROGRAM_OUTPUT).lds
 APP_STACK_RESERVE ?= 0x10000
 STARTUP_TEMPLATE = $(MK_DIR)/app-startup.c.in
-STARTUP_SOURCE = $(BUILD_DIR)/$(PROGRAM).startup.c
-STARTUP_OBJ = $(BUILD_DIR)/$(PROGRAM).startup.o
+STARTUP_SOURCE = $(BUILD_DIR)/$(PROGRAM_OUTPUT).startup.c
+STARTUP_OBJ = $(BUILD_DIR)/$(PROGRAM_OUTPUT).startup.o
 
 GO_COMPILER_FLAGS = -m32 $(GCC_TOOL_PREFIX) -c $(GO_OPT_LEVEL) -nostdlib -nostdinc -fexceptions -fno-stack-protector -fno-split-stack -static -fno-leading-underscore -fno-common -fno-pie -g -ffunction-sections -fdata-sections -I. -I$(ROOT_ABS) -I$(PACKAGE_ARTIFACT_ROOT_ABS)
 GCC_COMPILER_FLAGS = -m32 $(GCC_TOOL_PREFIX) -c $(OPT_LEVEL) -ffunction-sections -fdata-sections -fno-pic -fno-pie -fno-stack-protector -fno-builtin-calloc
@@ -94,7 +96,7 @@ PACKAGE_NATIVE_INCLUDE_FLAGS += -I$(ROOT_ABS)/native/libgo/overlay/include -I$(R
 ABI_RUNTIME_CPPFLAGS += -DKOLIBRI_USE_LIBGO_RUNTIME=1
 ABI_RUNTIME_INCLUDE_FLAGS += -I$(ROOT_ABS)/native/libgo/staging/runtime
 ABI_RUNTIME_SOURCE := $(ABI_DIR)/runtime_libgo_bridge.c
-LIBGO_RUNTIME_GLOBALIZE_SYMBOLS := runtime.writeBarrier runtime.pointerequal..f runtime.memequal0..f runtime.memequal8..f runtime.memequal16..f runtime.memequal32..f runtime.memequal64..f runtime.memequal128..f runtime.f32equal..f runtime.f64equal..f runtime.c64equal..f runtime.c128equal..f runtime.strequal..f runtime.interequal..f runtime.nilinterequal..f runtime.memhash0..f runtime.memhash8..f runtime.memhash16..f runtime.memhash128..f
+LIBGO_RUNTIME_GLOBALIZE_SYMBOLS := runtime.writeBarrier runtime.pointerequal..f runtime.memequal0..f runtime.memequal8..f runtime.memequal16..f runtime.memequal32..f runtime.memequal64..f runtime.memequal128..f runtime.f32equal..f runtime.f64equal..f runtime.c64equal..f runtime.c128equal..f runtime.strequal..f runtime.interequal..f runtime.nilinterequal..f
 endif
 LDFLAGS = -n -T $(LDSCRIPT) -m elf_i386 -z noexecstack -z relro -z now --gc-sections --eh-frame-hdr --entry=$(ENTRYPOINT)
 
@@ -194,7 +196,7 @@ endef
 
 $(foreach pkg,$(PACKAGE_DIRS),$(eval $(call REGISTER_PACKAGE,$(pkg))))
 
-APP_OBJ = $(PROGRAM).gccgo.o
+APP_OBJ = $(PROGRAM_OUTPUT).gccgo.o
 
 LIBGCC = $(shell $(GCC) -m32 -print-libgcc-file-name)
 LIBGCC_EH = $(shell $(GCC) -m32 -print-file-name=libgcc_eh.a)
@@ -213,7 +215,6 @@ LIBGO_RUNTIME_INC_OBJ := $(ABI_ARTIFACT_ROOT)/runtime.inc.go.o
 LIBGO_RUNTIME_INC_TOOL := $(ROOT_ABS)/tooling/generate-libgo-runtime-inc.sh
 ABI_RUNTIME_DEPS += $(LIBGO_RUNTIME_INC)
 ABI_UNWIND_OBJ :=
-ABI_SYSCALLS_ALIAS_OBJ := $(ABI_ARTIFACT_ROOT)/syscalls_i386_libgo_alias.o
 LIBGO_RUNTIME_EXTRA_SRCS := $(LIBGO_RUNTIME_DIR)/aeshash.c $(LIBGO_RUNTIME_DIR)/go-construct-map.c $(LIBGO_RUNTIME_DIR)/go-memclr.c $(LIBGO_RUNTIME_DIR)/go-memequal.c $(LIBGO_RUNTIME_DIR)/go-memmove.c $(LIBGO_RUNTIME_DIR)/go-nanotime.c $(LIBGO_RUNTIME_DIR)/go-now.c $(LIBGO_RUNTIME_DIR)/go-unsafe-pointer.c $(LIBGO_RUNTIME_DIR)/go-unwind.c $(LIBGO_RUNTIME_DIR)/print.c $(LIBGO_RUNTIME_DIR)/runtime_c.c $(LIBGO_RUNTIME_DIR)/yield.c
 ABI_EXTRA_RUNTIME_OBJS := $(patsubst $(LIBGO_RUNTIME_DIR)/%.c,$(ABI_ARTIFACT_ROOT)/libgo-runtime/%.o,$(LIBGO_RUNTIME_EXTRA_SRCS))
 ABI_EXTRA_RUNTIME_OBJS += $(ABI_ARTIFACT_ROOT)/libc_compat.o
@@ -228,18 +229,19 @@ INTERMEDIATE_ARTIFACTS = $(ABI_OBJS) $(APP_OBJ) $(LDSCRIPT) $(STARTUP_ARTIFACTS)
 .DEFAULT_GOAL := all
 .PHONY: all clean clean-cache distclean link
 
-all: $(PROGRAM).kex
+all: $(PROGRAM_OUTPUT).kex
 
 clean:
 	rm -rf $(BUILD_DIR)
-	rm -f $(APP_OBJ) $(PROGRAM).kex
+	rm -f $(PROGRAM).gccgo.o $(PROGRAM).libgo.gccgo.o
+	rm -f $(PROGRAM).kex $(PROGRAM).libgo.kex
 
 clean-cache:
 	rm -rf $(BUILD_CACHE_BASE)
 
 distclean: clean clean-cache
 
-link: $(PROGRAM).kex
+link: $(PROGRAM_OUTPUT).kex
 
 $(BUILD_DIR):
 	mkdir -p $@
@@ -253,12 +255,12 @@ $(STARTUP_SOURCE): $(STARTUP_TEMPLATE) | $(BUILD_DIR)
 $(STARTUP_OBJ): $(STARTUP_SOURCE)
 	$(GCC) $(GCC_COMPILER_FLAGS) $< -o $@
 
-$(PROGRAM).kex: $(OBJS) $(PACKAGE_GOXS) $(LDSCRIPT)
-	$(LD) $(LDFLAGS) -o $(PROGRAM).kex $(OBJS) $(RUNTIME_LIBS)
-	$(STRIP) $(PROGRAM).kex
-	$(OBJCOPY) $(PROGRAM).kex -O binary
+$(PROGRAM_OUTPUT).kex: $(OBJS) $(PACKAGE_GOXS) $(LDSCRIPT)
+	$(LD) $(LDFLAGS) -o $(PROGRAM_OUTPUT).kex $(OBJS) $(RUNTIME_LIBS)
+	$(STRIP) $(PROGRAM_OUTPUT).kex
+	$(OBJCOPY) $(PROGRAM_OUTPUT).kex -O binary
 ifneq ($(KPACK),0)
-	$(KPACK_BIN) $(KPACK_FLAGS) $(PROGRAM).kex
+	$(KPACK_BIN) $(KPACK_FLAGS) $(PROGRAM_OUTPUT).kex
 endif
 ifeq ($(KEEP_ABI),0)
 	rm -f $(ABI_OBJS)

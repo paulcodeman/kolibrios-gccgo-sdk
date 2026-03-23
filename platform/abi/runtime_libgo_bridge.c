@@ -33,6 +33,10 @@ extern void kos_thread_bootstrap(void* arg) __asm__("kos.ThreadBootstrap");
 extern void runtime_swapcontext(void* from, void* to);
 extern void runtime_loadcontext(void* ctx);
 extern void runtime_libgo_thread_entry(void);
+extern uintptr runtime_memhash0_libgo(const void* value, uintptr seed) __asm__(GOSYM_PREFIX "runtime.memhash0");
+extern uintptr runtime_memhash8_libgo(const void* value, uintptr seed) __asm__(GOSYM_PREFIX "runtime.memhash8");
+extern uintptr runtime_memhash16_libgo(const void* value, uintptr seed) __asm__(GOSYM_PREFIX "runtime.memhash16");
+extern uintptr runtime_memhash128_libgo(const void* value, uintptr seed) __asm__(GOSYM_PREFIX "runtime.memhash128");
 
 typedef struct {
   const char* name;
@@ -50,6 +54,8 @@ struct caller_ret {
   intgo line;
   _Bool ok;
 };
+
+typedef uintptr (*go_seeded_hash_function)(const void* value, uintptr seed);
 
 typedef struct {
   uintptr_t ebx;
@@ -109,6 +115,23 @@ uintptr runtime_stacks_sys;
 
 static G* runtime_bridge_g_fallback;
 static G* runtime_bridge_g_slots[RUNTIME_LIBGO_MAX_THREAD_SLOTS];
+static char runtime_libgo_debug_line[128];
+
+__asm__(".weak runtime.memhash0..f");
+static go_seeded_hash_function __attribute__((used)) runtime_memhash0_descriptor = runtime_memhash0_libgo;
+__asm__(".set runtime.memhash0..f, runtime_memhash0_descriptor");
+
+__asm__(".weak runtime.memhash8..f");
+static go_seeded_hash_function __attribute__((used)) runtime_memhash8_descriptor = runtime_memhash8_libgo;
+__asm__(".set runtime.memhash8..f, runtime_memhash8_descriptor");
+
+__asm__(".weak runtime.memhash16..f");
+static go_seeded_hash_function __attribute__((used)) runtime_memhash16_descriptor = runtime_memhash16_libgo;
+__asm__(".set runtime.memhash16..f, runtime_memhash16_descriptor");
+
+__asm__(".weak runtime.memhash128..f");
+static go_seeded_hash_function __attribute__((used)) runtime_memhash128_descriptor = runtime_memhash128_libgo;
+__asm__(".set runtime.memhash128..f, runtime_memhash128_descriptor");
 
 static size_t
 kos_strlen(const char* value)
@@ -128,6 +151,123 @@ kos_strcmp(const char* left, const char* right)
   return strcmp(left, right);
 }
 
+static size_t
+runtime_kos_cstring_len(const char* value)
+{
+  size_t len = 0;
+
+  if (value == NULL)
+    return 0;
+  while (value[len] != '\0')
+    len++;
+  return len;
+}
+
+static void
+runtime_kos_debug_char_raw(char value)
+{
+  __asm__ __volatile__(
+      "int $0x40"
+      :
+      : "a"(63u), "b"(1u), "c"((uint32_t) (uint8_t) value)
+      : "edx", "esi", "edi", "memory", "cc");
+}
+
+static void
+runtime_kos_debug_write_raw(const char* text)
+{
+  size_t i;
+  size_t len = runtime_kos_cstring_len(text);
+
+  for (i = 0; i < len; ++i)
+    runtime_kos_debug_char_raw(text[i]);
+}
+
+static void
+runtime_libgo_debug_beacon(const char* stage)
+{
+  static const char prefix[] = "libgo bridge: ";
+  size_t i = 0;
+  size_t j = 0;
+
+  if (stage == NULL)
+    stage = "(null)";
+
+  while (i + 1u < sizeof(runtime_libgo_debug_line) && prefix[i] != '\0') {
+    runtime_libgo_debug_line[i] = prefix[i];
+    i++;
+  }
+  while (i + 1u < sizeof(runtime_libgo_debug_line) && stage[j] != '\0') {
+    runtime_libgo_debug_line[i] = stage[j];
+    i++;
+    j++;
+  }
+  runtime_libgo_debug_line[i] = '\0';
+  runtime_kos_debug_write_raw(runtime_libgo_debug_line);
+  runtime_kos_debug_char_raw('\r');
+  runtime_kos_debug_char_raw('\n');
+}
+
+void kolibriosDebugStage(int32 stage) __asm__(GOSYM_PREFIX "runtime.kolibriosDebugStage");
+
+void
+kolibriosDebugStage(int32 stage)
+{
+  switch (stage) {
+    case 90:
+      runtime_libgo_debug_beacon("schedinit: entry");
+      break;
+    case 91:
+      runtime_libgo_debug_beacon("schedinit: stackmaps-ready");
+      break;
+    case 100:
+      runtime_libgo_debug_beacon("schedinit: worldStopped");
+      break;
+    case 101:
+      runtime_libgo_debug_beacon("schedinit: mallocinit");
+      break;
+    case 102:
+      runtime_libgo_debug_beacon("schedinit: cpuinit");
+      break;
+    case 103:
+      runtime_libgo_debug_beacon("schedinit: alginit");
+      break;
+    case 104:
+      runtime_libgo_debug_beacon("schedinit: fastrandinit");
+      break;
+    case 105:
+      runtime_libgo_debug_beacon("schedinit: mcommoninit");
+      break;
+    case 106:
+      runtime_libgo_debug_beacon("schedinit: sigsave");
+      break;
+    case 107:
+      runtime_libgo_debug_beacon("schedinit: goargs");
+      break;
+    case 108:
+      runtime_libgo_debug_beacon("schedinit: goenvs");
+      break;
+    case 109:
+      runtime_libgo_debug_beacon("schedinit: parsedebugvars");
+      break;
+    case 110:
+      runtime_libgo_debug_beacon("schedinit: gcinit");
+      break;
+    case 111:
+      runtime_libgo_debug_beacon("schedinit: lock sched");
+      break;
+    case 112:
+      runtime_libgo_debug_beacon("schedinit: procresize");
+      break;
+    case 113:
+      runtime_libgo_debug_beacon("schedinit: worldStarted");
+      break;
+    default:
+      runtime_libgo_debug_beacon("schedinit: unknown");
+      break;
+  }
+}
+
 static void*
 runtime_alloc_zeroed(size_t size)
 {
@@ -139,6 +279,73 @@ runtime_alloc_zeroed(size_t size)
   if (ptr != NULL)
     memset(ptr, 0, size);
   return ptr;
+}
+
+void runtime_memfill32_export(uint32_t* dest, uint32_t value, size_t count) __asm__("runtime.memfill32");
+void runtime_memcpy32_export(uint32_t* dest, const uint32_t* src, size_t count) __asm__("runtime.memcpy32");
+void runtime_memmove32_export(uint32_t* dest, const uint32_t* src, size_t count) __asm__("runtime.memmove32");
+
+void
+runtime_memfill32_export(uint32_t* dest, uint32_t value, size_t count)
+{
+  if (dest == NULL || count == 0u)
+    return;
+#if defined(__i386__) || defined(__x86_64__)
+  __asm__ __volatile__(
+      "cld\n\t"
+      "rep stosl"
+      : "+D"(dest), "+c"(count)
+      : "a"(value)
+      : "memory");
+#else
+  while (count-- != 0u)
+    *dest++ = value;
+#endif
+}
+
+void
+runtime_memcpy32_export(uint32_t* dest, const uint32_t* src, size_t count)
+{
+  if (dest == NULL || src == NULL || count == 0u)
+    return;
+#if defined(__i386__) || defined(__x86_64__)
+  __asm__ __volatile__(
+      "cld\n\t"
+      "rep movsl"
+      : "+D"(dest), "+S"(src), "+c"(count)
+      :
+      : "memory");
+#else
+  while (count-- != 0u)
+    *dest++ = *src++;
+#endif
+}
+
+void
+runtime_memmove32_export(uint32_t* dest, const uint32_t* src, size_t count)
+{
+  if (dest == NULL || src == NULL || count == 0u || dest == src)
+    return;
+  if (dest < src || dest >= src + count) {
+    runtime_memcpy32_export(dest, src, count);
+    return;
+  }
+#if defined(__i386__) || defined(__x86_64__)
+  dest += count - 1u;
+  src += count - 1u;
+  __asm__ __volatile__(
+      "std\n\t"
+      "rep movsl\n\t"
+      "cld"
+      : "+D"(dest), "+S"(src), "+c"(count)
+      :
+      : "memory");
+#else
+  dest += count;
+  src += count;
+  while (count-- != 0u)
+    *--dest = *--src;
+#endif
 }
 
 static runtime_libgo_context*
@@ -505,6 +712,7 @@ runtime_mstart(void* arg)
   G* gp;
   int anchor;
 
+  runtime_libgo_debug_beacon("mstart entry");
   mp = (M*) arg;
   if (mp == nil || mp->g0 == nil)
     return NULL;
@@ -517,7 +725,9 @@ runtime_mstart(void* arg)
   gp->entry = nil;
   gp->param = nil;
 
+  runtime_libgo_debug_beacon("before minit");
   minit();
+  runtime_libgo_debug_beacon("after minit");
 
   gp->gcinitialsp = &anchor;
   gp->gcstack = 0;
@@ -532,7 +742,9 @@ runtime_mstart(void* arg)
     return NULL;
   }
 
+  runtime_libgo_debug_beacon("before mstart1");
   mstart1();
+  runtime_libgo_debug_beacon("mstart1 returned");
   runtime_throw("runtime: mstart1 returned");
 }
 
@@ -730,20 +942,30 @@ runtime_kolibri_start(void (*init)(void), void (*main_fn)(void))
   (void) init;
   (void) main_fn;
 
+  runtime_libgo_debug_beacon("startup entry");
   runtime_isarchive = false;
   if (runtime_isstarted)
     return;
   runtime_isstarted = true;
   __go_end = (uintptr) &__end;
 
+  runtime_libgo_debug_beacon("before ginit");
   runtime_ginit();
+  runtime_libgo_debug_beacon("after ginit");
   runtime_cpuinit();
+  runtime_libgo_debug_beacon("after cpuinit");
   runtime_check();
+  runtime_libgo_debug_beacon("after check");
   runtime_args(0, NULL);
+  runtime_libgo_debug_beacon("after args");
   runtime_osinit();
+  runtime_libgo_debug_beacon("after osinit");
   runtime_schedinit();
+  runtime_libgo_debug_beacon("after schedinit");
   __go_go((uintptr) runtime_main, NULL);
+  runtime_libgo_debug_beacon("after __go_go");
   runtime_mstart(runtime_m());
+  runtime_libgo_debug_beacon("runtime_mstart returned");
   runtime_kolibri_exit_code(0);
 }
 

@@ -128,7 +128,7 @@ PACKAGE_NATIVE_INCLUDE_FLAGS += -I$(ROOT_ABS)/native/libgo/overlay/include -I$(R
 ABI_RUNTIME_CPPFLAGS += -DKOLIBRI_USE_LIBGO_RUNTIME=1
 ABI_RUNTIME_INCLUDE_FLAGS += -I$(ROOT_ABS)/native/libgo/staging/runtime
 ABI_RUNTIME_SOURCE := $(ABI_DIR)/runtime_libgo_bridge.c
-LIBGO_RUNTIME_GLOBALIZE_SYMBOLS := runtime.writeBarrier runtime.pointerequal..f runtime.memequal0..f runtime.memequal8..f runtime.memequal16..f runtime.memequal32..f runtime.memequal64..f runtime.memequal128..f runtime.f32equal..f runtime.f64equal..f runtime.c64equal..f runtime.c128equal..f runtime.strequal..f runtime.interequal..f runtime.nilinterequal..f runtime.memhash0..f runtime.memhash8..f runtime.memhash16..f runtime.memhash128..f
+LIBGO_RUNTIME_GLOBALIZE_SYMBOLS := runtime.writeBarrier runtime.pointerequal..f runtime.memequal0..f runtime.memequal8..f runtime.memequal16..f runtime.memequal32..f runtime.memequal64..f runtime.memequal128..f runtime.f32equal..f runtime.f64equal..f runtime.c64equal..f runtime.c128equal..f runtime.strequal..f runtime.interequal..f runtime.nilinterequal..f
 endif
 
 APP_SOURCES = $(shell $(SELECT_GO_FILES) --package-dir $(CURDIR) --goos $(GOOS_TARGET) --goarch $(GOARCH_TARGET) --tags "$(BUILD_TAGS)")
@@ -236,7 +236,6 @@ LIBGO_RUNTIME_INC_OBJ := $(ABI_ARTIFACT_ROOT)/runtime.inc.go.o
 LIBGO_RUNTIME_INC_TOOL := $(ROOT_ABS)/tooling/generate-libgo-runtime-inc.sh
 ABI_RUNTIME_DEPS += $(LIBGO_RUNTIME_INC)
 ABI_UNWIND_OBJ :=
-ABI_SYSCALLS_ALIAS_OBJ := $(ABI_ARTIFACT_ROOT)/syscalls_i386_libgo_alias.o
 LIBGO_RUNTIME_EXTRA_SRCS := $(LIBGO_RUNTIME_DIR)/aeshash.c $(LIBGO_RUNTIME_DIR)/go-construct-map.c $(LIBGO_RUNTIME_DIR)/go-memclr.c $(LIBGO_RUNTIME_DIR)/go-memequal.c $(LIBGO_RUNTIME_DIR)/go-memmove.c $(LIBGO_RUNTIME_DIR)/go-nanotime.c $(LIBGO_RUNTIME_DIR)/go-now.c $(LIBGO_RUNTIME_DIR)/go-unsafe-pointer.c $(LIBGO_RUNTIME_DIR)/go-unwind.c $(LIBGO_RUNTIME_DIR)/print.c $(LIBGO_RUNTIME_DIR)/runtime_c.c $(LIBGO_RUNTIME_DIR)/yield.c
 ABI_EXTRA_RUNTIME_OBJS := $(patsubst $(LIBGO_RUNTIME_DIR)/%.c,$(ABI_ARTIFACT_ROOT)/libgo-runtime/%.o,$(LIBGO_RUNTIME_EXTRA_SRCS))
 ABI_EXTRA_RUNTIME_OBJS += $(ABI_ARTIFACT_ROOT)/libc_compat.o
