@@ -1,9 +1,16 @@
 package main
 
-import "strings"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+)
 
 func normalizeURL(value string) string {
 	value = strings.TrimSpace(value)
+	if value == "" {
+		return value
+	}
 	lower := strings.ToLower(value)
 	if strings.HasPrefix(lower, "about:") {
 		end := len(value)
@@ -14,6 +21,15 @@ func normalizeURL(value string) string {
 			end = pos
 		}
 		return strings.ToLower(value[:end]) + value[end:]
+	}
+	if strings.HasPrefix(lower, "file://") {
+		if path, ok := fileURLPath(value); ok {
+			return fileURLFromPath(path)
+		}
+		return value
+	}
+	if path, ok := localHTMLPathFromURL(value); ok {
+		return fileURLFromPath(path)
 	}
 	if strings.Contains(value, "://") {
 		return value
@@ -35,7 +51,7 @@ func resolveURL(baseURL string, href string) string {
 	}
 	if strings.HasPrefix(href, "//") {
 		scheme := urlScheme(baseURL)
-		if scheme == "" {
+		if scheme == "" || scheme == "file" {
 			scheme = "http"
 		}
 		return scheme + ":" + href
@@ -45,6 +61,9 @@ func resolveURL(baseURL string, href string) string {
 	}
 	if strings.HasPrefix(href, "?") {
 		return stripQuery(stripFragment(baseURL)) + href
+	}
+	if isFileURL(baseURL) {
+		return resolveFileURL(baseURL, href)
 	}
 
 	scheme, host, path := splitURL(baseURL)
@@ -156,4 +175,117 @@ func cleanRelative(path string) string {
 		path = path[2:]
 	}
 	return path
+}
+
+func resolveStartupTarget(args []string) (string, bool) {
+	for _, raw := range args {
+		value := strings.TrimSpace(raw)
+		if value == "" {
+			continue
+		}
+		if path, ok := localHTMLPathFromArg(value); ok {
+			return fileURLFromPath(path), true
+		}
+		return normalizeURL(value), false
+	}
+	return defaultURL, false
+}
+
+func localHTMLPathFromArg(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", false
+	}
+	if strings.HasPrefix(strings.ToLower(value), "about:") {
+		return "", false
+	}
+	return localHTMLPathFromURL(value)
+}
+
+func localHTMLPathFromURL(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", false
+	}
+	if path, ok := fileURLPath(value); ok {
+		return ensureLocalHTMLPath(path)
+	}
+	if strings.Contains(value, "://") {
+		return "", false
+	}
+	return ensureLocalHTMLPath(value)
+}
+
+func ensureLocalHTMLPath(value string) (string, bool) {
+	value = stripFragment(stripQuery(strings.TrimSpace(value)))
+	if !looksLikeHTMLPath(value) {
+		return "", false
+	}
+	resolved, err := filepath.Abs(value)
+	if err == nil {
+		value = resolved
+	}
+	info, err := os.Stat(value)
+	if err != nil || info == nil || info.IsDir() {
+		return "", false
+	}
+	return filepath.Clean(value), true
+}
+
+func looksLikeHTMLPath(value string) bool {
+	ext := strings.ToLower(filepath.Ext(value))
+	switch ext {
+	case ".html", ".htm", ".xhtml":
+		return true
+	default:
+		return false
+	}
+}
+
+func isFileURL(value string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(value)), "file://")
+}
+
+func fileURLFromPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	resolved, err := filepath.Abs(path)
+	if err == nil {
+		path = resolved
+	}
+	path = filepath.ToSlash(filepath.Clean(path))
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return "file://" + path
+}
+
+func fileURLPath(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if !isFileURL(raw) {
+		return "", false
+	}
+	path := stripFragment(stripQuery(raw[len("file://"):]))
+	if path == "" {
+		return "", false
+	}
+	if len(path) >= 3 && path[0] == '/' && path[2] == ':' {
+		path = path[1:]
+	}
+	return filepath.Clean(path), true
+}
+
+func resolveFileURL(baseURL string, href string) string {
+	basePath, ok := fileURLPath(baseURL)
+	if !ok {
+		return href
+	}
+	if strings.HasPrefix(href, "/") {
+		return fileURLFromPath(filepath.FromSlash(href))
+	}
+	baseDir := filepath.Dir(basePath)
+	resolved := filepath.Join(baseDir, filepath.FromSlash(href))
+	return fileURLFromPath(resolved)
 }

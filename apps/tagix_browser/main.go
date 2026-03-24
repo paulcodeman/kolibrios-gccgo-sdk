@@ -1,10 +1,17 @@
 package main
 
 import (
-	"dom"
+	"crypto/tls"
+	"crypto/x509"
+	"fmt"
+	"golang.org/x/net/publicsuffix"
+	"io"
 	"kos"
+	nethttp "net/http"
+	netcookiejar "net/http/cookiejar"
 	neturl "net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"ui"
 )
@@ -21,9 +28,10 @@ const (
 	aboutFormsURL       = "about:forms"
 	aboutHomeAsset      = "assets/about_tagix.html"
 	aboutFormsAsset     = "assets/about_forms.html"
+	localCABundleAsset  = "assets/ca-bundle.pem"
 )
 
-const defaultAboutHomeHTML = `<html><head><title>Tagix Browser</title></head><body><h1>Tagix Browser</h1><p>This built-in page is rendered through the same HTML5 parser and DocumentView pipeline as remote content.</p><p><a href="about:forms">Open the built-in forms demo</a> or visit <a href="https://example.com">example.com</a>.</p><h2>What to test</h2><ul><li>Inline links inside paragraphs</li><li>Preformatted code blocks</li><li>Lists and headings</li><li>Document focus, hover and scroll</li></ul><pre><code>&lt;html&gt; -&gt; dom.Parse -&gt; ui.DocumentNode -&gt; DocumentView</code></pre></body></html>`
+const defaultAboutHomeHTML = `<html><head><title>Tagix Browser</title></head><body><h1>Tagix Browser</h1><p>Browser chrome now loads from <code>assets/shell.html</code>, and page content is hosted in a dedicated iframe-like frame below the toolbar.</p><p><a href="about:forms">Open the built-in forms demo</a> or visit <a href="https://example.com">example.com</a>.</p><h2>What to test</h2><ul><li>Semantic shell tags: header, nav, section, h1, small, iframe</li><li>Shell styling through inline HTML5 <code>style</code> attributes</li><li>Inline links, lists, headings and forms in rendered pages</li><li>Document focus, hover and scroll inside the hosted page view</li></ul><details><summary>Pipeline</summary><p><code>shell.html -&gt; Parse -&gt; ui.DocumentNode -&gt; DocumentView</code></p></details></body></html>`
 
 const defaultAboutFormsHTML = `<html><head><title>Tagix Forms</title></head><body><h1>Tagix Forms</h1><p>This page exists to test browser-side HTML controls that are currently mapped onto the shared UI pipeline.</p><p><a href="about:tagix">Back to the built-in home page</a></p><p>Submit keeps you on built-in pages by targeting <code>about:tagix</code>; after submit, the address bar should include the serialized query string.</p><form action="about:tagix" method="get"><input type="hidden" name="source" value="about:forms"><h2>Text controls</h2><p><input type="text" name="url" value="https://kolibrios.org" placeholder="Type a URL"></p><p><input type="search" name="query" placeholder="Search demo"></p><p>Textarea currently submits its initial content; multiline editing is still pending in the shared DocumentView host.</p><textarea name="notes" rows="4">Textarea fallback content.
 Second line.
@@ -31,12 +39,21 @@ Third line.</textarea><h2>Choice controls</h2><p><input type="checkbox" name="re
 
 type App struct {
 	window *ui.Window
-	http   kos.HTTP
+
+	httpClient    *nethttp.Client
+	caBundlePath  string
+	caBundleError string
 
 	shellDocument *ui.Document
 	shellView     *ui.DocumentView
+	pageFrame     *ui.Element
 	pageDocument  *ui.Document
 	pageView      *ui.DocumentView
+
+	shellNodesByID     map[string]*ui.DocumentNode
+	shellNodesByRole   map[string][]*ui.DocumentNode
+	shellNodesByAction map[string][]*ui.DocumentNode
+	shellNodeDisplay   map[*ui.DocumentNode]ui.DisplayMode
 
 	shellTitleNode   *ui.DocumentNode
 	shellStatusNode  *ui.DocumentNode
@@ -46,39 +63,69 @@ type App struct {
 	shellHomeNode    *ui.DocumentNode
 	shellAddressNode *ui.DocumentNode
 
-	currentURL   string
-	addressText  string
-	pageTitle    string
-	statusBase   string
-	history      []string
-	historyIndex int
+	currentURL    string
+	addressText   string
+	pageTitle     string
+	statusBase    string
+	renderDoc     *Document
+	messageTitle  string
+	messageDetail string
+	renderWidth   int
+	renderHeight  int
+	history       []string
+	historyIndex  int
+	startupURL    string
+	pageMinHeight int
+	webViewMode   bool
 }
 
 func NewApp() *App {
-	http, _ := kos.LoadHTTP()
+	startupURL, webViewMode := resolveStartupTarget(os.Args[1:])
+	httpClient, caBundlePath, caBundleError := newBrowserHTTPClient()
 	app := &App{
-		http:         http,
-		statusBase:   "Ready",
-		historyIndex: -1,
-		addressText:  defaultURL,
+		httpClient:    httpClient,
+		caBundlePath:  caBundlePath,
+		caBundleError: caBundleError,
+		statusBase:    "Ready",
+		historyIndex:  -1,
+		addressText:   defaultURL,
+		startupURL:    startupURL,
+		pageMinHeight: minPageHeight,
+		webViewMode:   webViewMode,
 	}
 	app.buildUI()
-	app.showMessageDocument(
-		"Tagix Browser",
-		"Browser shell now renders in its own DocumentView, and the page below is hosted in a separate frame-like DocumentView. The shell toolbar itself now comes from HTML, including the editable address field.",
-	)
+	if !app.webViewMode {
+		app.showMessageDocument(
+			"Tagix Browser",
+			"Browser shell now renders in its own DocumentView, and the page below is hosted in a separate frame-like DocumentView. The shell toolbar itself now comes from HTML, including the editable address field.",
+		)
+	}
 	app.syncShell()
 	return app
 }
 
 func (app *App) buildUI() {
 	window := ui.NewWindowDefault()
-	window.SetTitle("Tagix Browser")
+	windowTitle := "Tagix Browser"
+	windowBackground := kos.Color(0xE7EBF0)
+	rootBackground := kos.Color(0xF1F3F4)
+	pageFrameMarginTop := 10
+	pageFrameBorder := 1
+	pageFrameRadius := 16
+	if app != nil && app.webViewMode {
+		windowTitle = "Tagix WebView"
+		windowBackground = ui.White
+		rootBackground = ui.White
+		pageFrameMarginTop = 0
+		pageFrameBorder = 0
+		pageFrameRadius = 0
+	}
+	window.SetTitle(windowTitle)
 	window.UpdateStyle(func(style *ui.Style) {
 		style.SetWidth(defaultWindowWidth)
 		style.SetHeight(defaultWindowHeight)
 		style.SetOverflow(ui.OverflowAuto)
-		style.SetBackground(0xE7EBF0)
+		style.SetBackground(windowBackground)
 	})
 	window.CenterOnScreen()
 	app.window = window
@@ -87,24 +134,23 @@ func (app *App) buildUI() {
 	root.UpdateStyle(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
 		style.SetPadding(rootInset)
-		style.SetBackground(0xF1F3F4)
+		style.SetBackground(rootBackground)
 	})
 
-	app.shellDocument = ui.NewDocument(renderShellRoot(app))
-	app.shellView = ui.CreateDocumentView(app.shellDocument)
-	app.shellView.Style = styled(func(style *ui.Style) {
+	app.pageFrame = ui.CreateBox()
+	app.pageFrame.UpdateStyle(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
-		style.SetMargin(0, 0, shellGap, 0)
-		style.SetPadding(8, 12)
-		style.SetBorder(0, 0xF1F3F4)
-		style.SetBorderBottom(1, 0xD2D7DD)
-		style.SetBackground(0xF1F3F4)
-		style.SetOverflow(ui.OverflowHidden)
+		style.SetMargin(pageFrameMarginTop, 0, 0, 0)
+		style.SetPadding(0)
+		style.SetBorder(pageFrameBorder, 0xD7DEE7)
+		style.SetBorderRadius(pageFrameRadius)
+		style.SetBackground(ui.White)
 		style.SetContain(ui.ContainPaint)
 	})
-
 	app.pageDocument = ui.NewDocument(nil)
 	app.pageView = ui.CreateDocumentView(app.pageDocument)
+	// The browser page currently repaints more reliably without DocumentView scroll-blit.
+	app.pageView.DisableScrollBlit = true
 	app.pageView.Style = styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
 		style.SetHeight(defaultPageHeight)
@@ -125,16 +171,37 @@ func (app *App) buildUI() {
 		style.SetOutline(2, 0x1A73E8)
 		style.SetOutlineOffset(1)
 	})
+	app.pageFrame.Append(app.pageView)
+
+	app.shellDocument = ui.NewDocument(renderShellRoot(app))
+	app.shellView = ui.CreateDocumentView(app.shellDocument)
+	app.shellView.Style = styled(func(style *ui.Style) {
+		if app != nil && app.webViewMode {
+			style.SetDisplay(ui.DisplayNone)
+		} else {
+			style.SetDisplay(ui.DisplayBlock)
+		}
+		style.SetMargin(0, 0, shellGap, 0)
+		style.SetPadding(0)
+		style.SetBorder(0, rootBackground)
+		style.SetBackground(rootBackground)
+		style.SetOverflow(ui.OverflowHidden)
+		style.SetContain(ui.ContainPaint)
+	})
 
 	root.Append(app.shellView)
-	root.Append(app.pageView)
+	root.Append(app.pageFrame)
 	window.Append(root)
 	window.OnResize = app.handleResize
 	app.handleResize(window.ClientRect())
 }
 
 func (app *App) Run() {
-	app.openURL(defaultURL, true)
+	startURL := strings.TrimSpace(app.startupURL)
+	if startURL == "" {
+		startURL = defaultURL
+	}
+	app.openURL(startURL, true)
 	app.window.Start()
 }
 
@@ -223,54 +290,164 @@ func (app *App) loadURL(url string) {
 	if app.loadBuiltinPage(url) {
 		return
 	}
-	if !app.http.Ready() {
+	if app.loadLocalPage(url) {
+		return
+	}
+	if app.httpClient == nil {
 		app.pageTitle = "HTTP unavailable"
-		app.statusBase = "Missing /sys/lib/http.obj"
-		app.showMessageDocument("HTTP unavailable", "The HTTP library is not available, so Tagix Browser cannot download the page.")
+		app.statusBase = "HTTP client unavailable"
+		app.showMessageDocument("HTTP unavailable", "The network client is not available, so Tagix Browser cannot download the page.")
 		return
 	}
 
-	transfer, ok := app.http.Get(url, 0, kos.HTTPFlagHTTP11, "")
-	if !ok || !transfer.Valid() {
+	request, err := nethttp.NewRequest(nethttp.MethodGet, url, nil)
+	if err != nil {
 		app.pageTitle = "Load failed"
-		app.statusBase = "HTTP start failed"
-		app.showMessageDocument("Load failed", "Failed to start HTTP GET.")
+		app.statusBase = "Invalid URL"
+		app.showMessageDocument("Load failed", "Failed to prepare the request: "+err.Error())
 		return
 	}
+	request.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.5")
+	request.Header.Set("User-Agent", "TagixBrowser/0.1")
 
-	for {
-		_ = app.http.Receive(transfer)
-		flags := transfer.Flags()
-		if flags.Has(kos.HTTPFlagGotAllData) ||
-			flags.Has(kos.HTTPFlagTransferFailed) ||
-			flags.Has(kos.HTTPFlagTimeoutError) ||
-			flags.Has(kos.HTTPFlagSocketError) {
-			break
-		}
-		kos.SleepMilliseconds(10)
-	}
-
-	flags := transfer.Flags()
-	status := transfer.Status()
-	header := transfer.HeaderString()
-	body := transfer.ContentBytes()
-	app.http.Free(transfer)
-
-	if flags.Has(kos.HTTPFlagTransferFailed) || flags.Has(kos.HTTPFlagTimeoutError) || flags.Has(kos.HTTPFlagSocketError) {
+	response, err := app.httpClient.Do(request)
+	if err != nil {
 		app.pageTitle = "Load failed"
 		app.statusBase = "Network error"
-		app.showMessageDocument("Load failed", "Network error while downloading the page.")
+		app.showMessageDocument("Load failed", app.networkErrorDetail(url, err))
+		return
+	}
+	defer response.Body.Close()
+
+	finalURL := url
+	if response.Request != nil && response.Request.URL != nil {
+		if resolved := strings.TrimSpace(response.Request.URL.String()); resolved != "" {
+			finalURL = normalizeURL(resolved)
+		}
+	}
+	redirected := finalURL != "" && finalURL != url
+	if finalURL != "" {
+		app.currentURL = finalURL
+		app.addressText = finalURL
+		app.replaceCurrentHistory(finalURL)
+	}
+
+	if response.StatusCode >= 400 {
+		app.pageTitle = response.Status
+		app.statusBase = response.Status
+		app.showMessageDocument("HTTP error", app.httpErrorDetail(response.Status, finalURL, redirected))
 		return
 	}
 
-	if status >= 400 {
-		app.pageTitle = "HTTP " + formatUint(status)
-		app.statusBase = "HTTP " + formatUint(status)
-		app.showMessageDocument("HTTP error", "Server returned status "+formatUint(status)+".")
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxContent+1))
+	if err != nil {
+		app.pageTitle = "Load failed"
+		app.statusBase = "Read error"
+		app.showMessageDocument("Load failed", "Failed while reading the response body: "+err.Error())
 		return
 	}
 
-	app.updateContent(header, body)
+	app.updateContent(response.Header.Get("Content-Type"), body, redirected)
+}
+
+func newBrowserHTTPClient() (*nethttp.Client, string, string) {
+	caBundlePath, _ := configureLocalCABundle()
+	rootCAs, err := loadRootPool(caBundlePath)
+
+	baseTransport, _ := nethttp.DefaultTransport.(*nethttp.Transport)
+	transport := &nethttp.Transport{}
+	if baseTransport != nil {
+		*transport = *baseTransport
+		if baseTransport.TLSClientConfig != nil {
+			transport.TLSClientConfig = baseTransport.TLSClientConfig.Clone()
+		}
+	}
+	if rootCAs != nil {
+		if transport.TLSClientConfig == nil {
+			transport.TLSClientConfig = &tls.Config{}
+		} else {
+			transport.TLSClientConfig = transport.TLSClientConfig.Clone()
+		}
+		transport.TLSClientConfig.RootCAs = rootCAs
+	}
+
+	jar, jarErr := netcookiejar.New(&netcookiejar.Options{PublicSuffixList: publicsuffix.List})
+
+	client := &nethttp.Client{
+		Transport: transport,
+	}
+	if jarErr == nil {
+		client.Jar = jar
+	}
+	if err != nil {
+		return client, caBundlePath, err.Error()
+	}
+	return client, caBundlePath, ""
+}
+
+func configureLocalCABundle() (string, bool) {
+	if value := strings.TrimSpace(os.Getenv("SSL_CERT_FILE")); value != "" {
+		return value, true
+	}
+	if _, err := os.Stat(localCABundleAsset); err != nil {
+		return "", false
+	}
+	if err := os.Setenv("SSL_CERT_FILE", localCABundleAsset); err != nil {
+		return "", false
+	}
+	return localCABundleAsset, true
+}
+
+func loadRootPool(path string) (*x509.CertPool, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(data) {
+		return nil, fmt.Errorf("no certificates parsed from %s", path)
+	}
+	return pool, nil
+}
+
+func (app *App) replaceCurrentHistory(url string) {
+	if app == nil {
+		return
+	}
+	if app.historyIndex < 0 || app.historyIndex >= len(app.history) {
+		return
+	}
+	app.history[app.historyIndex] = url
+}
+
+func (app *App) networkErrorDetail(url string, err error) string {
+	detail := "Network error while downloading " + displayURL(url) + "."
+	if err != nil {
+		detail += " " + err.Error()
+	}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(url)), "https://") {
+		if app != nil && strings.TrimSpace(app.caBundleError) != "" {
+			detail += " TLS root bundle error: " + app.caBundleError + "."
+		} else if app != nil && strings.TrimSpace(app.caBundlePath) != "" {
+			detail += " TLS roots: " + app.caBundlePath + "."
+		}
+	}
+	return detail
+}
+
+func (app *App) httpErrorDetail(status string, finalURL string, redirected bool) string {
+	status = strings.TrimSpace(status)
+	if status == "" {
+		status = "HTTP error"
+	}
+	if redirected && strings.TrimSpace(finalURL) != "" {
+		return "The request was redirected to " + displayURL(finalURL) + ", then the server returned " + status + "."
+	}
+	return "Server returned " + status + "."
 }
 
 func (app *App) loadBuiltinPage(url string) bool {
@@ -281,21 +458,45 @@ func (app *App) loadBuiltinPage(url string) bool {
 	if !ok {
 		return false
 	}
-	doc := dom.Parse(html)
+	doc := Parse(html)
 	if parsedTitle := documentTitle(doc); parsedTitle != "" {
 		pageTitle = parsedTitle
 	}
 	app.pageTitle = pageTitle
-	app.pageDocument.SetRoot(buildRenderedDocument(app.pageTitle, app.currentURL, doc, func(target string) {
-		app.openURL(target, true)
-	}, func(actionURL string, method string, values neturl.Values) {
-		app.submitForm(actionURL, method, values)
-	}, func() {
-		app.pageDocument.MarkLayoutDirty()
-	}, func() {
-		app.pageDocument.MarkDirty()
-	}))
+	app.showRenderedDocument(doc)
 	app.statusBase = status
+	return true
+}
+
+func (app *App) loadLocalPage(url string) bool {
+	if app == nil {
+		return false
+	}
+	path, ok := localHTMLPathFromURL(url)
+	if !ok {
+		return false
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		app.pageTitle = "Load failed"
+		app.statusBase = "File error"
+		app.showMessageDocument("Load failed", "Failed to read local HTML file: "+path+". "+err.Error())
+		return true
+	}
+	canonicalURL := fileURLFromPath(path)
+	doc := Parse(string(body))
+	app.currentURL = canonicalURL
+	app.addressText = canonicalURL
+	app.replaceCurrentHistory(canonicalURL)
+	app.pageTitle = documentTitle(doc)
+	if strings.TrimSpace(app.pageTitle) == "" {
+		app.pageTitle = filepath.Base(path)
+	}
+	if strings.TrimSpace(app.pageTitle) == "" {
+		app.pageTitle = "Local HTML"
+	}
+	app.showRenderedDocument(doc)
+	app.statusBase = "Loaded (local file)"
 	return true
 }
 
@@ -345,11 +546,11 @@ func (app *App) submitForm(actionURL string, method string, values neturl.Values
 	}
 }
 
-func (app *App) updateContent(header string, body []byte) {
+func (app *App) updateContent(contentType string, body []byte, redirected bool) {
 	if app == nil {
 		return
 	}
-	if !isTextContent(header) {
+	if !isTextContentType(contentType) {
 		app.pageTitle = "Unsupported content"
 		app.statusBase = "Content is not text"
 		app.showMessageDocument("Unsupported content", "This lite browser currently renders only text-like responses.")
@@ -362,9 +563,46 @@ func (app *App) updateContent(header string, body []byte) {
 		truncated = true
 	}
 
-	doc := dom.Parse(string(body))
+	doc := Parse(string(body))
 	app.pageTitle = documentTitle(doc)
-	app.pageDocument.SetRoot(buildRenderedDocument(app.pageTitle, app.currentURL, doc, func(target string) {
+	app.showRenderedDocument(doc)
+	app.statusBase = loadedStatus(truncated, redirected)
+}
+
+func (app *App) showMessageDocument(title string, detail string) {
+	if app == nil || app.pageDocument == nil {
+		return
+	}
+	app.renderDoc = nil
+	app.messageTitle = title
+	app.messageDetail = detail
+	viewportWidth, viewportHeight := app.pageViewportSize()
+	app.renderWidth = viewportWidth
+	app.renderHeight = viewportHeight
+	app.pageDocument.SetRoot(buildMessageDocument(title, detail))
+	if app.pageFrame != nil {
+		app.pageFrame.Style.SetBackground(ui.White)
+	}
+	if app.pageView != nil {
+		app.pageView.Style.SetBackground(ui.White)
+	}
+	if app.pageView != nil {
+		app.pageView.MarkDirty()
+	}
+}
+
+func (app *App) showRenderedDocument(doc *Document) {
+	if app == nil || app.pageDocument == nil || doc == nil {
+		return
+	}
+	app.renderDoc = doc
+	app.messageTitle = ""
+	app.messageDetail = ""
+	viewportWidth, viewportHeight := app.pageViewportSize()
+	app.renderWidth = viewportWidth
+	app.renderHeight = viewportHeight
+	app.applyDocumentViewportStyle(doc, viewportWidth, viewportHeight)
+	app.pageDocument.SetRoot(buildRenderedDocument(app.pageTitle, app.currentURL, doc, viewportWidth, viewportHeight, func(target string) {
 		app.openURL(target, true)
 	}, func(actionURL string, method string, values neturl.Values) {
 		app.submitForm(actionURL, method, values)
@@ -373,18 +611,6 @@ func (app *App) updateContent(header string, body []byte) {
 	}, func() {
 		app.pageDocument.MarkDirty()
 	}))
-	if truncated {
-		app.statusBase = "Loaded (truncated)"
-	} else {
-		app.statusBase = "Loaded"
-	}
-}
-
-func (app *App) showMessageDocument(title string, detail string) {
-	if app == nil || app.pageDocument == nil {
-		return
-	}
-	app.pageDocument.SetRoot(buildMessageDocument(title, detail))
 	if app.pageView != nil {
 		app.pageView.MarkDirty()
 	}
@@ -404,10 +630,17 @@ func (app *App) syncShell() {
 	}
 	syncShellDocument(app, title, status)
 	windowTitle := "Tagix Browser"
-	if app.pageTitle != "" && app.pageTitle != "Tagix Browser" {
+	if app.webViewMode {
+		windowTitle = title
+		if strings.TrimSpace(windowTitle) == "" {
+			windowTitle = "Tagix WebView"
+		}
+	} else if app.pageTitle != "" && app.pageTitle != "Tagix Browser" {
 		windowTitle += " - " + app.pageTitle
 	}
-	app.window.SetTitle(windowTitle)
+	if app.window != nil {
+		app.window.SetTitle(windowTitle)
+	}
 }
 
 func (app *App) handleResize(client ui.Rect) {
@@ -415,9 +648,9 @@ func (app *App) handleResize(client ui.Rect) {
 		return
 	}
 	shellHeight := app.shellHeightForClient(client)
-	pageHeight := client.Height - rootInset*2 - shellHeight - shellGap
-	if pageHeight < minPageHeight {
-		pageHeight = minPageHeight
+	pageHeight := client.Height - rootInset*2 - shellHeight - shellGap - app.pageFrameVerticalChrome()
+	if minHeight := app.effectivePageMinHeight(); pageHeight < minHeight {
+		pageHeight = minHeight
 	}
 	changed := false
 	if current, ok := app.pageView.Style.GetHeight(); !ok || current != pageHeight {
@@ -428,10 +661,14 @@ func (app *App) handleResize(client ui.Rect) {
 		app.shellView.MarkLayoutDirty()
 		app.pageView.MarkLayoutDirty()
 	}
+	app.rerenderForViewportChange()
 }
 
 func (app *App) shellHeightForClient(client ui.Rect) int {
 	if app == nil || app.shellView == nil {
+		return 0
+	}
+	if display, ok := app.shellView.Style.GetDisplay(); ok && display == ui.DisplayNone {
 		return 0
 	}
 	width := client.Width - rootInset*2
@@ -472,21 +709,113 @@ func (app *App) shellHeightForClient(client ui.Rect) int {
 	return fallback
 }
 
-func formatUint(value uint32) string {
-	if value == 0 {
-		return "0"
+func (app *App) effectivePageMinHeight() int {
+	if app == nil || app.pageMinHeight < minPageHeight {
+		return minPageHeight
 	}
-	var buf [10]byte
-	i := len(buf)
-	for value > 0 {
-		i--
-		buf[i] = byte('0' + value%10)
-		value /= 10
-	}
-	return string(buf[i:])
+	return app.pageMinHeight
 }
 
-func documentTitle(doc *dom.Document) string {
+func (app *App) pageFrameVerticalChrome() int {
+	if app == nil || app.pageFrame == nil {
+		return 0
+	}
+	total := 0
+	if margin, ok := app.pageFrame.Style.GetMargin(); ok {
+		total += margin.Top + margin.Bottom
+	}
+	if padding, ok := app.pageFrame.Style.GetPadding(); ok {
+		total += padding.Top + padding.Bottom
+	}
+	if border, ok := app.pageFrame.Style.GetBorderTopWidth(); ok {
+		total += border
+	}
+	if border, ok := app.pageFrame.Style.GetBorderBottomWidth(); ok {
+		total += border
+	}
+	return total
+}
+
+func (app *App) pageFrameHorizontalChrome() int {
+	if app == nil || app.pageFrame == nil {
+		return 0
+	}
+	total := 0
+	if margin, ok := app.pageFrame.Style.GetMargin(); ok {
+		total += margin.Left + margin.Right
+	}
+	if padding, ok := app.pageFrame.Style.GetPadding(); ok {
+		total += padding.Left + padding.Right
+	}
+	if border, ok := app.pageFrame.Style.GetBorderLeftWidth(); ok {
+		total += border
+	}
+	if border, ok := app.pageFrame.Style.GetBorderRightWidth(); ok {
+		total += border
+	}
+	return total
+}
+
+func (app *App) pageViewportSize() (int, int) {
+	width := defaultWindowWidth - rootInset*2 - 2
+	height := defaultPageHeight
+	if app != nil && app.window != nil {
+		client := app.window.ClientRect()
+		width = client.Width - rootInset*2 - app.pageFrameHorizontalChrome()
+	}
+	if app != nil && app.pageView != nil {
+		if current, ok := app.pageView.Style.GetHeight(); ok && current > 0 {
+			height = current
+		}
+	}
+	if width < 0 {
+		width = 0
+	}
+	if height < 0 {
+		height = 0
+	}
+	return width, height
+}
+
+func (app *App) applyDocumentViewportStyle(doc *Document, viewportWidth int, viewportHeight int) {
+	if app == nil {
+		return
+	}
+	canvasStyle := documentCanvasStyle(doc, viewportWidth, viewportHeight)
+	background := ui.White
+	if color, ok := canvasStyle.GetBackground(); ok {
+		background = color
+	}
+	if app.pageFrame != nil {
+		app.pageFrame.Style.SetBackground(background)
+	}
+	if app.pageView != nil {
+		app.pageView.Style.SetBackground(background)
+	}
+}
+
+func (app *App) rerenderForViewportChange() {
+	if app == nil || app.pageDocument == nil {
+		return
+	}
+	viewportWidth, viewportHeight := app.pageViewportSize()
+	if viewportWidth == app.renderWidth && viewportHeight == app.renderHeight {
+		return
+	}
+	app.renderWidth = viewportWidth
+	app.renderHeight = viewportHeight
+	if app.renderDoc != nil {
+		app.showRenderedDocument(app.renderDoc)
+	} else if app.messageTitle != "" || app.messageDetail != "" {
+		app.showMessageDocument(app.messageTitle, app.messageDetail)
+	}
+	if app.pageView != nil {
+		app.pageView.MarkLayoutDirty()
+		app.pageView.MarkDirty()
+	}
+}
+
+func documentTitle(doc *Document) string {
 	if doc == nil {
 		return ""
 	}
@@ -497,11 +826,11 @@ func documentTitle(doc *dom.Document) string {
 	return strings.TrimSpace(collectText(nodes[0]))
 }
 
-func collectText(node *dom.Node) string {
+func collectText(node *Node) string {
 	if node == nil {
 		return ""
 	}
-	if node.Type == dom.TextNode {
+	if node.Type == TextNode {
 		return node.Text
 	}
 	var builder strings.Builder
@@ -511,23 +840,29 @@ func collectText(node *dom.Node) string {
 	return builder.String()
 }
 
-func isTextContent(header string) bool {
-	if header == "" {
+func isTextContentType(contentType string) bool {
+	contentType = strings.TrimSpace(contentType)
+	if contentType == "" {
 		return true
 	}
-	lower := toLowerASCII(header)
-	index := strings.Index(lower, "content-type:")
-	if index < 0 {
-		return true
+	lower := toLowerASCII(contentType)
+	return strings.Contains(lower, "text/") ||
+		strings.Contains(lower, "json") ||
+		strings.Contains(lower, "xml") ||
+		strings.Contains(lower, "javascript")
+}
+
+func loadedStatus(truncated bool, redirected bool) string {
+	switch {
+	case truncated && redirected:
+		return "Loaded (redirected, truncated)"
+	case truncated:
+		return "Loaded (truncated)"
+	case redirected:
+		return "Loaded (redirected)"
+	default:
+		return "Loaded"
 	}
-	line := lower[index:]
-	if end := indexByte(line, '\n'); end >= 0 {
-		line = line[:end]
-	}
-	return strings.Contains(line, "text/") ||
-		strings.Contains(line, "json") ||
-		strings.Contains(line, "xml") ||
-		strings.Contains(line, "javascript")
 }
 
 func main() {

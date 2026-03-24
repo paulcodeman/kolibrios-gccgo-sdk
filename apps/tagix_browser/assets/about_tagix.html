@@ -4,15 +4,18 @@
 </head>
 <body>
 <h1>Tagix Browser</h1>
-<p>This built-in page is rendered through the same HTML5 parser and DocumentView pipeline as remote content.</p>
+<p>Browser chrome now loads from <code>assets/shell.html</code>, and page content is hosted in a dedicated iframe-like frame below the toolbar.</p>
 <p><a href="about:forms">Open the built-in forms demo</a> or visit <a href="https://example.com">example.com</a>.</p>
 <h2>What to test</h2>
 <ul>
-<li>Inline links inside paragraphs</li>
-<li>Preformatted code blocks</li>
-<li>Lists and headings</li>
-<li>Document focus, hover and scroll</li>
+<li>Semantic shell tags: header, nav, section, h1, small, iframe</li>
+<li>Shell styling through inline HTML5 <code>style</code> attributes</li>
+<li>Inline links, lists, headings and forms in rendered pages</li>
+<li>Document focus, hover and scroll inside the hosted page view</li>
 </ul>
-<pre><code>&lt;html&gt; -&gt; dom.Parse -&gt; ui.DocumentNode -&gt; DocumentView</code></pre>
+<details>
+<summary>Pipeline</summary>
+<p><code>shell.html -&gt; Parse -&gt; ui.DocumentNode -&gt; DocumentView</code></p>
+</details>
 </body>
 </html>

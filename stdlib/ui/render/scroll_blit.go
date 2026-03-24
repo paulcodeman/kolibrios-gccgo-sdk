@@ -188,6 +188,9 @@ func (view *DocumentView) canUseScrollBlit(style Style, viewport Rect) bool {
 	if view == nil || viewport.Empty() {
 		return false
 	}
+	if view.DisableScrollBlit {
+		return false
+	}
 	if view.skipScrollBlitOnce {
 		return false
 	}

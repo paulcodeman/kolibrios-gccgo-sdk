@@ -67,6 +67,8 @@ type DocumentView struct {
 	StyleActive Style
 	OnClick     interface{}
 
+	DisableScrollBlit bool
+
 	window              *Window
 	parent              *Element
 	layoutRect          Rect

@@ -1,11 +1,38 @@
+<html>
+<head>
+<style>
+html,body{margin:0;min-height:100%;height:100%}
+body{background:#f1f3f4;min-height:100vh}
+#browser-shell{display:block;min-height:100vh;padding:12px 14px 14px;background:#f1f3f4;font-family:system-ui,sans-serif;font-size:13px;line-height:18px;color:#202124;box-sizing:border-box}
+#browser-toolbar{display:block;min-height:100%;padding:0 0 8px;box-sizing:border-box}
+#browser-meta{display:block;margin:0 0 10px}
+#browser-title{display:block;margin:0 0 4px;font-size:20px;line-height:24px;color:#202124}
+#browser-status{display:block;margin:0;font-size:11px;line-height:15px;color:#5f6368}
+#browser-controls{display:block;margin:0 0 8px}
+.browser-button{display:inline-block;margin:0 6px 6px 0;padding:5px 10px;border:1px solid #c3cad2;border-radius:8px;background:#e5e9ee;color:#202124;font-size:12px;line-height:16px}
+#browser-address-row{display:block}
+#browser-address{display:block;width:100%;padding:7px 12px;border:1px solid #808a96;border-radius:10px;background:#fff;color:#202124;font-size:13px;line-height:18px;min-width:260px;box-sizing:border-box}
+#browser-page-frame{display:block;width:100%;margin:8px 0 0;border:1px solid #d7dee7;border-radius:16px;background:#fff;min-height:280px;height:calc(100vh - 176px);overflow:auto;box-sizing:border-box}
+</style>
+</head>
 <body>
-<section data-role="shell-root">
-<div data-role="actions">
-<button data-role="button" data-action="back" data-enabled="<<back_enabled>>">Back</button>
-<button data-role="button" data-action="forward" data-enabled="<<forward_enabled>>">Forward</button>
-<button data-role="button" data-action="reload" data-enabled="true">Reload</button>
-<button data-role="button" data-action="home" data-enabled="true">Home</button>
-</div>
-<input data-role="address" value="<<current_url>>">
+<header id="browser-shell" data-role="shell-root">
+<section id="browser-toolbar">
+<section id="browser-meta">
+<h1 id="browser-title" data-role="title">Tagix Browser</h1>
+<small id="browser-status" data-role="status">Ready</small>
 </section>
+<nav id="browser-controls">
+<button id="browser-back" class="browser-button" data-role="button" data-action="back">Back</button>
+<button id="browser-forward" class="browser-button" data-role="button" data-action="forward">Forward</button>
+<button id="browser-reload" class="browser-button" data-role="button" data-action="reload">Reload</button>
+<button id="browser-home" class="browser-button" data-role="button" data-action="home">Home</button>
+</nav>
+<section id="browser-address-row">
+<input id="browser-address" data-role="address" value="">
+</section>
+<iframe id="browser-page-frame" data-role="page-frame" src="about:tagix"></iframe>
+</section>
+</header>
 </body>
+</html>

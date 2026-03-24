@@ -71,6 +71,7 @@ func (window *Window) SetTitle(title string) bool {
 		return false
 	}
 	window.Title = title
+	kos.SetWindowTitle(title)
 	return true
 }
 
