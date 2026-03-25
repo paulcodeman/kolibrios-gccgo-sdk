@@ -1221,3 +1221,93 @@ func applyShellFrameTemplate(app *App, node *Node, ctx *shellRenderContext) {
 		app.pageFrame.Style.SetMaxWidth(width)
 	}
 }
+
+func applyShellStatusTemplate(app *App, node *Node, ctx *shellRenderContext) {
+	if app == nil || node == nil || app.statusBar == nil {
+		return
+	}
+	template := ui.Style{}
+	applyShellNodeStyles(&template, node, ctx)
+
+	if display, ok := template.GetDisplay(); ok {
+		app.statusBar.Style.SetDisplay(display)
+	}
+	if margin, ok := template.GetMargin(); ok {
+		if ctx != nil && ctx.root != nil && !app.webViewMode {
+			hostRoot := ui.Style{}
+			applyShellNodeStyles(&hostRoot, ctx.root, ctx)
+			if padding, paddingOK := hostRoot.GetPadding(); paddingOK {
+				margin.Left += padding.Left
+				margin.Right += padding.Right
+			}
+		}
+		app.statusBar.Style.SetMargin(margin.Top, margin.Right, margin.Bottom, margin.Left)
+	}
+	if padding, ok := template.GetPadding(); ok {
+		app.statusBar.Style.SetPadding(padding.Top, padding.Right, padding.Bottom, padding.Left)
+	}
+	if border, ok := template.GetBorderWidth(); ok {
+		color, colorOK := template.GetBorderColor()
+		if !colorOK {
+			color = 0xD7DEE7
+		}
+		app.statusBar.Style.SetBorder(border, color)
+	}
+	if border, ok := template.GetBorderTopWidth(); ok {
+		color, colorOK := template.GetBorderTopColor()
+		if !colorOK {
+			color = 0xD7DEE7
+		}
+		app.statusBar.Style.SetBorderTop(border, color)
+	}
+	if border, ok := template.GetBorderRightWidth(); ok {
+		color, colorOK := template.GetBorderRightColor()
+		if !colorOK {
+			color = 0xD7DEE7
+		}
+		app.statusBar.Style.SetBorderRight(border, color)
+	}
+	if border, ok := template.GetBorderBottomWidth(); ok {
+		color, colorOK := template.GetBorderBottomColor()
+		if !colorOK {
+			color = 0xD7DEE7
+		}
+		app.statusBar.Style.SetBorderBottom(border, color)
+	}
+	if border, ok := template.GetBorderLeftWidth(); ok {
+		color, colorOK := template.GetBorderLeftColor()
+		if !colorOK {
+			color = 0xD7DEE7
+		}
+		app.statusBar.Style.SetBorderLeft(border, color)
+	}
+	if radius, ok := template.GetBorderRadius(); ok {
+		app.statusBar.Style.SetBorderRadius(radius.TopLeft, radius.TopRight, radius.BottomRight, radius.BottomLeft)
+	}
+	if color, ok := template.GetBackground(); ok {
+		app.statusBar.Style.SetBackground(color)
+		if app.statusLabel != nil {
+			app.statusLabel.Style.SetBackground(color)
+		}
+	}
+	if color, ok := template.GetForeground(); ok {
+		app.statusBar.Style.SetForeground(color)
+		if app.statusLabel != nil {
+			app.statusLabel.Style.SetForeground(color)
+		}
+	}
+	if opacity, ok := template.GetOpacity(); ok {
+		app.statusBar.Style.SetOpacity(opacity)
+	}
+	if width, ok := template.GetMinWidth(); ok && width > 0 {
+		app.statusBar.Style.SetMinWidth(width)
+	}
+	if width, ok := template.GetMaxWidth(); ok && width > 0 {
+		app.statusBar.Style.SetMaxWidth(width)
+	}
+	if statusNode := findNodeByAttr(node, "data-role", "status"); statusNode != nil && app.statusLabel != nil {
+		textStyle := ui.Style{}
+		applyShellNodeStyles(&textStyle, statusNode, ctx)
+		copyPageTextProperties(&app.statusLabel.Style, textStyle)
+	}
+}

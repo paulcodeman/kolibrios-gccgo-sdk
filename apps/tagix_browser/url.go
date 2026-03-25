@@ -177,18 +177,18 @@ func cleanRelative(path string) string {
 	return path
 }
 
-func resolveStartupTarget(args []string) (string, bool) {
+func resolveStartupTarget(args []string) (string, string, bool) {
 	for _, raw := range args {
 		value := strings.TrimSpace(raw)
 		if value == "" {
 			continue
 		}
 		if path, ok := localHTMLPathFromArg(value); ok {
-			return fileURLFromPath(path), true
+			return defaultURL, path, false
 		}
-		return normalizeURL(value), false
+		return normalizeURL(value), "", false
 	}
-	return defaultURL, false
+	return defaultURL, "", false
 }
 
 func localHTMLPathFromArg(value string) (string, bool) {

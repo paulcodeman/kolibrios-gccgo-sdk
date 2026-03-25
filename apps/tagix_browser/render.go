@@ -40,8 +40,9 @@ const (
 )
 
 var (
-	cachedShellTemplate     string
-	cachedShellTemplateRead bool
+	cachedShellTemplate        string
+	cachedShellTemplateRead    bool
+	cachedShellTemplateSource  string
 )
 
 type renderContext struct {
@@ -50,6 +51,7 @@ type renderContext struct {
 	submitForm     func(string, string, neturl.Values)
 	loadImage      func(string) *ui.DocumentImage
 	imageError     func(string) string
+	setStatusHint  func(string)
 	requestPaint   func()
 	requestLayout  func()
 	stylesheet     *pageStylesheet
@@ -516,9 +518,7 @@ func shellRoleText(app *App, role string, fallback string) string {
 		return "Tagix Browser"
 	case "status":
 		if app != nil {
-			if value := strings.TrimSpace(app.statusBase); value != "" {
-				return value
-			}
+			return app.currentShellStatus()
 		}
 		if strings.TrimSpace(fallback) != "" {
 			return fallback
@@ -593,7 +593,7 @@ func buildShellDocument(app *App) *ui.DocumentNode {
 		canForward = app.historyIndex+1 < len(app.history)
 	}
 	root := ui.NewDocumentElement("browser-shell", shellRootStyle())
-	root.Style.SetPadding(12, 14, 0, 14)
+	root.Style.SetPadding(10, 12, 0, 12)
 	root.Style.SetBackground(0xF1F3F4)
 
 	actions := ui.NewDocumentElement("browser-shell-actions", styled(func(style *ui.Style) {
@@ -620,7 +620,7 @@ func renderShellRoot(app *App) *ui.DocumentNode {
 	if app != nil {
 		app.resetShellNodeRegistry()
 	}
-	doc := Parse(loadShellTemplateSource())
+	doc := Parse(loadShellTemplateSource(app))
 	if doc != nil && doc.Root != nil {
 		ctx := newShellRenderContext(app, doc)
 		applyShellViewportStyle(app, doc, ctx)
@@ -631,14 +631,22 @@ func renderShellRoot(app *App) *ui.DocumentNode {
 	return buildShellDocument(app)
 }
 
-func loadShellTemplateSource() string {
-	if cachedShellTemplateRead {
+func loadShellTemplateSource(app *App) string {
+	sourcePath := webShellHTML
+	if app != nil {
+		if value := strings.TrimSpace(app.shellTemplatePath); value != "" {
+			sourcePath = value
+		}
+	}
+	if cachedShellTemplateRead && cachedShellTemplateSource == sourcePath {
 		return cachedShellTemplate
 	}
 	cachedShellTemplateRead = true
-	data, err := os.ReadFile(webShellHTML)
+	cachedShellTemplateSource = sourcePath
+	data, err := os.ReadFile(sourcePath)
 	if err != nil || len(data) == 0 {
-		cachedShellTemplate = defaultShellTemplateHTML
+		_, _, missing := missingBuiltinAssetPage(sourcePath)
+		cachedShellTemplate = missing
 		return cachedShellTemplate
 	}
 	cachedShellTemplate = string(data)
@@ -686,6 +694,9 @@ func buildShellTemplateNode(app *App, node *Node, ctx *shellRenderContext) *ui.D
 		return shellContainerNode(app, node, "browser-shell", shellRootStyle(), ctx)
 	case "title":
 		return shellBoundTextNode(app, node, "title", ctx)
+	case "status-bar":
+		applyShellStatusTemplate(app, node, ctx)
+		return nil
 	case "status":
 		return shellBoundTextNode(app, node, "status", ctx)
 	case "button":
@@ -703,6 +714,12 @@ func buildShellTemplateNode(app *App, node *Node, ctx *shellRenderContext) *ui.D
 	case "iframe":
 		applyShellFrameTemplate(app, node, ctx)
 		return nil
+	case "footer":
+		if strings.TrimSpace(attrValue(node, "data-role")) == "status-bar" {
+			applyShellStatusTemplate(app, node, ctx)
+			return nil
+		}
+		return shellContainerNode(app, node, node.Tag, shellContainerStyleForTag(node.Tag), ctx)
 	case "button":
 		return shellButtonNodeWithSource(app, collectNodeText(node, false), strings.TrimSpace(node.Attrs["data-action"]), true, node, ctx)
 	case "input":
@@ -981,26 +998,21 @@ func syncShellDocument(app *App, title string, status string) {
 const defaultShellTemplateHTML = `<html>
 <head>
 <style>
-html,body{margin:0;min-height:100%;height:100%}
-body{background:#f1f3f4;min-height:100vh}
-#browser-shell{display:block;min-height:100vh;padding:12px 14px 14px;background:#f1f3f4;font-family:system-ui,sans-serif;font-size:13px;line-height:18px;color:#202124;box-sizing:border-box}
-#browser-toolbar{display:block;min-height:100%;padding:0 0 8px;box-sizing:border-box}
-#browser-meta{display:block;margin:0 0 10px}
-#browser-title{display:block;margin:0 0 4px;font-size:20px;line-height:24px;color:#202124}
-#browser-status{display:block;margin:0;font-size:11px;line-height:15px;color:#5f6368}
-#browser-controls{display:flex;align-items:center;margin:0 0 8px}
+html,body{margin:0}
+body{background:#f1f3f4}
+#browser-shell{display:block;padding:10px 12px 0;background:#f1f3f4;font-family:system-ui,sans-serif;font-size:13px;line-height:18px;color:#202124;box-sizing:border-box}
+#browser-toolbar{display:block;box-sizing:border-box}
+#browser-controls{display:flex;align-items:center;margin:0}
 .browser-button{display:inline-block;width:30px;height:28px;margin:0 6px 0 0;padding:5px 0;border:1px solid #c3cad2;border-radius:8px;background:#e5e9ee;color:#202124;font-size:16px;line-height:18px;text-align:center;box-sizing:border-box}
 #browser-address{display:block;flex-grow:1;padding:7px 12px;border:1px solid #808a96;border-radius:10px;background:#fff;color:#202124;font-size:13px;line-height:18px;min-width:220px;box-sizing:border-box}
-#browser-page-frame{display:block;width:100%;margin:8px 0 0;border:1px solid #d7dee7;border-radius:16px;background:#fff;min-height:280px;height:calc(100vh - 176px);overflow:auto;box-sizing:border-box}
+#browser-page-frame{display:block;width:100%;margin:8px 0 0;border:1px solid #d7dee7;border-radius:16px;background:#fff;min-height:280px;overflow:auto;box-sizing:border-box}
+#browser-status-bar{display:block;margin:8px 0 0;padding:4px 10px;border:1px solid #d7dee7;background:#f8f9fa;color:#5f6368;box-sizing:border-box}
+#browser-status{display:block;margin:0;font-size:11px;line-height:14px;color:#5f6368}
 </style>
 </head>
 <body>
 <header id="browser-shell" data-role="shell-root">
 <section id="browser-toolbar">
-<section id="browser-meta">
-<h1 id="browser-title" data-role="title">Tagix Browser</h1>
-<small id="browser-status" data-role="status">Ready</small>
-</section>
 <nav id="browser-controls">
 <button id="browser-back" class="browser-button" data-role="button" data-action="back">&#x2190;</button>
 <button id="browser-forward" class="browser-button" data-role="button" data-action="forward">&#x2192;</button>
@@ -1008,19 +1020,21 @@ body{background:#f1f3f4;min-height:100vh}
 <button id="browser-home" class="browser-button" data-role="button" data-action="home">&#x2302;</button>
 <input id="browser-address" data-role="address" value="">
 </nav>
-<iframe id="browser-page-frame" data-role="page-frame" src="about:tagix"></iframe>
 </section>
+<iframe id="browser-page-frame" data-role="page-frame" src="about:tagix"></iframe>
+<footer id="browser-status-bar" data-role="status-bar"><small id="browser-status" data-role="status">Ready</small></footer>
 </header>
 </body>
 </html>`
 
-func buildRenderedDocument(title string, currentURL string, doc *Document, viewportWidth int, viewportHeight int, openURL func(string), submitForm func(string, string, neturl.Values), loadImage func(string) *ui.DocumentImage, imageError func(string) string, requestLayout func(), requestPaint func()) *ui.DocumentNode {
+func buildRenderedDocument(title string, currentURL string, doc *Document, viewportWidth int, viewportHeight int, openURL func(string), submitForm func(string, string, neturl.Values), loadImage func(string) *ui.DocumentImage, imageError func(string) string, setStatusHint func(string), requestLayout func(), requestPaint func()) *ui.DocumentNode {
 	ctx := &renderContext{
 		baseURL:        currentURL,
 		openURL:        openURL,
 		submitForm:     submitForm,
 		loadImage:      loadImage,
 		imageError:     imageError,
+		setStatusHint:  setStatusHint,
 		requestLayout:  requestLayout,
 		requestPaint:   requestPaint,
 		stylesheet:     parseDocumentStylesheet(doc),
@@ -2343,6 +2357,7 @@ func structuredLinkContainerNode(node *Node, ctx *renderContext) *ui.DocumentNod
 			ctx.openURL(href)
 		}
 	}
+	bindLinkStatusHint(link, href, ctx)
 	return link
 }
 
@@ -3013,6 +3028,7 @@ func inlineLinkNode(label string, href string, node *Node, baseStyle ui.Style, c
 			ctx.openURL(href)
 		}
 	}
+	bindLinkStatusHint(link, href, ctx)
 	return link
 }
 
@@ -4831,7 +4847,24 @@ func documentLinkCard(label string, href string, ctx *renderContext) *ui.Documen
 			ctx.openURL(href)
 		}
 	}
+	bindLinkStatusHint(card, href, ctx)
 	return card
+}
+
+func bindLinkStatusHint(target *ui.DocumentNode, href string, ctx *renderContext) {
+	if target == nil || ctx == nil || ctx.setStatusHint == nil {
+		return
+	}
+	hint := displayURL(href)
+	if hint == "" {
+		return
+	}
+	target.OnMouseEnter = func() {
+		ctx.setStatusHint(hint)
+	}
+	target.OnMouseLeave = func() {
+		ctx.setStatusHint("")
+	}
 }
 
 func normalizeBlockText(value string) string {

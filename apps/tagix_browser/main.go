@@ -45,10 +45,13 @@ type App struct {
 	imageCache       map[string]*ui.DocumentImage
 	imageErrors      map[string]string
 	resourceCacheDir string
+	shellTemplatePath string
 
 	shellDocument *ui.Document
 	shellView     *ui.DocumentView
 	pageFrame     *ui.Element
+	statusBar     *ui.Element
+	statusLabel   *ui.Element
 	pageDocument  *ui.Document
 	pageView      *ui.DocumentView
 
@@ -69,6 +72,7 @@ type App struct {
 	addressText   string
 	pageTitle     string
 	statusBase    string
+	statusHint    string
 	renderDoc     *Document
 	messageTitle  string
 	messageDetail string
@@ -82,7 +86,7 @@ type App struct {
 }
 
 func NewApp() *App {
-	startupURL, webViewMode := resolveStartupTarget(os.Args[1:])
+	startupURL, shellTemplatePath, webViewMode := resolveStartupTarget(os.Args[1:])
 	resourceCacheDir := initResourceCacheDir()
 	httpClient, cookieJar, caBundlePath, caBundleError := newBrowserHTTPClient(resourceCacheDir)
 	app := &App{
@@ -95,6 +99,7 @@ func NewApp() *App {
 		imageCache:       map[string]*ui.DocumentImage{},
 		imageErrors:      map[string]string{},
 		resourceCacheDir: resourceCacheDir,
+		shellTemplatePath: shellTemplatePath,
 		statusBase:       "Ready",
 		historyIndex:     -1,
 		addressText:      defaultURL,
@@ -121,7 +126,7 @@ func (app *App) buildUI() {
 	windowTitle := "Tagix Browser"
 	windowBackground := kos.Color(0xE7EBF0)
 	rootBackground := kos.Color(0xF1F3F4)
-	pageFrameMarginTop := 10
+	pageFrameMarginTop := 8
 	pageFrameBorder := 1
 	pageFrameRadius := 16
 	if app != nil && app.webViewMode {
@@ -202,8 +207,43 @@ func (app *App) buildUI() {
 		style.SetContain(ui.ContainPaint)
 	})
 
+	app.statusBar = ui.CreateBox()
+	app.statusBar.UpdateStyle(func(style *ui.Style) {
+		if app != nil && app.webViewMode {
+			style.SetDisplay(ui.DisplayNone)
+		} else {
+			style.SetDisplay(ui.DisplayBlock)
+		}
+		style.SetMargin(8, 0, 0, 0)
+		style.SetPadding(4, 10)
+		style.SetBorder(1, 0xD7DEE7)
+		style.SetBackground(0xF8F9FA)
+		style.SetForeground(0x5F6368)
+		style.SetContain(ui.ContainPaint)
+		style.SetOverflow(ui.OverflowHidden)
+		style.SetWhiteSpace(ui.WhiteSpaceNoWrap)
+	})
+	app.statusLabel = ui.CreateLabel()
+	app.statusLabel.Text = "Ready"
+	app.statusLabel.UpdateStyle(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0)
+		style.SetPadding(0)
+		style.SetBorder(0, 0xF8F9FA)
+		style.SetBackground(0xF8F9FA)
+		style.SetForeground(0x5F6368)
+		style.SetFontPath(webSansFontPath)
+		style.SetFontSize(11)
+		style.SetLineHeight(14)
+		style.SetOverflow(ui.OverflowHidden)
+		style.SetWhiteSpace(ui.WhiteSpaceNoWrap)
+		style.SetContain(ui.ContainPaint)
+	})
+	app.statusBar.Append(app.statusLabel)
+
 	root.Append(app.shellView)
 	root.Append(app.pageFrame)
+	root.Append(app.statusBar)
 	window.Append(root)
 	window.OnResize = app.handleResize
 	app.handleResize(window.ClientRect())
@@ -425,6 +465,7 @@ func (app *App) startNavigation(url string, push bool) string {
 	url = normalizeURL(url)
 	app.currentURL = url
 	app.addressText = url
+	app.statusHint = ""
 	if push {
 		app.pushHistory(url)
 	}
@@ -444,6 +485,7 @@ func (app *App) finishNavigation() {
 	if app.pageView != nil {
 		app.pageView.MarkDirty()
 	}
+	app.syncShell()
 }
 
 func (app *App) handleHTTPResponse(response *nethttp.Response, requestedURL string) {
@@ -753,6 +795,7 @@ func (app *App) showMessageDocument(title string, detail string) {
 	if app == nil || app.pageDocument == nil {
 		return
 	}
+	app.statusHint = ""
 	setCurrentDocumentFontFamilies(nil)
 	app.renderDoc = nil
 	app.messageTitle = title
@@ -770,12 +813,14 @@ func (app *App) showMessageDocument(title string, detail string) {
 	if app.pageView != nil {
 		app.pageView.MarkDirty()
 	}
+	app.syncShell()
 }
 
 func (app *App) showRenderedDocument(doc *Document) {
 	if app == nil || app.pageDocument == nil || doc == nil {
 		return
 	}
+	app.statusHint = ""
 	setCurrentDocumentFontFamilies(doc.fontFamilies)
 	app.renderDoc = doc
 	app.messageTitle = ""
@@ -792,6 +837,8 @@ func (app *App) showRenderedDocument(doc *Document) {
 		return app.loadDocumentImage(rawURL)
 	}, func(rawURL string) string {
 		return app.imageErrors[strings.TrimSpace(rawURL)]
+	}, func(value string) {
+		app.setStatusHint(value)
 	}, func() {
 		app.pageDocument.MarkLayoutDirty()
 	}, func() {
@@ -800,21 +847,24 @@ func (app *App) showRenderedDocument(doc *Document) {
 	if app.pageView != nil {
 		app.pageView.MarkDirty()
 	}
+	app.syncShell()
 }
 
 func (app *App) syncShell() {
-	if app == nil || app.shellDocument == nil {
+	if app == nil {
 		return
 	}
 	title := strings.TrimSpace(app.pageTitle)
 	if title == "" {
 		title = "Tagix Browser"
 	}
-	status := strings.TrimSpace(app.statusBase)
-	if status == "" {
-		status = "Ready"
+	status := app.currentShellStatus()
+	if app.shellDocument != nil {
+		syncShellDocument(app, title, status)
 	}
-	syncShellDocument(app, title, status)
+	if app.statusLabel != nil {
+		app.statusLabel.SetText(app.window, status)
+	}
 	windowTitle := "Tagix Browser"
 	if app.webViewMode {
 		windowTitle = title
@@ -834,7 +884,8 @@ func (app *App) handleResize(client ui.Rect) {
 		return
 	}
 	shellHeight := app.shellHeightForClient(client)
-	pageHeight := client.Height - rootInset*2 - shellHeight - shellGap - app.pageFrameVerticalChrome()
+	statusBarHeight := app.statusBarHeightForClient()
+	pageHeight := client.Height - rootInset*2 - shellHeight - shellGap - statusBarHeight - app.pageFrameVerticalChrome()
 	if minHeight := app.effectivePageMinHeight(); pageHeight < minHeight {
 		pageHeight = minHeight
 	}
@@ -895,6 +946,31 @@ func (app *App) shellHeightForClient(client ui.Rect) int {
 	return fallback
 }
 
+func (app *App) currentShellStatus() string {
+	if app == nil {
+		return "Ready"
+	}
+	if value := strings.TrimSpace(app.statusHint); value != "" {
+		return value
+	}
+	if value := strings.TrimSpace(app.statusBase); value != "" {
+		return value
+	}
+	return "Ready"
+}
+
+func (app *App) setStatusHint(value string) {
+	if app == nil {
+		return
+	}
+	value = strings.TrimSpace(value)
+	if app.statusHint == value {
+		return
+	}
+	app.statusHint = value
+	app.syncShell()
+}
+
 func (app *App) effectivePageMinHeight() int {
 	if app == nil || app.pageMinHeight < minPageHeight {
 		return minPageHeight
@@ -918,6 +994,41 @@ func (app *App) pageFrameVerticalChrome() int {
 	}
 	if border, ok := app.pageFrame.Style.GetBorderBottomWidth(); ok {
 		total += border
+	}
+	return total
+}
+
+func (app *App) statusBarHeightForClient() int {
+	if app == nil || app.statusBar == nil {
+		return 0
+	}
+	if display, ok := app.statusBar.Style.GetDisplay(); ok && display == ui.DisplayNone {
+		return 0
+	}
+	total := 0
+	if margin, ok := app.statusBar.Style.GetMargin(); ok {
+		total += margin.Top + margin.Bottom
+	}
+	if padding, ok := app.statusBar.Style.GetPadding(); ok {
+		total += padding.Top + padding.Bottom
+	}
+	if border, ok := app.statusBar.Style.GetBorderTopWidth(); ok {
+		total += border
+	}
+	if border, ok := app.statusBar.Style.GetBorderBottomWidth(); ok {
+		total += border
+	}
+	if app.statusLabel != nil {
+		if lineHeight, ok := app.statusLabel.Style.GetLineHeight(); ok {
+			total += lineHeight
+		} else if fontSize, ok := app.statusLabel.Style.GetFontSize(); ok {
+			total += fontSize
+		} else {
+			total += 14
+		}
+	}
+	if total <= 0 {
+		return 24
 	}
 	return total
 }
