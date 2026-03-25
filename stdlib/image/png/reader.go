@@ -111,6 +111,7 @@ type decoder struct {
 	cb            int
 	stage         int
 	idatLength    uint32
+	idatServed    uint64
 	tmp           [3 * 256]byte
 	interlace     int
 
@@ -346,6 +347,7 @@ func (d *decoder) Read(p []byte) (int, error) {
 		}
 		d.idatLength = binary.BigEndian.Uint32(d.tmp[:4])
 		if string(d.tmp[4:8]) != "IDAT" {
+			pngDebugf("idat underflow next=%q width=%d height=%d cb=%d remaining=%d", string(d.tmp[4:8]), d.width, d.height, d.cb, d.idatLength)
 			return 0, FormatError("not enough pixel data")
 		}
 		d.crc.Reset()
@@ -357,6 +359,7 @@ func (d *decoder) Read(p []byte) (int, error) {
 	n, err := d.r.Read(p[:min(len(p), int(d.idatLength))])
 	d.crc.Write(p[:n])
 	d.idatLength -= uint32(n)
+	d.idatServed += uint64(n)
 	return n, err
 }
 
@@ -512,6 +515,7 @@ func (d *decoder) readImagePass(r io.Reader, pass int, allocateOnly bool) (image
 		_, err := io.ReadFull(r, cr)
 		if err != nil {
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				pngDebugf("row underflow y=%d rowSize=%d width=%d height=%d cb=%d served=%d remaining=%d err=%v", y, len(cr), width, height, d.cb, d.idatServed, d.idatLength, err)
 				return nil, FormatError("not enough pixel data")
 			}
 			return nil, err

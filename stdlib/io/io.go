@@ -152,7 +152,7 @@ func ReadAtLeast(r Reader, buf []byte, min int) (n int, err error) {
 		n += nn
 	}
 	if n >= min {
-		return n, err
+		return n, nil
 	}
 	if n > 0 && err == EOF {
 		err = ErrUnexpectedEOF
