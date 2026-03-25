@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"ui"
+	"unicode/utf8"
 )
 
 const (
@@ -19,8 +20,23 @@ const (
 	webMonoBoldFontPath          = "assets/fonts/GoMonoBold.ttf"
 	webMonoItalicFontPath        = "assets/fonts/GoMonoItalic.ttf"
 	webMonoBoldItalicFontPath    = "assets/fonts/GoMonoBoldItalic.ttf"
+	webIconFontPath              = "assets/fonts/MaterialDesignIconsDesktop.ttf"
 	webShellHTML                 = "assets/shell.html"
 	pageBackgroundMinTiledHeight = 8192
+)
+
+const (
+	mdiIconChevronLeft          = 0xF0141
+	mdiIconChevronRight         = 0xF0142
+	mdiIconRefresh              = 0xF0450
+	mdiIconHomeVariant          = 0xF02DE
+	mdiIconCircleSmall          = 0xF09DF
+	mdiIconCircleOutline        = 0xF0766
+	mdiIconSquareOutline        = 0xF0763
+	mdiIconCheckboxBlankOutline = 0xF0131
+	mdiIconCheckboxMarked       = 0xF0132
+	mdiIconRadioboxBlank        = 0xF043D
+	mdiIconRadioboxMarked       = 0xF043E
 )
 
 var (
@@ -71,6 +87,80 @@ type formState struct {
 	node     *Node
 	ctx      *renderContext
 	controls []*formControlState
+}
+
+func tagixIconFontPath() string {
+	if path := lookupBundledFontFamilyPath("materialdesigniconsdesktop"); path != "" {
+		return path
+	}
+	if info, err := os.Stat(webIconFontPath); err == nil && info != nil && !info.IsDir() {
+		return webIconFontPath
+	}
+	return ""
+}
+
+func tagixIconGlyph(codepoint int, fallback string) string {
+	if tagixIconFontPath() != "" && codepoint > 0 {
+		return string(rune(codepoint))
+	}
+	return fallback
+}
+
+func isPrivateUseIconText(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	r, size := utf8.DecodeRuneInString(value)
+	return size == len(value) && r >= 0xF0000 && r <= 0x10FFFD
+}
+
+func applyTagixIconTextStyle(style *ui.Style, size int, lineHeight int, color kos.Color) {
+	if style == nil {
+		return
+	}
+	style.SetDisplay(ui.DisplayInline)
+	if path := tagixIconFontPath(); path != "" {
+		style.SetFontPath(path)
+	} else {
+		style.SetFontPath(webSansFontPath)
+	}
+	if size > 0 {
+		style.SetFontSize(size)
+	}
+	if lineHeight > 0 {
+		style.SetLineHeight(lineHeight)
+	}
+	style.SetForeground(color)
+}
+
+func shellActionGlyph(action string) string {
+	switch action {
+	case "back":
+		return tagixIconGlyph(mdiIconChevronLeft, "←")
+	case "forward":
+		return tagixIconGlyph(mdiIconChevronRight, "→")
+	case "reload":
+		return tagixIconGlyph(mdiIconRefresh, "↻")
+	case "home":
+		return tagixIconGlyph(mdiIconHomeVariant, "⌂")
+	default:
+		return ""
+	}
+}
+
+func htmlCheckboxGlyph(checked bool) string {
+	if checked {
+		return tagixIconGlyph(mdiIconCheckboxMarked, "☑")
+	}
+	return tagixIconGlyph(mdiIconCheckboxBlankOutline, "☐")
+}
+
+func htmlRadioGlyph(checked bool) string {
+	if checked {
+		return tagixIconGlyph(mdiIconRadioboxMarked, "◉")
+	}
+	return tagixIconGlyph(mdiIconRadioboxBlank, "◯")
 }
 
 func nearestAncestorTag(node *Node, tag string) *Node {
@@ -639,18 +729,28 @@ func shellButtonNode(app *App, label string, action string, enabled bool) *ui.Do
 
 func shellButtonNodeWithSource(app *App, label string, action string, enabled bool, source *Node, ctx *shellRenderContext) *ui.DocumentNode {
 	label = normalizeBlockText(label)
+	if icon := shellActionGlyph(action); icon != "" {
+		label = icon
+	}
 	if label == "" {
 		label = "Action"
 	}
 	button := ui.NewDocumentElement("shell-button-"+action, styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayInlineBlock)
 		style.SetMargin(0, 6, 0, 0)
-		style.SetPadding(5, 10)
+		style.SetPadding(5, 0)
+		style.SetWidth(30)
+		style.SetHeight(28)
 		style.SetBorderRadius(8)
 		style.SetBorder(1, 0xC3CAD2)
 		style.SetBackground(0xE5E9EE)
+		style.SetTextAlign(ui.TextAlignCenter)
 		style.SetContain(ui.ContainPaint)
 	}), ui.NewDocumentText(label, styled(func(style *ui.Style) {
+		if isPrivateUseIconText(label) {
+			applyTagixIconTextStyle(style, 16, 18, 0x202124)
+			return
+		}
 		style.SetDisplay(ui.DisplayInline)
 		style.SetFontPath(webSansFontPath)
 		style.SetForeground(0x202124)
@@ -661,6 +761,9 @@ func shellButtonNodeWithSource(app *App, label string, action string, enabled bo
 	if len(button.Children) > 0 && button.Children[0] != nil {
 		copyPageTextProperties(&button.Children[0].Style, button.Style)
 		button.Children[0].Style.SetDisplay(ui.DisplayInline)
+		if isPrivateUseIconText(label) {
+			applyTagixIconTextStyle(&button.Children[0].Style, 16, 18, 0x202124)
+		}
 	}
 	button.StyleHover = styled(func(style *ui.Style) {
 		style.SetBorderColor(0x96A6B8)
@@ -877,7 +980,7 @@ body{background:#f1f3f4;min-height:100vh}
 #browser-title{display:block;margin:0 0 4px;font-size:20px;line-height:24px;color:#202124}
 #browser-status{display:block;margin:0;font-size:11px;line-height:15px;color:#5f6368}
 #browser-controls{display:block;margin:0 0 8px}
-.browser-button{display:inline-block;margin:0 6px 6px 0;padding:5px 10px;border:1px solid #c3cad2;border-radius:8px;background:#e5e9ee;color:#202124;font-size:12px;line-height:16px}
+.browser-button{display:inline-block;width:30px;height:28px;margin:0 6px 6px 0;padding:5px 0;border:1px solid #c3cad2;border-radius:8px;background:#e5e9ee;color:#202124;font-size:16px;line-height:18px;text-align:center}
 #browser-address-row{display:block}
 #browser-address{display:block;width:100%;padding:7px 12px;border:1px solid #808a96;border-radius:10px;background:#fff;color:#202124;font-size:13px;line-height:18px;min-width:260px;box-sizing:border-box}
 #browser-page-frame{display:block;width:100%;margin:8px 0 0;border:1px solid #d7dee7;border-radius:16px;background:#fff;min-height:280px;height:calc(100vh - 176px);overflow:auto;box-sizing:border-box}
@@ -891,10 +994,10 @@ body{background:#f1f3f4;min-height:100vh}
 <small id="browser-status" data-role="status">Ready</small>
 </section>
 <nav id="browser-controls">
-<button id="browser-back" class="browser-button" data-role="button" data-action="back">Back</button>
-<button id="browser-forward" class="browser-button" data-role="button" data-action="forward">Forward</button>
-<button id="browser-reload" class="browser-button" data-role="button" data-action="reload">Reload</button>
-<button id="browser-home" class="browser-button" data-role="button" data-action="home">Home</button>
+<button id="browser-back" class="browser-button" data-role="button" data-action="back">&#x2190;</button>
+<button id="browser-forward" class="browser-button" data-role="button" data-action="forward">&#x2192;</button>
+<button id="browser-reload" class="browser-button" data-role="button" data-action="reload">&#x21bb;</button>
+<button id="browser-home" class="browser-button" data-role="button" data-action="home">&#x2302;</button>
 </nav>
 <section id="browser-address-row">
 <input id="browser-address" data-role="address" value="">
@@ -1269,10 +1372,15 @@ func appendDocumentNodes(out *[]*ui.DocumentNode, node *Node, ctx *renderContext
 			*out = append(*out, quote)
 		}
 		return
-	case "pre", "code":
+	case "pre":
 		text := collectNodeTextPreserve(node, true)
 		if text != "" {
 			*out = append(*out, preformattedNode(text))
+		}
+		return
+	case "code":
+		if code := codeBlockNode(node, ctx); code != nil {
+			*out = append(*out, code)
 		}
 		return
 	case "ul", "ol":
@@ -1475,13 +1583,13 @@ func listStyleTypeFromHTMLAttrs(node *Node, ordered bool) string {
 func formatUnorderedListMarker(styleType string) string {
 	switch styleType {
 	case "", "disc":
-		return "*"
+		return tagixIconGlyph(mdiIconCircleSmall, "•")
 	case "circle":
-		return "o"
+		return tagixIconGlyph(mdiIconCircleOutline, "◦")
 	case "square":
-		return "[]"
+		return tagixIconGlyph(mdiIconSquareOutline, "▪")
 	default:
-		return "*"
+		return tagixIconGlyph(mdiIconCircleSmall, "•")
 	}
 }
 
@@ -1861,6 +1969,40 @@ func paragraphBlockNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 	return block
 }
 
+func codeBlockNode(node *Node, ctx *renderContext) *ui.DocumentNode {
+	if node == nil {
+		return nil
+	}
+	resolved, fontSize, lineHeight, marginBottom := resolvedPageTextMetrics(node, ctx, defaultPageFontSize, 1.0)
+	inlineStyle := styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayInline)
+		style.SetForeground(0x333333)
+		style.SetFontSize(fontSize)
+		style.SetLineHeight(lineHeight)
+	})
+	copyPageTextProperties(&inlineStyle, resolved)
+	inlineStyle.SetFontPath(resolveRegularSemanticFontPath(styleFontPath(inlineStyle), true))
+	children := buildInlineNodes(node, ctx, inlineStyle)
+	if len(children) == 0 {
+		return nil
+	}
+	blockStyle := styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, marginBottom, 0)
+		style.SetForeground(0x333333)
+		style.SetFontSize(fontSize)
+		style.SetLineHeight(lineHeight)
+		style.SetContain(ui.ContainPaint)
+	})
+	copyPageTextProperties(&blockStyle, inlineStyle)
+	applyPageNodeStyles(&blockStyle, node, ctx)
+	blockStyle.SetFontPath(resolveRegularSemanticFontPath(styleFontPath(blockStyle), true))
+	block := ui.NewDocumentElement("code", blockStyle, children...)
+	applyPageInteractionStyles(block, node, ctx)
+	applyPageInteractionTextStyles(block)
+	return block
+}
+
 func blockquoteBlockNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 	if node == nil {
 		return nil
@@ -2042,6 +2184,14 @@ func listMarkerNode(marker string) *ui.DocumentNode {
 	return ui.NewDocumentText(marker+" ", styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayInline)
 		style.SetForeground(ui.Navy)
+		if isPrivateUseIconText(marker) {
+			if path := tagixIconFontPath(); path != "" {
+				style.SetFontPath(path)
+			}
+			style.SetFontSize(14)
+			style.SetLineHeight(18)
+			return
+		}
 		style.SetFontSize(13)
 		style.SetLineHeight(18)
 	}))
@@ -2657,6 +2807,25 @@ func defaultSemanticFontVariantPath(preferMono bool, bold bool, italic bool) str
 	return webSansFontPath
 }
 
+func resolveRegularSemanticFontPath(current string, preferMono bool) string {
+	family, _, _, bundled := bundledFontVariantInfo(current)
+	if bundled {
+		if preferMono && !isBundledMonospaceFamilyKey(family) {
+			return defaultSemanticFontVariantPath(true, false, false)
+		}
+		if path := lookupBundledFontVariantPath(family, false, false); path != "" {
+			return path
+		}
+		if path := lookupBundledFontFamilyPath(family); path != "" {
+			return path
+		}
+	}
+	if current != "" && !preferMono {
+		return current
+	}
+	return defaultSemanticFontVariantPath(preferMono, false, false)
+}
+
 func resolveSemanticFontPath(current string, preferMono bool, wantBold bool, wantItalic bool) string {
 	family, currentBold, currentItalic, bundled := bundledFontVariantInfo(current)
 	targetBold := currentBold || wantBold
@@ -2707,7 +2876,7 @@ func applyInlineSemanticStyle(style *inlineTextStyle, node *Node) {
 		style.textDecoration = ui.TextDecorationUnderline
 		style.hasTextDecoration = true
 	case "tt", "kbd", "samp":
-		style.fontPath = resolveSemanticFontPath(style.fontPath, true, false, false)
+		style.fontPath = resolveRegularSemanticFontPath(style.fontPath, true)
 	case "small":
 		scaleInlineFontSize(style, 0.85, 10)
 	case "big":
@@ -2717,7 +2886,7 @@ func applyInlineSemanticStyle(style *inlineTextStyle, node *Node) {
 
 func inlineCodeTextStyle(baseStyle inlineTextStyle) inlineTextStyle {
 	style := baseStyle
-	style.fontPath = resolveSemanticFontPath(style.fontPath, true, false, false)
+	style.fontPath = resolveRegularSemanticFontPath(style.fontPath, true)
 	return style
 }
 
@@ -2847,18 +3016,9 @@ func inlineCodeNode(text string, baseStyle ui.Style) *ui.DocumentNode {
 		return nil
 	}
 	style := baseStyle
-	style.SetDisplay(ui.DisplayInlineBlock)
-	style.SetPadding(1, 4)
-	style.SetMargin(0, 1)
-	style.SetBorderRadius(6)
-	style.SetBackground(ui.Silver)
-	style.SetForeground(ui.Navy)
-	style.SetFontPath(resolveSemanticFontPath(styleFontPath(baseStyle), true, false, false))
-	style.SetFontSize(12)
-	style.SetLineHeight(16)
-	childStyle := style
-	childStyle.SetDisplay(ui.DisplayInline)
-	return ui.NewDocumentElement("inline-code", style, ui.NewDocumentText(text, childStyle))
+	style.SetDisplay(ui.DisplayInline)
+	style.SetFontPath(resolveRegularSemanticFontPath(styleFontPath(baseStyle), true))
+	return ui.NewDocumentText(text, style)
 }
 
 func inlineImageNode(node *Node, label string, baseStyle ui.Style, ctx *renderContext) *ui.DocumentNode {
@@ -3910,11 +4070,7 @@ func htmlControlHintStyle() ui.Style {
 
 func htmlControlIndicatorStyle() ui.Style {
 	return styled(func(style *ui.Style) {
-		style.SetDisplay(ui.DisplayInline)
-		style.SetForeground(ui.Navy)
-		style.SetFontPath(webMonoFontPath)
-		style.SetFontSize(13)
-		style.SetLineHeight(18)
+		applyTagixIconTextStyle(style, 16, 18, ui.Navy)
 	})
 }
 
@@ -4131,10 +4287,7 @@ func htmlTextInputNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 func htmlCheckboxNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 	checked := hasAttr(node, "checked")
 	initialChecked := checked
-	indicator := ui.NewDocumentText("[ ]", htmlControlIndicatorStyle())
-	if checked {
-		indicator.Text = "[x]"
-	}
+	indicator := ui.NewDocumentText(htmlCheckboxGlyph(checked), htmlControlIndicatorStyle())
 	label := htmlControlLabel(node, "Checkbox")
 	control := ui.NewDocumentElement("html-checkbox", htmlControlStyle(),
 		indicator,
@@ -4166,11 +4319,7 @@ func htmlCheckboxNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 					return false
 				}
 				checked = initialChecked
-				if checked {
-					indicator.Text = "[x]"
-				} else {
-					indicator.Text = "[ ]"
-				}
+				indicator.Text = htmlCheckboxGlyph(checked)
 				return true
 			},
 		})
@@ -4181,11 +4330,7 @@ func htmlCheckboxNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 	}
 	toggle := func() {
 		checked = !checked
-		if checked {
-			indicator.Text = "[x]"
-		} else {
-			indicator.Text = "[ ]"
-		}
+		indicator.Text = htmlCheckboxGlyph(checked)
 		requestRenderedPageLayout(ctx)
 	}
 	control.OnClick = func() {
@@ -4207,10 +4352,7 @@ func htmlCheckboxNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 func htmlRadioNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 	checked := hasAttr(node, "checked")
 	initialChecked := checked
-	indicator := ui.NewDocumentText("( )", htmlControlIndicatorStyle())
-	if checked {
-		indicator.Text = "(o)"
-	}
+	indicator := ui.NewDocumentText(htmlRadioGlyph(checked), htmlControlIndicatorStyle())
 	label := htmlControlLabel(node, "Radio")
 	control := ui.NewDocumentElement("html-radio", htmlControlStyle(),
 		indicator,
@@ -4257,11 +4399,7 @@ func htmlRadioNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 					return false
 				}
 				state.checked = initialChecked
-				if state.checked {
-					state.indicator.Text = "(o)"
-				} else {
-					state.indicator.Text = "( )"
-				}
+				state.indicator.Text = htmlRadioGlyph(state.checked)
 				return true
 			},
 		})
@@ -4276,20 +4414,20 @@ func htmlRadioNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 				if candidate == state {
 					if !candidate.checked {
 						candidate.checked = true
-						candidate.indicator.Text = "(o)"
+						candidate.indicator.Text = htmlRadioGlyph(true)
 						changed = true
 					}
 					continue
 				}
 				if candidate.checked {
 					candidate.checked = false
-					candidate.indicator.Text = "( )"
+					candidate.indicator.Text = htmlRadioGlyph(false)
 					changed = true
 				}
 			}
 		} else if !state.checked {
 			state.checked = true
-			state.indicator.Text = "(o)"
+			state.indicator.Text = htmlRadioGlyph(true)
 			changed = true
 		}
 		if changed {
