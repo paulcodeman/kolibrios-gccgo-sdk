@@ -473,11 +473,30 @@ func (view *DocumentView) setHoverNode(node *DocumentNode, event DocumentEvent) 
 		return false
 	}
 	changed := false
-	if previous := view.hoverNode; previous != nil {
+	previousPath := documentEventPath(view.hoverNode)
+	nextPath := documentEventPath(node)
+	nextSet := make(map[*DocumentNode]struct{}, len(nextPath))
+	for _, current := range nextPath {
+		if current != nil {
+			nextSet[current] = struct{}{}
+		}
+	}
+	for _, previous := range previousPath {
+		if previous == nil {
+			continue
+		}
+		if _, keep := nextSet[previous]; keep {
+			continue
+		}
 		if updated, needsLayout := previous.setHover(false); updated {
 			view.markDocumentNodeStateChange(previous, needsLayout)
 			changed = true
 		}
+		if view.setHoverOnInheritedTextDescendants(previous, false) {
+			changed = true
+		}
+	}
+	if previous := view.hoverNode; previous != nil {
 		leave := event
 		pointerLeave := pointerEventForDocument(EventPointerLeave, leave)
 		pointerLeave.Node = previous
@@ -494,11 +513,28 @@ func (view *DocumentView) setHoverNode(node *DocumentNode, event DocumentEvent) 
 		}
 	}
 	view.hoverNode = node
-	if node != nil {
-		if updated, needsLayout := node.setHover(true); updated {
-			view.markDocumentNodeStateChange(node, needsLayout)
+	previousSet := make(map[*DocumentNode]struct{}, len(previousPath))
+	for _, previous := range previousPath {
+		if previous != nil {
+			previousSet[previous] = struct{}{}
+		}
+	}
+	for _, current := range nextPath {
+		if current == nil {
+			continue
+		}
+		if _, already := previousSet[current]; already {
+			continue
+		}
+		if updated, needsLayout := current.setHover(true); updated {
+			view.markDocumentNodeStateChange(current, needsLayout)
 			changed = true
 		}
+		if view.setHoverOnInheritedTextDescendants(current, true) {
+			changed = true
+		}
+	}
+	if node != nil {
 		enter := event
 		pointerEnter := pointerEventForDocument(EventPointerEnter, enter)
 		pointerEnter.Node = node
@@ -529,16 +565,48 @@ func (view *DocumentView) setActiveNode(node *DocumentNode, event DocumentEvent)
 		return false
 	}
 	changed := false
-	if previous := view.activeNode; previous != nil {
+	previousPath := documentEventPath(view.activeNode)
+	nextPath := documentEventPath(node)
+	nextSet := make(map[*DocumentNode]struct{}, len(nextPath))
+	for _, current := range nextPath {
+		if current != nil {
+			nextSet[current] = struct{}{}
+		}
+	}
+	for _, previous := range previousPath {
+		if previous == nil {
+			continue
+		}
+		if _, keep := nextSet[previous]; keep {
+			continue
+		}
 		if updated, needsLayout := previous.setActive(false); updated {
 			view.markDocumentNodeStateChange(previous, needsLayout)
 			changed = true
 		}
+		if view.setActiveOnInheritedTextDescendants(previous, false) {
+			changed = true
+		}
 	}
 	view.activeNode = node
-	if node != nil {
-		if updated, needsLayout := node.setActive(true); updated {
-			view.markDocumentNodeStateChange(node, needsLayout)
+	previousSet := make(map[*DocumentNode]struct{}, len(previousPath))
+	for _, previous := range previousPath {
+		if previous != nil {
+			previousSet[previous] = struct{}{}
+		}
+	}
+	for _, current := range nextPath {
+		if current == nil {
+			continue
+		}
+		if _, already := previousSet[current]; already {
+			continue
+		}
+		if updated, needsLayout := current.setActive(true); updated {
+			view.markDocumentNodeStateChange(current, needsLayout)
+			changed = true
+		}
+		if view.setActiveOnInheritedTextDescendants(current, true) {
 			changed = true
 		}
 	}
@@ -555,6 +623,9 @@ func (view *DocumentView) setFocusNode(node *DocumentNode, event DocumentEvent) 
 	if previous := view.focusNode; previous != nil {
 		if updated, needsLayout := previous.setFocus(false); updated {
 			view.markDocumentNodeStateChange(previous, needsLayout)
+			changed = true
+		}
+		if view.setFocusOnInheritedTextDescendants(previous, false) {
 			changed = true
 		}
 		blur := event
@@ -580,6 +651,9 @@ func (view *DocumentView) setFocusNode(node *DocumentNode, event DocumentEvent) 
 	if node != nil {
 		if updated, needsLayout := node.setFocus(true); updated {
 			view.markDocumentNodeStateChange(node, needsLayout)
+			changed = true
+		}
+		if view.setFocusOnInheritedTextDescendants(node, true) {
 			changed = true
 		}
 		focus := event
@@ -629,6 +703,91 @@ func (view *DocumentView) setFocusNode(node *DocumentNode, event DocumentEvent) 
 			}
 		} else {
 			view.MarkDirty()
+		}
+	}
+	return changed
+}
+
+func documentNodeStopsInheritedTextStatePropagation(node *DocumentNode) bool {
+	if node == nil || node.Kind == DocumentNodeText {
+		return false
+	}
+	return node.Focusable || !node.StyleHover.IsZero() || !node.StyleActive.IsZero() || !node.StyleFocus.IsZero()
+}
+
+func (view *DocumentView) setHoverOnInheritedTextDescendants(node *DocumentNode, hover bool) bool {
+	if view == nil || node == nil || node.StyleHover.IsZero() {
+		return false
+	}
+	changed := false
+	for _, child := range node.Children {
+		if child == nil {
+			continue
+		}
+		if child.Kind == DocumentNodeText {
+			if updated, needsLayout := child.setHover(hover); updated {
+				view.markDocumentNodeStateChange(child, needsLayout)
+				changed = true
+			}
+			continue
+		}
+		if documentNodeStopsInheritedTextStatePropagation(child) {
+			continue
+		}
+		if view.setHoverOnInheritedTextDescendants(child, hover) {
+			changed = true
+		}
+	}
+	return changed
+}
+
+func (view *DocumentView) setActiveOnInheritedTextDescendants(node *DocumentNode, active bool) bool {
+	if view == nil || node == nil || node.StyleActive.IsZero() {
+		return false
+	}
+	changed := false
+	for _, child := range node.Children {
+		if child == nil {
+			continue
+		}
+		if child.Kind == DocumentNodeText {
+			if updated, needsLayout := child.setActive(active); updated {
+				view.markDocumentNodeStateChange(child, needsLayout)
+				changed = true
+			}
+			continue
+		}
+		if documentNodeStopsInheritedTextStatePropagation(child) {
+			continue
+		}
+		if view.setActiveOnInheritedTextDescendants(child, active) {
+			changed = true
+		}
+	}
+	return changed
+}
+
+func (view *DocumentView) setFocusOnInheritedTextDescendants(node *DocumentNode, focus bool) bool {
+	if view == nil || node == nil || node.StyleFocus.IsZero() {
+		return false
+	}
+	changed := false
+	for _, child := range node.Children {
+		if child == nil {
+			continue
+		}
+		if child.Kind == DocumentNodeText {
+			if updated, needsLayout := child.setFocus(focus); updated {
+				view.markDocumentNodeStateChange(child, needsLayout)
+				changed = true
+			}
+			continue
+		}
+		if documentNodeStopsInheritedTextStatePropagation(child) {
+			continue
+		}
+		if view.setFocusOnInheritedTextDescendants(child, focus) {
+			changed = true
 		}
 	}
 	return changed
