@@ -24,11 +24,28 @@ type cssLengthValue struct {
 	auto   bool
 }
 
+type cssSimpleSelector struct {
+	tag       string
+	id        string
+	classes   []string
+	pseudo    string
+	universal bool
+}
+
+type cssSelectorStep struct {
+	simple     cssSimpleSelector
+	combinator byte
+}
+
 type cssSelector struct {
-	tag     string
-	id      string
-	classes []string
-	pseudo  string
+	steps []cssSelectorStep
+}
+
+type cssMediaCondition struct {
+	minWidth int
+	maxWidth int
+	hasMin   bool
+	hasMax   bool
 }
 
 type cssRule struct {
@@ -36,10 +53,17 @@ type cssRule struct {
 	declarations string
 	specificity  int
 	order        int
+	media        cssMediaCondition
 }
 
 type pageStylesheet struct {
 	rules []cssRule
+	cache map[string]ui.Style
+}
+
+type cssAutoMargins struct {
+	left  bool
+	right bool
 }
 
 func (ctx *renderContext) cssLayoutContext() cssLayoutContext {
@@ -57,10 +81,11 @@ func parseDocumentStylesheet(doc *Document) *pageStylesheet {
 	if doc == nil {
 		return nil
 	}
-	styleNodes := doc.GetElementsByTagName("style")
-	if len(styleNodes) == 0 {
-		return nil
+	if doc.stylesheetParsed {
+		return doc.stylesheet
 	}
+	doc.stylesheetParsed = true
+	styleNodes := doc.GetElementsByTagName("style")
 	rules := make([]cssRule, 0, len(styleNodes)*4)
 	order := 0
 	for _, node := range styleNodes {
@@ -71,9 +96,26 @@ func parseDocumentStylesheet(doc *Document) *pageStylesheet {
 		rules = append(rules, parseCSSRules(source, &order)...)
 	}
 	if len(rules) == 0 {
-		return nil
+		doc.stylesheet = &pageStylesheet{
+			cache: map[string]ui.Style{},
+		}
+		return doc.stylesheet
 	}
-	return &pageStylesheet{rules: rules}
+	doc.stylesheet = &pageStylesheet{
+		rules: rules,
+		cache: map[string]ui.Style{},
+	}
+	return doc.stylesheet
+}
+
+func cssResolvedStyleCacheKey(node *Node, layout cssLayoutContext) string {
+	if node == nil {
+		return ""
+	}
+	return strconv.Itoa(node.ID) +
+		"|" + strconv.Itoa(layout.viewportWidth) +
+		"|" + strconv.Itoa(layout.viewportHeight) +
+		"|" + strconv.Itoa(layout.fontSize)
 }
 
 func parseCSSRules(source string, order *int) []cssRule {
@@ -81,36 +123,7 @@ func parseCSSRules(source string, order *int) []cssRule {
 	if source == "" {
 		return nil
 	}
-	rules := make([]cssRule, 0, 8)
-	for _, block := range strings.Split(source, "}") {
-		block = strings.TrimSpace(block)
-		if block == "" {
-			continue
-		}
-		brace := strings.IndexByte(block, '{')
-		if brace <= 0 || brace+1 >= len(block) {
-			continue
-		}
-		selectors := strings.TrimSpace(block[:brace])
-		declarations := strings.TrimSpace(block[brace+1:])
-		if selectors == "" || declarations == "" {
-			continue
-		}
-		for _, rawSelector := range strings.Split(selectors, ",") {
-			selector, ok := parseCSSSelector(rawSelector)
-			if !ok {
-				continue
-			}
-			rules = append(rules, cssRule{
-				selector:     selector,
-				declarations: declarations,
-				specificity:  selector.specificity(),
-				order:        *order,
-			})
-			*order++
-		}
-	}
-	return rules
+	return parseCSSRulesWithMedia(source, order, cssMediaCondition{})
 }
 
 func stripCSSComments(source string) string {
@@ -141,53 +154,116 @@ func parseCSSSelector(source string) (cssSelector, bool) {
 	if source == "" {
 		return selector, false
 	}
-	if strings.ContainsAny(source, " >+~[") {
+	if strings.ContainsAny(source, "~[") {
 		return selector, false
+	}
+	combinator := byte(0)
+	for len(source) > 0 {
+		source = strings.TrimLeft(source, " \t\r\n")
+		if source == "" {
+			break
+		}
+		step, rest, ok := parseCSSSelectorStep(source)
+		if !ok {
+			return selector, false
+		}
+		step.combinator = combinator
+		selector.steps = append(selector.steps, step)
+		source = rest
+		nextCombinator := byte(0)
+		sawSpace := false
+		for len(source) > 0 {
+			if isCSSSpace(source[0]) {
+				sawSpace = true
+				source = source[1:]
+				continue
+			}
+			if source[0] == '>' || source[0] == '+' {
+				nextCombinator = source[0]
+				source = source[1:]
+				for len(source) > 0 && isCSSSpace(source[0]) {
+					source = source[1:]
+				}
+				break
+			}
+			if sawSpace {
+				nextCombinator = ' '
+			}
+			break
+		}
+		if nextCombinator == 0 && sawSpace {
+			nextCombinator = ' '
+		}
+		combinator = nextCombinator
+	}
+	if len(selector.steps) == 0 {
+		return selector, false
+	}
+	return selector, true
+}
+
+func parseCSSSelectorStep(source string) (cssSelectorStep, string, bool) {
+	step := cssSelectorStep{}
+	source = strings.TrimLeft(source, " \t\r\n")
+	if source == "" {
+		return step, source, false
 	}
 	for len(source) > 0 {
 		switch source[0] {
+		case ' ', '\t', '\r', '\n', '>', '+', ',', '{':
+			if step.simple.tag == "" && step.simple.id == "" && len(step.simple.classes) == 0 && step.simple.pseudo == "" && !step.simple.universal {
+				return step, source, false
+			}
+			return step, source, true
 		case '*':
+			if step.simple.tag != "" || step.simple.universal {
+				return step, source, false
+			}
+			step.simple.universal = true
 			source = source[1:]
 		case '#':
 			source = source[1:]
 			token, rest, ok := readCSSIdent(source)
 			if !ok {
-				return selector, false
+				return step, source, false
 			}
-			selector.id = token
+			step.simple.id = token
 			source = rest
 		case '.':
 			source = source[1:]
 			token, rest, ok := readCSSIdent(source)
 			if !ok {
-				return selector, false
+				return step, source, false
 			}
-			selector.classes = append(selector.classes, token)
+			step.simple.classes = append(step.simple.classes, token)
 			source = rest
 		case ':':
+			if len(source) > 1 && source[1] == ':' {
+				return step, source, false
+			}
 			source = source[1:]
 			token, rest, ok := readCSSIdent(source)
 			if !ok {
-				return selector, false
+				return step, source, false
 			}
-			selector.pseudo = toLowerASCII(token)
+			step.simple.pseudo = toLowerASCII(token)
 			source = rest
 		default:
-			if selector.tag != "" {
-				return selector, false
+			if step.simple.tag != "" {
+				return step, source, false
 			}
 			token, rest, ok := readCSSIdent(source)
 			if !ok {
-				return selector, false
+				return step, source, false
 			}
-			selector.tag = toLowerASCII(token)
+			step.simple.tag = toLowerASCII(token)
 			source = rest
 		}
 	}
-	if selector.tag == "" && selector.id == "" && len(selector.classes) == 0 && selector.pseudo == "" {
-		return selector, false
+	if step.simple.tag == "" && step.simple.id == "" && len(step.simple.classes) == 0 && step.simple.pseudo == "" && !step.simple.universal {
+		return step, source, false
 	}
-	return selector, true
+	return step, source, true
 }
 
 func readCSSIdent(source string) (string, string, bool) {
@@ -211,7 +287,11 @@ func isCSSIdentPart(value byte) bool {
 	return isCSSIdentStart(value) || (value >= '0' && value <= '9')
 }
 
-func (selector cssSelector) specificity() int {
+func isCSSSpace(value byte) bool {
+	return value == ' ' || value == '\t' || value == '\r' || value == '\n'
+}
+
+func (selector cssSimpleSelector) specificity() int {
 	score := 0
 	if selector.id != "" {
 		score += 100
@@ -226,7 +306,56 @@ func (selector cssSelector) specificity() int {
 	return score
 }
 
+func (selector cssSelector) specificity() int {
+	score := 0
+	for _, step := range selector.steps {
+		score += step.simple.specificity()
+	}
+	return score
+}
+
 func (selector cssSelector) matches(node *Node) bool {
+	if node == nil || node.Type != ElementNode || len(selector.steps) == 0 {
+		return false
+	}
+	current := node
+	if !selector.steps[len(selector.steps)-1].simple.matches(current) {
+		return false
+	}
+	for index := len(selector.steps) - 2; index >= 0; index-- {
+		combinator := selector.steps[index+1].combinator
+		target := selector.steps[index].simple
+		switch combinator {
+		case '>':
+			current = nearestParentElement(current)
+			if !target.matches(current) {
+				return false
+			}
+		case '+':
+			current = previousElementSibling(current)
+			if !target.matches(current) {
+				return false
+			}
+		case ' ':
+			found := false
+			for parent := nearestParentElement(current); parent != nil; parent = nearestParentElement(parent) {
+				if target.matches(parent) {
+					current = parent
+					found = true
+					break
+				}
+			}
+			if !found {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func (selector cssSimpleSelector) matches(node *Node) bool {
 	if node == nil || node.Type != ElementNode {
 		return false
 	}
@@ -251,33 +380,316 @@ func (selector cssSelector) matches(node *Node) bool {
 		return node.Tag == "a" && attrValue(node, "href") != ""
 	case "root":
 		return node.Tag == "html"
+	case "first-child":
+		return isFirstElementChild(node)
+	case "last-child":
+		return isLastElementChild(node)
 	default:
 		return false
 	}
 }
 
+func parseCSSRulesWithMedia(source string, order *int, media cssMediaCondition) []cssRule {
+	rules := make([]cssRule, 0, 8)
+	source = strings.TrimSpace(source)
+	for source != "" {
+		header, block, rest, ok := consumeCSSRuleBlock(source)
+		if !ok {
+			break
+		}
+		source = strings.TrimSpace(rest)
+		header = strings.TrimSpace(header)
+		block = strings.TrimSpace(block)
+		if header == "" || block == "" {
+			continue
+		}
+		if strings.HasPrefix(strings.ToLower(header), "@media") {
+			query := strings.TrimSpace(header[len("@media"):])
+			condition, ok := parseCSSMediaCondition(query)
+			if !ok {
+				continue
+			}
+			rules = append(rules, parseCSSRulesWithMedia(block, order, media.merge(condition))...)
+			continue
+		}
+		for _, rawSelector := range strings.Split(header, ",") {
+			selector, ok := parseCSSSelector(rawSelector)
+			if !ok {
+				continue
+			}
+			rules = append(rules, cssRule{
+				selector:     selector,
+				declarations: block,
+				specificity:  selector.specificity(),
+				order:        *order,
+				media:        media,
+			})
+			*order++
+		}
+	}
+	return rules
+}
+
+func parseCSSAutoMargins(declarations string, current cssAutoMargins) cssAutoMargins {
+	for _, chunk := range strings.Split(declarations, ";") {
+		chunk = strings.TrimSpace(chunk)
+		if chunk == "" {
+			continue
+		}
+		colon := strings.IndexByte(chunk, ':')
+		if colon <= 0 || colon+1 >= len(chunk) {
+			continue
+		}
+		name := strings.ToLower(strings.TrimSpace(chunk[:colon]))
+		value := strings.TrimSpace(chunk[colon+1:])
+		switch name {
+		case "margin":
+			values, ok := parseCSSBoxValues(value, cssLayoutContext{})
+			if !ok {
+				continue
+			}
+			current.right = values[1].auto
+			current.left = values[3].auto
+		case "margin-left":
+			item, ok := parseCSSLengthValue(value, cssLayoutContext{})
+			if !ok {
+				continue
+			}
+			current.left = item.auto
+		case "margin-right":
+			item, ok := parseCSSLengthValue(value, cssLayoutContext{})
+			if !ok {
+				continue
+			}
+			current.right = item.auto
+		}
+	}
+	return current
+}
+
+func consumeCSSRuleBlock(source string) (string, string, string, bool) {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return "", "", "", false
+	}
+	brace := strings.IndexByte(source, '{')
+	if brace <= 0 || brace+1 >= len(source) {
+		return "", "", "", false
+	}
+	depth := 1
+	index := brace + 1
+	for index < len(source) {
+		switch source[index] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return source[:brace], source[brace+1 : index], source[index+1:], true
+			}
+		}
+		index++
+	}
+	return "", "", "", false
+}
+
+func parseCSSMediaCondition(query string) (cssMediaCondition, bool) {
+	condition := cssMediaCondition{}
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return condition, false
+	}
+	for _, part := range strings.Split(query, "and") {
+		part = strings.TrimSpace(strings.Trim(part, "()"))
+		if part == "" {
+			continue
+		}
+		colon := strings.IndexByte(part, ':')
+		if colon <= 0 || colon+1 >= len(part) {
+			continue
+		}
+		name := strings.TrimSpace(part[:colon])
+		value := strings.TrimSpace(part[colon+1:])
+		width, ok := parseCSSLength(value, cssLayoutContext{viewportWidth: 0, viewportHeight: 0, fontSize: defaultPageFontSize})
+		if !ok {
+			continue
+		}
+		switch name {
+		case "max-width":
+			condition.maxWidth = width
+			condition.hasMax = true
+		case "min-width":
+			condition.minWidth = width
+			condition.hasMin = true
+		}
+	}
+	return condition, condition.hasMin || condition.hasMax
+}
+
+func (condition cssMediaCondition) merge(other cssMediaCondition) cssMediaCondition {
+	merged := condition
+	if other.hasMin && (!merged.hasMin || other.minWidth > merged.minWidth) {
+		merged.minWidth = other.minWidth
+		merged.hasMin = true
+	}
+	if other.hasMax && (!merged.hasMax || other.maxWidth < merged.maxWidth) {
+		merged.maxWidth = other.maxWidth
+		merged.hasMax = true
+	}
+	return merged
+}
+
+func (condition cssMediaCondition) matches(layout cssLayoutContext) bool {
+	width := layout.viewportWidth
+	if width <= 0 {
+		return true
+	}
+	if condition.hasMin && width < condition.minWidth {
+		return false
+	}
+	if condition.hasMax && width > condition.maxWidth {
+		return false
+	}
+	return true
+}
+
+func nearestParentElement(node *Node) *Node {
+	for current := node; current != nil; current = current.Parent {
+		if current.Parent == nil {
+			return nil
+		}
+		if current.Parent.Type == ElementNode {
+			return current.Parent
+		}
+	}
+	return nil
+}
+
+func previousElementSibling(node *Node) *Node {
+	if node == nil || node.Parent == nil {
+		return nil
+	}
+	children := node.Parent.Children
+	for index := range children {
+		if children[index] != node {
+			continue
+		}
+		for prev := index - 1; prev >= 0; prev-- {
+			if children[prev] != nil && children[prev].Type == ElementNode {
+				return children[prev]
+			}
+		}
+		break
+	}
+	return nil
+}
+
+func isFirstElementChild(node *Node) bool {
+	if node == nil || node.Parent == nil {
+		return false
+	}
+	for _, child := range node.Parent.Children {
+		if child == nil || child.Type != ElementNode {
+			continue
+		}
+		return child == node
+	}
+	return false
+}
+
+func isLastElementChild(node *Node) bool {
+	if node == nil || node.Parent == nil {
+		return false
+	}
+	for index := len(node.Parent.Children) - 1; index >= 0; index-- {
+		child := node.Parent.Children[index]
+		if child == nil || child.Type != ElementNode {
+			continue
+		}
+		return child == node
+	}
+	return false
+}
+
+func (sheet *pageStylesheet) resolvedStyle(node *Node, layout cssLayoutContext) ui.Style {
+	if sheet == nil || node == nil {
+		return ui.Style{}
+	}
+	if sheet.cache == nil {
+		sheet.cache = map[string]ui.Style{}
+	}
+	key := cssResolvedStyleCacheKey(node, layout)
+	if cached, ok := sheet.cache[key]; ok {
+		return cached
+	}
+	style := ui.Style{}
+	if len(sheet.rules) > 0 {
+		matched := make([]cssRule, 0, 8)
+		for _, rule := range sheet.rules {
+			if !rule.media.matches(layout) {
+				continue
+			}
+			if rule.selector.matches(node) {
+				matched = append(matched, rule)
+			}
+		}
+		if len(matched) > 0 {
+			sort.SliceStable(matched, func(i int, j int) bool {
+				if matched[i].specificity != matched[j].specificity {
+					return matched[i].specificity < matched[j].specificity
+				}
+				return matched[i].order < matched[j].order
+			})
+			for _, rule := range matched {
+				applyCSSDeclarations(&style, rule.declarations, layout)
+			}
+		}
+	}
+	if inline := attrValue(node, "style"); inline != "" {
+		applyCSSDeclarations(&style, inline, layout)
+	}
+	sheet.cache[key] = style
+	return style
+}
+
 func (sheet *pageStylesheet) apply(style *ui.Style, node *Node, layout cssLayoutContext) {
-	if sheet == nil || style == nil || node == nil || len(sheet.rules) == 0 {
+	if sheet == nil || style == nil || node == nil {
 		return
 	}
-	matched := make([]cssRule, 0, 8)
-	for _, rule := range sheet.rules {
-		if rule.selector.matches(node) {
-			matched = append(matched, rule)
+	applyResolvedStyle(style, sheet.resolvedStyle(node, layout))
+}
+
+func (sheet *pageStylesheet) autoMargins(node *Node, layout cssLayoutContext) cssAutoMargins {
+	state := cssAutoMargins{}
+	if sheet == nil || node == nil {
+		return state
+	}
+	if len(sheet.rules) > 0 {
+		matched := make([]cssRule, 0, 8)
+		for _, rule := range sheet.rules {
+			if !rule.media.matches(layout) {
+				continue
+			}
+			if rule.selector.matches(node) {
+				matched = append(matched, rule)
+			}
+		}
+		if len(matched) > 0 {
+			sort.SliceStable(matched, func(i int, j int) bool {
+				if matched[i].specificity != matched[j].specificity {
+					return matched[i].specificity < matched[j].specificity
+				}
+				return matched[i].order < matched[j].order
+			})
+			for _, rule := range matched {
+				state = parseCSSAutoMargins(rule.declarations, state)
+			}
 		}
 	}
-	if len(matched) == 0 {
-		return
+	if inline := attrValue(node, "style"); inline != "" {
+		state = parseCSSAutoMargins(inline, state)
 	}
-	sort.SliceStable(matched, func(i int, j int) bool {
-		if matched[i].specificity != matched[j].specificity {
-			return matched[i].specificity < matched[j].specificity
-		}
-		return matched[i].order < matched[j].order
-	})
-	for _, rule := range matched {
-		applyCSSDeclarations(style, rule.declarations, layout)
-	}
+	return state
 }
 
 func applyPageNodeStyles(style *ui.Style, node *Node, ctx *renderContext) {
@@ -287,10 +699,47 @@ func applyPageNodeStyles(style *ui.Style, node *Node, ctx *renderContext) {
 	layout := ctx.cssLayoutContext()
 	if ctx != nil && ctx.stylesheet != nil {
 		ctx.stylesheet.apply(style, node, layout)
-	}
-	if inline := attrValue(node, "style"); inline != "" {
+	} else if inline := attrValue(node, "style"); inline != "" {
 		applyCSSDeclarations(style, inline, layout)
 	}
+	applyPageAutoMargins(style, node, ctx, layout)
+}
+
+func applyPageAutoMargins(style *ui.Style, node *Node, ctx *renderContext, layout cssLayoutContext) {
+	if style == nil || node == nil || layout.viewportWidth <= 0 {
+		return
+	}
+	auto := cssAutoMargins{}
+	if ctx != nil && ctx.stylesheet != nil {
+		auto = ctx.stylesheet.autoMargins(node, layout)
+	} else {
+		auto = parseCSSAutoMargins(attrValue(node, "style"), auto)
+	}
+	if !auto.left && !auto.right {
+		return
+	}
+	targetWidth, ok := style.GetWidth()
+	if !ok || targetWidth <= 0 {
+		targetWidth, ok = style.GetMaxWidth()
+	}
+	if !ok || targetWidth <= 0 {
+		return
+	}
+	margin, _ := style.GetMargin()
+	remaining := layout.viewportWidth - targetWidth
+	if remaining < 0 {
+		remaining = 0
+	}
+	switch {
+	case auto.left && auto.right:
+		margin.Left = remaining / 2
+		margin.Right = remaining - margin.Left
+	case auto.left:
+		margin.Left = remaining
+	case auto.right:
+		margin.Right = remaining
+	}
+	style.SetMargin(margin.Top, margin.Right, margin.Bottom, margin.Left)
 }
 
 func applyPageTextProperties(style *ui.Style, node *Node, ctx *renderContext) {
@@ -326,6 +775,200 @@ func copyPageTextProperties(target *ui.Style, source ui.Style) {
 	}
 	if whiteSpace, ok := source.GetWhiteSpace(); ok {
 		target.SetWhiteSpace(whiteSpace)
+	}
+}
+
+func applyResolvedStyle(target *ui.Style, source ui.Style) {
+	if target == nil {
+		return
+	}
+	if color, ok := source.GetBackground(); ok {
+		target.SetBackground(color)
+	}
+	if color, ok := source.GetForeground(); ok {
+		target.SetForeground(color)
+	}
+	if color, ok := source.GetBorderColor(); ok {
+		target.SetBorderColor(color)
+	}
+	if color, ok := source.GetBorderTopColor(); ok {
+		target.SetBorderTopColor(color)
+	}
+	if color, ok := source.GetBorderRightColor(); ok {
+		target.SetBorderRightColor(color)
+	}
+	if color, ok := source.GetBorderBottomColor(); ok {
+		target.SetBorderBottomColor(color)
+	}
+	if color, ok := source.GetBorderLeftColor(); ok {
+		target.SetBorderLeftColor(color)
+	}
+	if width, ok := source.GetBorderWidth(); ok {
+		if color, colorOK := source.GetBorderColor(); colorOK {
+			target.SetBorder(width, color)
+		} else {
+			target.SetBorderWidth(width)
+		}
+	}
+	if width, ok := source.GetBorderTopWidth(); ok {
+		if color, colorOK := source.GetBorderTopColor(); colorOK {
+			target.SetBorderTop(width, color)
+		} else {
+			target.SetBorderTopWidth(width)
+		}
+	}
+	if width, ok := source.GetBorderRightWidth(); ok {
+		if color, colorOK := source.GetBorderRightColor(); colorOK {
+			target.SetBorderRight(width, color)
+		} else {
+			target.SetBorderRightWidth(width)
+		}
+	}
+	if width, ok := source.GetBorderBottomWidth(); ok {
+		if color, colorOK := source.GetBorderBottomColor(); colorOK {
+			target.SetBorderBottom(width, color)
+		} else {
+			target.SetBorderBottomWidth(width)
+		}
+	}
+	if width, ok := source.GetBorderLeftWidth(); ok {
+		if color, colorOK := source.GetBorderLeftColor(); colorOK {
+			target.SetBorderLeft(width, color)
+		} else {
+			target.SetBorderLeftWidth(width)
+		}
+	}
+	if radius, ok := source.GetBorderRadius(); ok {
+		target.SetBorderRadius(radius.TopLeft, radius.TopRight, radius.BottomRight, radius.BottomLeft)
+	}
+	if gradient, ok := source.GetGradient(); ok {
+		target.SetGradient(gradient)
+	}
+	if attachment, ok := source.GetBackgroundAttachment(); ok {
+		target.SetBackgroundAttachment(attachment)
+	}
+	if shadow, ok := source.GetShadow(); ok {
+		target.SetShadow(shadow)
+	}
+	if display, ok := source.GetDisplay(); ok {
+		target.SetDisplay(display)
+	}
+	if visibility, ok := source.GetVisibility(); ok {
+		target.SetVisibility(visibility)
+	}
+	if align, ok := source.GetTextAlign(); ok {
+		target.SetTextAlign(align)
+	}
+	if decoration, ok := source.GetTextDecoration(); ok {
+		target.SetTextDecoration(decoration)
+	}
+	if whiteSpace, ok := source.GetWhiteSpace(); ok {
+		target.SetWhiteSpace(whiteSpace)
+	}
+	if overflowWrap, ok := source.GetOverflowWrap(); ok {
+		target.SetOverflowWrap(overflowWrap)
+	}
+	if wordBreak, ok := source.GetWordBreak(); ok {
+		target.SetWordBreak(wordBreak)
+	}
+	if textShadow, ok := source.GetTextShadow(); ok {
+		target.SetTextShadow(textShadow)
+	}
+	if path, ok := source.GetFontPath(); ok {
+		target.SetFontPath(path)
+	}
+	if size, ok := source.GetFontSize(); ok {
+		target.SetFontSize(size)
+	}
+	if lineHeight, ok := source.GetLineHeight(); ok {
+		target.SetLineHeight(lineHeight)
+	}
+	if padding, ok := source.GetPadding(); ok {
+		target.SetPadding(padding.Top, padding.Right, padding.Bottom, padding.Left)
+	}
+	if opacity, ok := source.GetOpacity(); ok {
+		target.SetOpacity(opacity)
+	}
+	if boxSizing, ok := source.GetBoxSizing(); ok {
+		target.SetBoxSizing(boxSizing)
+	}
+	if color, ok := source.GetOutlineColor(); ok {
+		target.SetOutlineColor(color)
+	}
+	if width, ok := source.GetOutlineWidth(); ok {
+		target.SetOutlineWidth(width)
+	}
+	if offset, ok := source.GetOutlineOffset(); ok {
+		target.SetOutlineOffset(offset)
+	}
+	if radius, ok := source.GetOutlineRadius(); ok {
+		target.SetOutlineRadius(radius)
+	}
+	if position, ok := source.GetPosition(); ok {
+		target.SetPosition(position)
+	}
+	if value, ok := source.GetLeft(); ok {
+		target.SetLeft(value)
+	}
+	if value, ok := source.GetTop(); ok {
+		target.SetTop(value)
+	}
+	if value, ok := source.GetRight(); ok {
+		target.SetRight(value)
+	}
+	if value, ok := source.GetBottom(); ok {
+		target.SetBottom(value)
+	}
+	if value, ok := source.GetWidth(); ok {
+		target.SetWidth(value)
+	}
+	if value, ok := source.GetHeight(); ok {
+		target.SetHeight(value)
+	}
+	if value, ok := source.GetMinWidth(); ok {
+		target.SetMinWidth(value)
+	}
+	if value, ok := source.GetMaxWidth(); ok {
+		target.SetMaxWidth(value)
+	}
+	if value, ok := source.GetMinHeight(); ok {
+		target.SetMinHeight(value)
+	}
+	if value, ok := source.GetMaxHeight(); ok {
+		target.SetMaxHeight(value)
+	}
+	if margin, ok := source.GetMargin(); ok {
+		target.SetMargin(margin.Top, margin.Right, margin.Bottom, margin.Left)
+	}
+	if overflow, ok := source.GetOverflow(); ok {
+		target.SetOverflow(overflow)
+	}
+	if overflowX, ok := source.GetOverflowX(); ok {
+		target.SetOverflowX(overflowX)
+	}
+	if overflowY, ok := source.GetOverflowY(); ok {
+		target.SetOverflowY(overflowY)
+	}
+	if contain, ok := source.GetContain(); ok {
+		target.SetContain(contain)
+	}
+	if willChange, ok := source.GetWillChange(); ok {
+		target.SetWillChange(willChange)
+	}
+	if value, ok := source.GetScrollbarWidth(); ok {
+		target.SetScrollbarWidth(value)
+	}
+	if color, ok := source.GetScrollbarTrack(); ok {
+		target.SetScrollbarTrack(color)
+	}
+	if color, ok := source.GetScrollbarThumb(); ok {
+		target.SetScrollbarThumb(color)
+	}
+	if value, ok := source.GetScrollbarRadius(); ok {
+		target.SetScrollbarRadius(value)
+	}
+	if padding, ok := source.GetScrollbarPadding(); ok {
+		target.SetScrollbarPadding(padding.Top, padding.Right, padding.Bottom, padding.Left)
 	}
 }
 
@@ -485,13 +1128,13 @@ func applyCSSDeclaration(style *ui.Style, name string, value string, layout *css
 			return
 		}
 	case "font-size":
-		if parsed, ok := parseCSSLength(value, *layout); ok {
+		if parsed, ok := parseCSSFontSize(value, *layout); ok {
 			style.SetFontSize(parsed)
 			layout.fontSize = parsed
 			return
 		}
 	case "line-height":
-		if parsed, ok := parseCSSLength(value, *layout); ok {
+		if parsed, ok := parseCSSLineHeight(value, *layout); ok {
 			style.SetLineHeight(parsed)
 			return
 		}
@@ -652,6 +1295,43 @@ func parseCSSLength(value string, layout cssLayoutContext) (int, bool) {
 	default:
 		return 0, false
 	}
+}
+
+func parseCSSFontSize(value string, layout cssLayoutContext) (int, bool) {
+	value = strings.TrimSpace(strings.ToLower(value))
+	if strings.HasSuffix(value, "%") {
+		percent, err := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(value, "%")), 64)
+		if err != nil {
+			return 0, false
+		}
+		return roundCSSPixels(float64(layout.fontSize) * percent / 100), true
+	}
+	return parseCSSLength(value, layout)
+}
+
+func parseCSSLineHeight(value string, layout cssLayoutContext) (int, bool) {
+	value = strings.TrimSpace(strings.ToLower(value))
+	if value == "" || value == "normal" {
+		return 0, false
+	}
+	if strings.HasSuffix(value, "%") {
+		percent, err := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(value, "%")), 64)
+		if err != nil {
+			return 0, false
+		}
+		return roundCSSPixels(float64(layout.fontSize) * percent / 100), true
+	}
+	if parsed, ok := parseCSSLength(value, layout); ok {
+		return parsed, true
+	}
+	if strings.ContainsAny(value, "abcdefghijklmnopqrstuvwxyz") {
+		return 0, false
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, false
+	}
+	return roundCSSPixels(float64(layout.fontSize) * parsed), true
 }
 
 func roundCSSPixels(value float64) int {

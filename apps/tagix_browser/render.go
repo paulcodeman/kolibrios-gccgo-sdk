@@ -23,6 +23,8 @@ type renderContext struct {
 	baseURL        string
 	openURL        func(string)
 	submitForm     func(string, string, neturl.Values)
+	loadImage      func(string) *ui.DocumentImage
+	imageError     func(string) string
 	requestPaint   func()
 	requestLayout  func()
 	stylesheet     *pageStylesheet
@@ -230,6 +232,7 @@ func applyShellNodeStyles(style *ui.Style, node *Node, ctx *shellRenderContext) 
 	}
 	if ctx != nil && ctx.stylesheet != nil {
 		ctx.stylesheet.apply(style, node, layout)
+		return
 	}
 	if inline := attrValue(node, "style"); inline != "" {
 		applyCSSDeclarations(style, inline, layout)
@@ -886,11 +889,13 @@ body{background:#f1f3f4;min-height:100vh}
 </body>
 </html>`
 
-func buildRenderedDocument(title string, currentURL string, doc *Document, viewportWidth int, viewportHeight int, openURL func(string), submitForm func(string, string, neturl.Values), requestLayout func(), requestPaint func()) *ui.DocumentNode {
+func buildRenderedDocument(title string, currentURL string, doc *Document, viewportWidth int, viewportHeight int, openURL func(string), submitForm func(string, string, neturl.Values), loadImage func(string) *ui.DocumentImage, imageError func(string) string, requestLayout func(), requestPaint func()) *ui.DocumentNode {
 	ctx := &renderContext{
 		baseURL:        currentURL,
 		openURL:        openURL,
 		submitForm:     submitForm,
+		loadImage:      loadImage,
+		imageError:     imageError,
 		requestLayout:  requestLayout,
 		requestPaint:   requestPaint,
 		stylesheet:     parseDocumentStylesheet(doc),
@@ -951,7 +956,7 @@ func appendFlowContentNodes(out *[]*ui.DocumentNode, node *Node, ctx *renderCont
 	}
 	builder := inlinePieceBuilder{}
 	flushParagraph := func() {
-		if paragraph := flowParagraphNode(builder.pieces, ctx); paragraph != nil {
+		if paragraph := flowParagraphNode(builder.pieces, node, ctx); paragraph != nil {
 			*out = append(*out, paragraph)
 		}
 		builder = inlinePieceBuilder{}
@@ -970,6 +975,9 @@ func appendFlowContentNodes(out *[]*ui.DocumentNode, node *Node, ctx *renderCont
 			appendFlowContentNodes(out, child, ctx)
 		case ElementNode:
 			if isSkippableElementTag(child.Tag) {
+				continue
+			}
+			if pageNodeDisplayNone(child, ctx) {
 				continue
 			}
 			if nodeParticipatesInInlineFlow(child) {
@@ -1017,6 +1025,18 @@ func nodeParticipatesInInlineFlow(node *Node) bool {
 	}
 }
 
+func pageNodeDisplayNone(node *Node, ctx *renderContext) bool {
+	if node == nil || node.Type != ElementNode {
+		return false
+	}
+	resolved := ui.Style{}
+	applyPageNodeStyles(&resolved, node, ctx)
+	if display, ok := resolved.GetDisplay(); ok && display == ui.DisplayNone {
+		return true
+	}
+	return false
+}
+
 func appendDocumentNodes(out *[]*ui.DocumentNode, node *Node, ctx *renderContext) {
 	if out == nil || node == nil {
 		return
@@ -1036,6 +1056,9 @@ func appendDocumentNodes(out *[]*ui.DocumentNode, node *Node, ctx *renderContext
 		return
 	case ElementNode:
 	default:
+		return
+	}
+	if pageNodeDisplayNone(node, ctx) {
 		return
 	}
 
@@ -1130,6 +1153,12 @@ func appendDocumentNodes(out *[]*ui.DocumentNode, node *Node, ctx *renderContext
 		}
 		return
 	case "a":
+		if anchorHasStructuredContent(node) {
+			if link := structuredLinkContainerNode(node, ctx); link != nil {
+				*out = append(*out, link)
+			}
+			return
+		}
 		if link := standaloneLinkNode(node, ctx); link != nil {
 			*out = append(*out, link)
 		}
@@ -1160,14 +1189,14 @@ func appendDocumentNodes(out *[]*ui.DocumentNode, node *Node, ctx *renderContext
 		}
 		return
 	case "iframe":
-		if frame := iframeFallbackNode(node); frame != nil {
+		if frame := iframeFallbackNode(node, ctx); frame != nil {
 			*out = append(*out, frame)
 		}
 		return
 	case "option":
 		return
 	case "img":
-		if image := imageFallbackNode(node); image != nil {
+		if image := imageFallbackNode(node, ctx); image != nil {
 			*out = append(*out, image)
 		}
 		return
@@ -1391,12 +1420,20 @@ func paragraphNode(text string) *ui.DocumentNode {
 	return ui.NewDocumentText(text, paragraphBlockStyle())
 }
 
-func flowParagraphNode(pieces []inlinePiece, ctx *renderContext) *ui.DocumentNode {
-	children := inlineNodesFromPieces(pieces, paragraphInlineStyle(), ctx)
+func flowParagraphNode(pieces []inlinePiece, owner *Node, ctx *renderContext) *ui.DocumentNode {
+	inlineStyle := paragraphInlineStyle()
+	if owner != nil {
+		applyPageTextProperties(&inlineStyle, owner, ctx)
+	}
+	children := inlineNodesFromPieces(pieces, inlineStyle, ctx)
 	if len(children) == 0 {
 		return nil
 	}
-	return ui.NewDocumentElement("flow-paragraph", paragraphBlockStyle(), children...)
+	blockStyle := paragraphBlockStyle()
+	if owner != nil {
+		applyPageTextProperties(&blockStyle, owner, ctx)
+	}
+	return ui.NewDocumentElement("flow-paragraph", blockStyle, children...)
 }
 
 func headingBlockNode(node *Node, ctx *renderContext) *ui.DocumentNode {
@@ -1712,6 +1749,113 @@ func standaloneLinkNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 	}), link)
 }
 
+func anchorHasStructuredContent(node *Node) bool {
+	if node == nil {
+		return false
+	}
+	for _, child := range node.Children {
+		if child == nil {
+			continue
+		}
+		if child.Type == ElementNode && !nodeParticipatesInInlineFlow(child) {
+			return true
+		}
+	}
+	return false
+}
+
+func structuredLinkContainerNode(node *Node, ctx *renderContext) *ui.DocumentNode {
+	if node == nil || node.Attrs == nil {
+		return nil
+	}
+	baseURL := ""
+	if ctx != nil {
+		baseURL = ctx.baseURL
+	}
+	href := resolveURL(baseURL, node.Attrs["href"])
+	if href == "" {
+		return genericBlockContainerNode(node, ctx)
+	}
+	children := buildFlowNodes(node, ctx)
+	style := styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetContain(ui.ContainPaint)
+		style.SetForeground(ui.Blue)
+	})
+	applyPageNodeStyles(&style, node, ctx)
+	inheritTextPropertiesFromStyle(children, style)
+	link := ui.NewDocumentElement("structured-link", style, children...)
+	link.Focusable = true
+	link.StyleHover = styled(func(style *ui.Style) {
+		style.SetForeground(ui.Teal)
+	})
+	link.StyleActive = styled(func(style *ui.Style) {
+		style.SetForeground(ui.Navy)
+	})
+	link.StyleFocus = styled(func(style *ui.Style) {
+		style.SetOutline(1, ui.Blue)
+		style.SetOutlineOffset(1)
+	})
+	if ctx != nil && ctx.openURL != nil {
+		link.OnClick = func() {
+			ctx.openURL(href)
+		}
+	}
+	return link
+}
+
+func inheritTextPropertiesFromStyle(nodes []*ui.DocumentNode, inherited ui.Style) {
+	for _, node := range nodes {
+		inheritDocumentNodeTextProperties(node, inherited)
+	}
+}
+
+func inheritDocumentNodeTextProperties(node *ui.DocumentNode, inherited ui.Style) {
+	if node == nil {
+		return
+	}
+	if color, ok := inherited.GetForeground(); ok {
+		if _, set := node.Style.GetForeground(); !set {
+			node.Style.SetForeground(color)
+		}
+	}
+	if path, ok := inherited.GetFontPath(); ok {
+		if _, set := node.Style.GetFontPath(); !set {
+			node.Style.SetFontPath(path)
+		}
+	}
+	if size, ok := inherited.GetFontSize(); ok {
+		if _, set := node.Style.GetFontSize(); !set {
+			node.Style.SetFontSize(size)
+		}
+	}
+	if lineHeight, ok := inherited.GetLineHeight(); ok {
+		if _, set := node.Style.GetLineHeight(); !set {
+			node.Style.SetLineHeight(lineHeight)
+		}
+	}
+	if align, ok := inherited.GetTextAlign(); ok {
+		if _, set := node.Style.GetTextAlign(); !set {
+			node.Style.SetTextAlign(align)
+		}
+	}
+	if decoration, ok := inherited.GetTextDecoration(); ok {
+		if _, set := node.Style.GetTextDecoration(); !set {
+			node.Style.SetTextDecoration(decoration)
+		}
+	}
+	if whiteSpace, ok := inherited.GetWhiteSpace(); ok {
+		if _, set := node.Style.GetWhiteSpace(); !set {
+			node.Style.SetWhiteSpace(whiteSpace)
+		}
+	}
+	next := inherited
+	copyPageTextProperties(&next, node.Style)
+	for _, child := range node.Children {
+		inheritDocumentNodeTextProperties(child, next)
+	}
+}
+
 func genericBlockContainerNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 	if node == nil {
 		return nil
@@ -1725,6 +1869,7 @@ func genericBlockContainerNode(node *Node, ctx *renderContext) *ui.DocumentNode 
 		}
 	})
 	applyPageNodeStyles(&style, node, ctx)
+	inheritTextPropertiesFromStyle(children, style)
 	return ui.NewDocumentElement("container-"+node.Tag, style, children...)
 }
 
@@ -1755,6 +1900,9 @@ func collectInlinePieces(builder *inlinePieceBuilder, node *Node, ctx *renderCon
 	default:
 		return
 	}
+	if pageNodeDisplayNone(node, ctx) {
+		return
+	}
 
 	switch node.Tag {
 	case "script", "style", "head", "title", "meta", "link":
@@ -1777,7 +1925,7 @@ func collectInlinePieces(builder *inlinePieceBuilder, node *Node, ctx *renderCon
 		if label == "" {
 			label = displayURL(strings.TrimSpace(node.Attrs["src"]))
 		}
-		builder.appendImage(label)
+		builder.appendImage(node, label)
 		return
 	case "button", "textarea", "select", "progress":
 		builder.appendControl(node)
@@ -1851,19 +1999,16 @@ func (builder *inlinePieceBuilder) appendCode(text string) {
 	builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceCode, text: text})
 }
 
-func (builder *inlinePieceBuilder) appendImage(label string) {
+func (builder *inlinePieceBuilder) appendImage(node *Node, label string) {
 	if builder == nil {
 		return
 	}
 	label = normalizeBlockText(label)
-	if label == "" {
-		return
-	}
 	if builder.needSpace && len(builder.pieces) > 0 {
 		builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceText, text: " "})
 		builder.needSpace = false
 	}
-	builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceImage, text: label})
+	builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceImage, text: label, node: node})
 }
 
 func (builder *inlinePieceBuilder) appendBreak() {
@@ -1906,7 +2051,7 @@ func inlineNodesFromPieces(pieces []inlinePiece, baseStyle ui.Style, ctx *render
 				nodes = append(nodes, code)
 			}
 		case inlinePieceImage:
-			if image := inlineImageNode(piece.text, baseStyle); image != nil {
+			if image := inlineImageNode(piece.node, piece.text, baseStyle, ctx); image != nil {
 				nodes = append(nodes, image)
 			}
 		case inlinePieceBreak:
@@ -2058,21 +2203,54 @@ func inlineCodeNode(text string, baseStyle ui.Style) *ui.DocumentNode {
 	return ui.NewDocumentElement("inline-code", style, ui.NewDocumentText(text, childStyle))
 }
 
-func inlineImageNode(label string, baseStyle ui.Style) *ui.DocumentNode {
+func inlineImageNode(node *Node, label string, baseStyle ui.Style, ctx *renderContext) *ui.DocumentNode {
 	label = normalizeBlockText(label)
-	if label == "" {
-		return nil
-	}
+	image := resolveRenderedImage(node, ctx)
+	reason := resolveRenderedImageError(node, ctx)
 	style := baseStyle
 	style.SetDisplay(ui.DisplayInlineBlock)
-	style.SetPadding(1, 4)
 	style.SetMargin(0, 1)
-	style.SetBorderRadius(6)
-	style.SetBackground(ui.Silver)
-	style.SetForeground(ui.Gray)
-	childStyle := style
+	style.SetContain(ui.ContainPaint)
+	if node != nil {
+		applyPageNodeStyles(&style, node, ctx)
+		applyPresentationalNodeAttrs(&style, node)
+	}
+	width, height := resolveImageBoxSize(style, node, image, 16, 0)
+	if width > 0 {
+		style.SetWidth(width)
+	}
+	if height > 0 {
+		style.SetHeight(height)
+	}
+	imageNode := ui.NewDocumentElement("inline-image", style)
+	imageNode.Image = image
+	if image != nil {
+		return imageNode
+	}
+	style.SetBorderRadius(4)
+	style.SetBackground(0xEEF2F6)
+	style.SetBorder(1, 0xD8DEE4)
+	if reason != "" {
+		style.SetBackground(0xFDECEC)
+		style.SetBorder(1, 0xD93025)
+	}
+	imageNode.Style = style
+	if width <= 24 && height <= 24 {
+		return imageNode
+	}
+	childStyle := baseStyle
 	childStyle.SetDisplay(ui.DisplayInline)
-	return ui.NewDocumentElement("inline-image", style, ui.NewDocumentText("[image] "+label, childStyle))
+	childStyle.SetForeground(ui.Gray)
+	childStyle.SetFontSize(11)
+	childStyle.SetLineHeight(15)
+	if label == "" {
+		label = "image"
+	}
+	if reason != "" {
+		label += " (" + reason + ")"
+	}
+	imageNode.Append(ui.NewDocumentText("[image] "+label, childStyle))
+	return imageNode
 }
 
 func inlineBreakNode(baseStyle ui.Style) *ui.DocumentNode {
@@ -2129,15 +2307,14 @@ func tableBlockNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 	if len(children) == 0 {
 		return nil
 	}
-	return ui.NewDocumentElement("table", styled(func(style *ui.Style) {
+	table := ui.NewDocumentElement("table", styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
 		style.SetMargin(0, 0, 10, 0)
-		style.SetPadding(8, 10)
-		style.SetBorderRadius(8)
-		style.SetBorder(1, 0xD8DEE4)
-		style.SetBackground(ui.White)
 		style.SetContain(ui.ContainPaint)
 	}), children...)
+	applyPageNodeStyles(&table.Style, node, ctx)
+	applyPresentationalNodeAttrs(&table.Style, node)
+	return table
 }
 
 func appendTableRowNodes(out *[]*ui.DocumentNode, node *Node, ctx *renderContext) {
@@ -2182,11 +2359,51 @@ func tableRowNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 		}
 		return paragraphNode(text)
 	}
-	return ui.NewDocumentElement("table-row", styled(func(style *ui.Style) {
+	row := ui.NewDocumentElement("table-row", styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
-		style.SetMargin(0, 0, 4, 0)
 		style.SetContain(ui.ContainPaint)
 	}), cells...)
+	applyPageNodeStyles(&row.Style, node, ctx)
+	applyPresentationalNodeAttrs(&row.Style, node)
+	applySimpleTableRowLayout(row)
+	return row
+}
+
+func applySimpleTableRowLayout(row *ui.DocumentNode) {
+	if row == nil || len(row.Children) != 3 {
+		return
+	}
+	left := row.Children[0]
+	center := row.Children[1]
+	right := row.Children[2]
+	if left == nil || center == nil || right == nil {
+		return
+	}
+	leftWidth, leftOK := left.Style.GetWidth()
+	rightWidth, rightOK := right.Style.GetWidth()
+	if !leftOK || !rightOK || leftWidth <= 0 || rightWidth <= 0 {
+		return
+	}
+	row.Style.SetPosition(ui.PositionRelative)
+	if leftWidth > rightWidth {
+		row.Style.SetMinHeight(leftWidth)
+	} else {
+		row.Style.SetMinHeight(rightWidth)
+	}
+
+	left.Style.SetPosition(ui.PositionAbsolute)
+	left.Style.SetLeft(0)
+	left.Style.SetTop(0)
+	left.Style.SetMargin(0)
+
+	right.Style.SetPosition(ui.PositionAbsolute)
+	right.Style.SetRight(0)
+	right.Style.SetTop(0)
+	right.Style.SetMargin(0)
+
+	center.Style.SetDisplay(ui.DisplayBlock)
+	center.Style.SetMarginLeft(leftWidth)
+	center.Style.SetMarginRight(rightWidth)
 }
 
 func tableCellNode(node *Node, ctx *renderContext) *ui.DocumentNode {
@@ -2194,37 +2411,30 @@ func tableCellNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 		return nil
 	}
 	header := node.Tag == "th"
-	textStyle := paragraphInlineStyle()
-	if header {
-		textStyle.SetForeground(ui.Navy)
-	}
-	builder := inlinePieceBuilder{}
-	for _, child := range node.Children {
-		collectInlinePieces(&builder, child, ctx)
-	}
-	children := inlineNodesFromPieces(builder.pieces, textStyle, ctx)
+	children := buildFlowNodes(node, ctx)
 	if len(children) == 0 {
 		text := collectNodeText(node, false)
 		if text == "" {
 			return nil
 		}
+		textStyle := paragraphInlineStyle()
+		if header {
+			textStyle.SetForeground(ui.Navy)
+		}
+		applyPageTextProperties(&textStyle, node, ctx)
 		children = inlineTextTokens(text, textStyle)
 	}
-	return ui.NewDocumentElement("table-cell", styled(func(style *ui.Style) {
+	cell := ui.NewDocumentElement("table-cell", styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayInlineBlock)
-		style.SetMargin(0, 6, 0, 0)
-		style.SetPadding(2, 6)
-		style.SetBorderRadius(6)
 		style.SetContain(ui.ContainPaint)
 		if header {
-			style.SetBorder(1, 0xB5C7DD)
-			style.SetBackground(0xEEF4FB)
 			style.SetForeground(ui.Navy)
-			return
 		}
-		style.SetBorder(1, 0xD8DEE4)
-		style.SetBackground(0xF8FAFC)
 	}), children...)
+	applyPageNodeStyles(&cell.Style, node, ctx)
+	applyPresentationalNodeAttrs(&cell.Style, node)
+	inheritTextPropertiesFromStyle(cell.Children, cell.Style)
+	return cell
 }
 
 func listItemNode(text string) *ui.DocumentNode {
@@ -2247,31 +2457,212 @@ func separatorNode() *ui.DocumentNode {
 	}))
 }
 
-func imageFallbackNode(node *Node) *ui.DocumentNode {
+func applyPresentationalNodeAttrs(style *ui.Style, node *Node) {
+	if style == nil || node == nil {
+		return
+	}
+	if width := attrInt(node, "width", 0); width > 0 {
+		style.SetWidth(width)
+	}
+	if height := attrInt(node, "height", 0); height > 0 {
+		style.SetHeight(height)
+	}
+	if color, ok := parseHTMLColor(attrValue(node, "bgcolor")); ok {
+		style.SetBackground(color)
+	}
+	if color, ok := parseHTMLColor(attrValue(node, "bg")); ok {
+		style.SetBackground(color)
+	}
+	if color, ok := parseHTMLColor(attrValue(node, "color")); ok {
+		style.SetForeground(color)
+	}
+}
+
+func resolveFallbackBoxSize(style ui.Style, node *Node, fallback int) (int, int) {
+	width, widthOK := style.GetWidth()
+	height, heightOK := style.GetHeight()
+	if !widthOK && node != nil {
+		if value := attrInt(node, "width", 0); value > 0 {
+			width = value
+			widthOK = true
+		}
+	}
+	if !heightOK && node != nil {
+		if value := attrInt(node, "height", 0); value > 0 {
+			height = value
+			heightOK = true
+		}
+	}
+	if !heightOK {
+		if lineHeight, ok := style.GetLineHeight(); ok && lineHeight > 0 {
+			height = lineHeight
+			heightOK = true
+		}
+	}
+	if !widthOK && heightOK {
+		width = height
+		widthOK = true
+	}
+	if !heightOK && widthOK {
+		height = width
+		heightOK = true
+	}
+	if !widthOK {
+		width = fallback
+	}
+	if !heightOK {
+		height = fallback
+	}
+	return width, height
+}
+
+func resolveRenderedImage(node *Node, ctx *renderContext) *ui.DocumentImage {
+	if node == nil || ctx == nil || ctx.loadImage == nil {
+		return nil
+	}
+	src := imageResourceURL(ctx.baseURL, attrValue(node, "src"))
+	if src == "" {
+		return nil
+	}
+	return ctx.loadImage(src)
+}
+
+func resolveRenderedImageError(node *Node, ctx *renderContext) string {
+	if node == nil || ctx == nil || ctx.imageError == nil {
+		return ""
+	}
+	src := imageResourceURL(ctx.baseURL, attrValue(node, "src"))
+	if src == "" {
+		return ""
+	}
+	return strings.TrimSpace(ctx.imageError(src))
+}
+
+func resolveImageBoxSize(style ui.Style, node *Node, image *ui.DocumentImage, fallback int, maxWidth int) (int, int) {
+	width, widthOK := style.GetWidth()
+	height, heightOK := style.GetHeight()
+	if !widthOK && node != nil {
+		if value := attrInt(node, "width", 0); value > 0 {
+			width = value
+			widthOK = true
+		}
+	}
+	if !heightOK && node != nil {
+		if value := attrInt(node, "height", 0); value > 0 {
+			height = value
+			heightOK = true
+		}
+	}
+	naturalWidth := 0
+	naturalHeight := 0
+	if image != nil && image.Valid() {
+		naturalWidth = image.Width
+		naturalHeight = image.Height
+	}
+	if widthOK && !heightOK && naturalWidth > 0 && naturalHeight > 0 {
+		height = (width * naturalHeight) / naturalWidth
+		if height < 1 {
+			height = 1
+		}
+		heightOK = true
+	}
+	if heightOK && !widthOK && naturalWidth > 0 && naturalHeight > 0 {
+		width = (height * naturalWidth) / naturalHeight
+		if width < 1 {
+			width = 1
+		}
+		widthOK = true
+	}
+	if !widthOK && naturalWidth > 0 {
+		width = naturalWidth
+		widthOK = true
+	}
+	if !heightOK && naturalHeight > 0 {
+		height = naturalHeight
+		heightOK = true
+	}
+	if maxWidth > 0 && widthOK && width > maxWidth {
+		if heightOK && width > 0 {
+			height = (height * maxWidth) / width
+		} else if naturalWidth > 0 && naturalHeight > 0 {
+			height = (naturalHeight * maxWidth) / naturalWidth
+			heightOK = true
+		}
+		if height < 1 {
+			height = 1
+		}
+		width = maxWidth
+	}
+	if !widthOK {
+		width = fallback
+	}
+	if !heightOK {
+		if naturalHeight > 0 {
+			height = naturalHeight
+		} else {
+			height = fallback
+		}
+	}
+	if width < 1 {
+		width = fallback
+	}
+	if height < 1 {
+		height = fallback
+	}
+	return width, height
+}
+
+func imageFallbackNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 	if node == nil || node.Attrs == nil {
 		return nil
 	}
+	image := resolveRenderedImage(node, ctx)
 	label := normalizeBlockText(node.Attrs["alt"])
 	if label == "" {
 		label = displayURL(strings.TrimSpace(node.Attrs["src"]))
 	}
-	if label == "" {
+	if reason := resolveRenderedImageError(node, ctx); reason != "" {
+		if label == "" {
+			label = reason
+		} else {
+			label += " (" + reason + ")"
+		}
+	}
+	if label == "" && image == nil {
 		return nil
 	}
-	return ui.NewDocumentElement("image", styled(func(style *ui.Style) {
+	style := styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
 		style.SetMargin(0, 0, 8, 0)
-		style.SetPadding(8, 10)
-		style.SetBorderRadius(8)
-		style.SetBackground(0xF6F8FA)
-		style.SetBorder(1, 0xD8DEE4)
-	}), ui.NewDocumentText("[image] "+label, styled(func(style *ui.Style) {
+		style.SetContain(ui.ContainPaint)
+	})
+	applyPageNodeStyles(&style, node, ctx)
+	applyPresentationalNodeAttrs(&style, node)
+	width, height := resolveImageBoxSize(style, node, image, 96, ctx.viewportWidth)
+	style.SetWidth(width)
+	style.SetHeight(height)
+	imageNode := ui.NewDocumentElement("image", style)
+	imageNode.Image = image
+	if image != nil {
+		return imageNode
+	}
+	style.SetPadding(4)
+	style.SetBorderRadius(4)
+	style.SetBackground(0xF6F8FA)
+	style.SetBorder(1, 0xD8DEE4)
+	imageNode.Style = style
+	if width <= 48 || height <= 48 {
+		return imageNode
+	}
+	imageNode.Append(ui.NewDocumentText("[image] "+label, styled(func(style *ui.Style) {
 		style.SetForeground(ui.Gray)
 		style.SetFontSize(12)
+		style.SetLineHeight(16)
 	})))
+	return imageNode
 }
 
-func iframeFallbackNode(node *Node) *ui.DocumentNode {
+func iframeFallbackNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 	if node == nil || node.Attrs == nil {
 		return nil
 	}
@@ -2293,7 +2684,18 @@ func iframeFallbackNode(node *Node) *ui.DocumentNode {
 		style.SetBackground(0xF8FAFC)
 		style.SetContain(ui.ContainPaint)
 	}))
-	applyNodeInlineStyle(&frame.Style, node)
+	applyPageNodeStyles(&frame.Style, node, ctx)
+	applyPresentationalNodeAttrs(&frame.Style, node)
+	width, widthOK := frame.Style.GetWidth()
+	if !widthOK && ctx != nil && ctx.viewportWidth > 0 {
+		width = ctx.viewportWidth
+	}
+	if height, ok := frame.Style.GetHeight(); !ok || height <= 0 {
+		if width <= 0 {
+			width = 320
+		}
+		frame.Style.SetHeight((width * 9) / 16)
+	}
 	frame.Append(
 		ui.NewDocumentText("[iframe] "+label, styled(func(style *ui.Style) {
 			style.SetDisplay(ui.DisplayBlock)
@@ -2306,6 +2708,14 @@ func iframeFallbackNode(node *Node) *ui.DocumentNode {
 			style.SetForeground(0x5F6368)
 			style.SetFontSize(11)
 			style.SetLineHeight(15)
+		})),
+		ui.NewDocumentText("Embedded content placeholder", styled(func(style *ui.Style) {
+			style.SetDisplay(ui.DisplayBlock)
+			style.SetMargin(18, 0, 0, 0)
+			style.SetForeground(0x7A8694)
+			style.SetFontSize(12)
+			style.SetLineHeight(16)
+			style.SetTextAlign(ui.TextAlignCenter)
 		})),
 	)
 	return frame
@@ -2353,7 +2763,10 @@ func htmlButtonType(node *Node) string {
 	if node.Tag == "button" {
 		value := strings.ToLower(attrValue(node, "type"))
 		if value == "" {
-			return "submit"
+			if nearestAncestorTag(node, "form") != nil {
+				return "submit"
+			}
+			return "button"
 		}
 		return value
 	}
@@ -2426,6 +2839,18 @@ func htmlControlStyle() ui.Style {
 		style.SetFontSize(13)
 		style.SetLineHeight(18)
 		style.SetForeground(ui.Black)
+	})
+}
+
+func neutralHTMLControlStyle() ui.Style {
+	return styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayInlineBlock)
+		style.SetContain(ui.ContainPaint)
+		style.SetForeground(ui.Black)
+		style.SetFontPath(webSansFontPath)
+		style.SetFontSize(13)
+		style.SetLineHeight(18)
+		style.SetTextAlign(ui.TextAlignCenter)
 	})
 }
 
@@ -2503,9 +2928,21 @@ func htmlButtonNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 	if label == "" {
 		label = fallback
 	}
-	button := ui.NewDocumentElement("html-button", htmlControlStyle(),
-		ui.NewDocumentText(label, htmlControlTextStyle()),
-	)
+	textStyle := htmlControlTextStyle()
+	applyPageTextProperties(&textStyle, node, ctx)
+	children := buildInlineNodes(node, ctx, textStyle)
+	if len(children) == 0 {
+		children = []*ui.DocumentNode{
+			ui.NewDocumentText(label, textStyle),
+		}
+	}
+	baseStyle := htmlControlStyle()
+	if htmlButtonUseNeutralBase(node, children) {
+		baseStyle = neutralHTMLControlStyle()
+	}
+	button := ui.NewDocumentElement("html-button", baseStyle, children...)
+	applyPageNodeStyles(&button.Style, node, ctx)
+	applyPresentationalNodeAttrs(&button.Style, node)
 	button.Focusable = true
 	applyInteractiveControlStyles(button)
 	disabled := hasAttr(node, "disabled")
@@ -2545,6 +2982,21 @@ func htmlButtonNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 		})
 	}
 	return button
+}
+
+func htmlButtonUseNeutralBase(node *Node, children []*ui.DocumentNode) bool {
+	if node == nil {
+		return false
+	}
+	if strings.TrimSpace(attrValue(node, "id")) != "" ||
+		strings.TrimSpace(attrValue(node, "class")) != "" ||
+		strings.TrimSpace(attrValue(node, "style")) != "" {
+		return true
+	}
+	if len(children) == 1 && children[0] != nil && children[0].Image != nil {
+		return true
+	}
+	return false
 }
 
 func htmlInputNode(node *Node, ctx *renderContext) *ui.DocumentNode {

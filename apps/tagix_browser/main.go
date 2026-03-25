@@ -44,6 +44,11 @@ type App struct {
 	caBundlePath  string
 	caBundleError string
 
+	stylesheetCache  map[string]string
+	imageCache       map[string]*ui.DocumentImage
+	imageErrors      map[string]string
+	resourceCacheDir string
+
 	shellDocument *ui.Document
 	shellView     *ui.DocumentView
 	pageFrame     *ui.Element
@@ -83,15 +88,22 @@ func NewApp() *App {
 	startupURL, webViewMode := resolveStartupTarget(os.Args[1:])
 	httpClient, caBundlePath, caBundleError := newBrowserHTTPClient()
 	app := &App{
-		httpClient:    httpClient,
-		caBundlePath:  caBundlePath,
-		caBundleError: caBundleError,
-		statusBase:    "Ready",
-		historyIndex:  -1,
-		addressText:   defaultURL,
-		startupURL:    startupURL,
-		pageMinHeight: minPageHeight,
-		webViewMode:   webViewMode,
+		httpClient:       httpClient,
+		caBundlePath:     caBundlePath,
+		caBundleError:    caBundleError,
+		stylesheetCache:  map[string]string{},
+		imageCache:       map[string]*ui.DocumentImage{},
+		imageErrors:      map[string]string{},
+		resourceCacheDir: initResourceCacheDir(),
+		statusBase:       "Ready",
+		historyIndex:     -1,
+		addressText:      defaultURL,
+		startupURL:       startupURL,
+		pageMinHeight:    minPageHeight,
+		webViewMode:      webViewMode,
+	}
+	if strings.TrimSpace(caBundleError) != "" {
+		app.debugf("tls root bundle: %s (path=%s)", strings.TrimSpace(caBundleError), strings.TrimSpace(caBundlePath))
 	}
 	app.buildUI()
 	if !app.webViewMode {
@@ -294,6 +306,7 @@ func (app *App) loadURL(url string) {
 		return
 	}
 	if app.httpClient == nil {
+		app.debugf("http unavailable for %s", displayURL(url))
 		app.pageTitle = "HTTP unavailable"
 		app.statusBase = "HTTP client unavailable"
 		app.showMessageDocument("HTTP unavailable", "The network client is not available, so Tagix Browser cannot download the page.")
@@ -302,6 +315,7 @@ func (app *App) loadURL(url string) {
 
 	request, err := nethttp.NewRequest(nethttp.MethodGet, url, nil)
 	if err != nil {
+		app.debugError("http request build "+displayURL(url), err)
 		app.pageTitle = "Load failed"
 		app.statusBase = "Invalid URL"
 		app.showMessageDocument("Load failed", "Failed to prepare the request: "+err.Error())
@@ -312,6 +326,7 @@ func (app *App) loadURL(url string) {
 
 	response, err := app.httpClient.Do(request)
 	if err != nil {
+		app.debugError("http get "+displayURL(url), err)
 		app.pageTitle = "Load failed"
 		app.statusBase = "Network error"
 		app.showMessageDocument("Load failed", app.networkErrorDetail(url, err))
@@ -333,6 +348,7 @@ func (app *App) loadURL(url string) {
 	}
 
 	if response.StatusCode >= 400 {
+		app.debugf("http status %s for %s", response.Status, displayURL(finalURL))
 		app.pageTitle = response.Status
 		app.statusBase = response.Status
 		app.showMessageDocument("HTTP error", app.httpErrorDetail(response.Status, finalURL, redirected))
@@ -341,6 +357,7 @@ func (app *App) loadURL(url string) {
 
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxContent+1))
 	if err != nil {
+		app.debugError("http read body "+displayURL(finalURL), err)
 		app.pageTitle = "Load failed"
 		app.statusBase = "Read error"
 		app.showMessageDocument("Load failed", "Failed while reading the response body: "+err.Error())
@@ -390,9 +407,11 @@ func configureLocalCABundle() (string, bool) {
 		return value, true
 	}
 	if _, err := os.Stat(localCABundleAsset); err != nil {
+		tagixDebugf("SSL_CERT_FILE stat %s: %v", localCABundleAsset, err)
 		return "", false
 	}
 	if err := os.Setenv("SSL_CERT_FILE", localCABundleAsset); err != nil {
+		tagixDebugf("SSL_CERT_FILE set %s: %v", localCABundleAsset, err)
 		return "", false
 	}
 	return localCABundleAsset, true
@@ -405,10 +424,12 @@ func loadRootPool(path string) (*x509.CertPool, error) {
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
+		tagixDebugf("ca bundle read %s: %v", path, err)
 		return nil, err
 	}
 	pool := x509.NewCertPool()
 	if !pool.AppendCertsFromPEM(data) {
+		tagixDebugf("ca bundle parse %s: no certificates", path)
 		return nil, fmt.Errorf("no certificates parsed from %s", path)
 	}
 	return pool, nil
@@ -459,6 +480,7 @@ func (app *App) loadBuiltinPage(url string) bool {
 		return false
 	}
 	doc := Parse(html)
+	app.inlineLinkedStylesheets(doc, url)
 	if parsedTitle := documentTitle(doc); parsedTitle != "" {
 		pageTitle = parsedTitle
 	}
@@ -478,6 +500,7 @@ func (app *App) loadLocalPage(url string) bool {
 	}
 	body, err := os.ReadFile(path)
 	if err != nil {
+		app.debugError("local html read "+path, err)
 		app.pageTitle = "Load failed"
 		app.statusBase = "File error"
 		app.showMessageDocument("Load failed", "Failed to read local HTML file: "+path+". "+err.Error())
@@ -485,6 +508,7 @@ func (app *App) loadLocalPage(url string) bool {
 	}
 	canonicalURL := fileURLFromPath(path)
 	doc := Parse(string(body))
+	app.inlineLinkedStylesheets(doc, canonicalURL)
 	app.currentURL = canonicalURL
 	app.addressText = canonicalURL
 	app.replaceCurrentHistory(canonicalURL)
@@ -539,6 +563,7 @@ func (app *App) submitForm(actionURL string, method string, values neturl.Values
 		}
 		app.openURL(appendURLQuery(actionURL, encoded), true)
 	default:
+		app.debugf("unsupported form method %s for %s", strings.ToUpper(method), displayURL(actionURL))
 		app.pageTitle = "Unsupported form method"
 		app.statusBase = strings.ToUpper(method) + " not supported"
 		app.showMessageDocument("Unsupported form method", "This lite browser currently supports GET form submission only.")
@@ -551,6 +576,7 @@ func (app *App) updateContent(contentType string, body []byte, redirected bool) 
 		return
 	}
 	if !isTextContentType(contentType) {
+		app.debugf("unsupported content-type %q at %s", strings.TrimSpace(contentType), displayURL(app.currentURL))
 		app.pageTitle = "Unsupported content"
 		app.statusBase = "Content is not text"
 		app.showMessageDocument("Unsupported content", "This lite browser currently renders only text-like responses.")
@@ -564,6 +590,7 @@ func (app *App) updateContent(contentType string, body []byte, redirected bool) 
 	}
 
 	doc := Parse(string(body))
+	app.inlineLinkedStylesheets(doc, app.currentURL)
 	app.pageTitle = documentTitle(doc)
 	app.showRenderedDocument(doc)
 	app.statusBase = loadedStatus(truncated, redirected)
@@ -606,6 +633,10 @@ func (app *App) showRenderedDocument(doc *Document) {
 		app.openURL(target, true)
 	}, func(actionURL string, method string, values neturl.Values) {
 		app.submitForm(actionURL, method, values)
+	}, func(rawURL string) *ui.DocumentImage {
+		return app.loadDocumentImage(rawURL)
+	}, func(rawURL string) string {
+		return app.imageErrors[strings.TrimSpace(rawURL)]
 	}, func() {
 		app.pageDocument.MarkLayoutDirty()
 	}, func() {

@@ -70,6 +70,7 @@ type stressApp struct {
 	alphaWork  *surface.Buffer
 	sample     *surface.Buffer
 	alphaStamp *surface.Buffer
+	image      *surface.Image
 	font       *surface.Font
 	fontLabel  string
 	console    kos.Console
@@ -92,6 +93,53 @@ func uniformRadii(radius int) surface.CornerRadii {
 		TopRight:    radius,
 		BottomRight: radius,
 		BottomLeft:  radius,
+	}
+}
+
+func premultipliedPixel(r uint8, g uint8, b uint8, a uint8) uint32 {
+	if a == 0 {
+		return 0
+	}
+	pr := (uint32(r) * uint32(a)) / 255
+	pg := (uint32(g) * uint32(a)) / 255
+	pb := (uint32(b) * uint32(a)) / 255
+	return uint32(a)<<24 | pr<<16 | pg<<8 | pb
+}
+
+func stressImage() *surface.Image {
+	const width = 128
+	const height = 96
+	pixels := make([]uint32, width*height)
+	index := 0
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			alpha := uint8(255)
+			if x < 4 || y < 4 || x >= width-4 || y >= height-4 {
+				alpha = 180
+			}
+			r := uint8(40 + (x*150)/width)
+			g := uint8(72 + (y*120)/height)
+			b := uint8(180)
+			if ((x / 16) & 1) != ((y / 16) & 1) {
+				r = 255
+				g = 207
+				b = 92
+			}
+			cx := x - width/2
+			cy := y - height/2
+			if cx*cx+cy*cy < 18*18 {
+				r = 242
+				g = 95
+				b = 92
+			}
+			pixels[index] = premultipliedPixel(r, g, b, alpha)
+			index++
+		}
+	}
+	return &surface.Image{
+		Width:  width,
+		Height: height,
+		Pixels: pixels,
 	}
 }
 
@@ -166,6 +214,7 @@ func newStressApp(scale int) *stressApp {
 		alphaWork:  surface.NewBufferAlpha(640, 320),
 		sample:     surface.NewBuffer(240, 128),
 		alphaStamp: surface.NewBufferAlpha(240, 128),
+		image:      stressImage(),
 		font:       font,
 		fontLabel:  fontLabel,
 		console:    console,
@@ -278,6 +327,9 @@ func (app *stressApp) preparePresentScene() {
 	app.canvas.StrokeRoundedRectWidth(panel.X, panel.Y, panel.Width, panel.Height, uniformRadii(18), 1, alphaColor(colorWhite, 38))
 	app.canvas.BlitFrom(app.sample, app.sample.Bounds(), panel.X+18, panel.Y+22)
 	app.canvas.BlitFrom(app.alphaStamp, app.alphaStamp.Bounds(), panel.X+290, panel.Y+26)
+	if app.image != nil {
+		app.canvas.DrawImageRect(surface.Rect{X: panel.X + panel.Width - 206, Y: panel.Y + 28, Width: 158, Height: 118}, app.image)
+	}
 	app.canvas.FillRoundedRectAlpha(panel.X+22, panel.Y+180, 220, 56, uniformRadii(18), colorMint, 96)
 	app.canvas.DrawLine(panel.X+278, panel.Y+170, panel.X+panel.Width-30, panel.Y+46, colorGold)
 	app.canvas.DrawLine(panel.X+278, panel.Y+52, panel.X+panel.Width-30, panel.Y+190, alphaColor(colorCyan, 200))
@@ -483,6 +535,20 @@ func (app *stressApp) runMicroBenchmarks() []benchResult {
 			},
 		},
 		{
+			name:       "image/scaled",
+			group:      "image",
+			iterations: 170 * app.scale,
+			setup:      app.prepareWorkPattern,
+			fn: func(iter int) {
+				if app.image == nil {
+					return
+				}
+				x := 18 + (iter*19)%(app.work.Width()-172)
+				y := 22 + (iter*7)%(app.work.Height()-126)
+				app.work.DrawImageRect(surface.Rect{X: x, Y: y, Width: 154, Height: 104}, app.image)
+			},
+		},
+		{
 			name:       "blit/self",
 			group:      "blit",
 			iterations: 190 * app.scale,
@@ -579,7 +645,7 @@ func (app *stressApp) drawStageHeader(frame int) {
 		Direction: surface.GradientHorizontal,
 	})
 	app.canvas.DrawText(18, 16, colorWhite, "surface frame-stage profile")
-	app.canvas.DrawText(18, 34, colorMuted, "clear / header / rounded / shadow-fill / shadow-mask / vectors / text / blit / present")
+	app.canvas.DrawText(18, 34, colorMuted, "clear / header / rounded / shadow-fill / shadow-mask / vectors / text / image / blit / present")
 }
 
 func (app *stressApp) drawStagePanelsFill(frame int) {
@@ -667,6 +733,16 @@ func (app *stressApp) drawStageText(frame int) {
 	app.canvas.DrawText(textRect.X+16, textRect.Y+68, colorMuted, "TTF path unavailable in this environment")
 }
 
+func (app *stressApp) drawStageImage(frame int) {
+	if app.image == nil {
+		return
+	}
+	base := surface.Rect{X: app.canvas.Width() - 218, Y: 82, Width: 180, Height: 132}
+	app.canvas.FillRoundedRect(base.X-8, base.Y-8, base.Width+16, base.Height+16, uniformRadii(16), colorPanel2)
+	app.canvas.DrawImageRect(base, app.image)
+	app.canvas.StrokeRoundedRectWidth(base.X-8, base.Y-8, base.Width+16, base.Height+16, uniformRadii(16), 1, alphaColor(colorWhite, 42))
+}
+
 func (app *stressApp) drawStageBlits(frame int) {
 	app.sample.ScrollRectY(surface.Rect{X: 8, Y: 34, Width: app.sample.Width() - 16, Height: 78}, -16)
 	app.sample.FillRect(8, app.sample.Height()-18, app.sample.Width()-16, 16, colorGold)
@@ -684,6 +760,7 @@ func (app *stressApp) warmStageCaches() {
 	app.drawStageShadowBase(0)
 	app.drawStageShadowMask(0)
 	app.drawStageText(0)
+	app.drawStageImage(0)
 	app.prepareSample()
 	app.drawStageBlits(0)
 	app.drawStageClear(0)
@@ -708,6 +785,7 @@ func (app *stressApp) runStageProfile() ([]stageResult, stageResult) {
 		{name: "shadow-mask", fn: app.drawStageShadowMask},
 		{name: "vector-lines", fn: app.drawStageVectorLines},
 		{name: "text-blocks", fn: app.drawStageText},
+		{name: "image-scale", fn: app.drawStageImage},
 		{name: "blit+scroll", fn: app.drawStageBlits},
 	}
 	totals := make(map[string]uint64, len(specs)+1)

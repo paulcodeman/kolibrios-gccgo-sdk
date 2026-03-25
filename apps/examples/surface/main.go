@@ -36,6 +36,7 @@ type galleryApp struct {
 	canvas    *surface.Buffer
 	overlay   *surface.Buffer
 	sample    *surface.Buffer
+	image     *surface.Image
 	font      *surface.Font
 }
 
@@ -69,6 +70,54 @@ func uniformRadii(radius int) surface.CornerRadii {
 	}
 }
 
+func premultipliedPixel(r uint8, g uint8, b uint8, a uint8) uint32 {
+	if a == 0 {
+		return 0
+	}
+	pr := (uint32(r) * uint32(a)) / 255
+	pg := (uint32(g) * uint32(a)) / 255
+	pb := (uint32(b) * uint32(a)) / 255
+	return uint32(a)<<24 | pr<<16 | pg<<8 | pb
+}
+
+func galleryImage() *surface.Image {
+	const width = 96
+	const height = 96
+	pixels := make([]uint32, width*height)
+	index := 0
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			alpha := uint8(255)
+			if x < 6 || y < 6 || x >= width-6 || y >= height-6 {
+				alpha = 184
+			}
+			checker := ((x / 12) + (y / 12)) & 1
+			r := uint8(48 + (x*160)/width)
+			g := uint8(96 + (y*96)/height)
+			b := uint8(180)
+			if checker != 0 {
+				r = 255
+				g = 208
+				b = 92
+			}
+			dx := x - width/2
+			dy := y - height/2
+			if dx*dx+dy*dy < 18*18 {
+				r = 255
+				g = 122
+				b = 144
+			}
+			pixels[index] = premultipliedPixel(r, g, b, alpha)
+			index++
+		}
+	}
+	return &surface.Image{
+		Width:  width,
+		Height: height,
+		Pixels: pixels,
+	}
+}
+
 func galleryFont() *surface.Font {
 	for _, path := range []string{
 		"assets/OpenSans-Regular.ttf",
@@ -93,6 +142,7 @@ func newGalleryApp() *galleryApp {
 		canvas:    surface.NewBuffer(client.Width, client.Height),
 		overlay:   surface.NewBufferAlpha(196, 128),
 		sample:    surface.NewBuffer(228, 96),
+		image:     galleryImage(),
 		font:      galleryFont(),
 	}
 }
@@ -198,6 +248,12 @@ func (app *galleryApp) drawAlphaDemo(rect surface.Rect) {
 
 func (app *galleryApp) drawScrollDemo(rect surface.Rect) {
 	inner := insetRect(rect, 12, 28, 12, 12)
+	imageRect := surface.Rect{X: inner.X + inner.Width - 72, Y: inner.Y + 12, Width: 56, Height: 56}
+	app.canvas.FillRoundedRect(imageRect.X-6, imageRect.Y-6, imageRect.Width+12, imageRect.Height+12, uniformRadii(14), alphaColor(colorSlate, 244))
+	if app.image != nil {
+		app.canvas.DrawImageRect(imageRect, app.image)
+	}
+	app.canvas.StrokeRoundedRectWidth(imageRect.X-6, imageRect.Y-6, imageRect.Width+12, imageRect.Height+12, uniformRadii(14), 1, alphaColor(colorWhite, 60))
 	app.sample.Clear(colorPanelDeep)
 	app.sample.FillRectGradient(0, 0, app.sample.Width(), 22, surface.Gradient{
 		From:      colorPanelLight,
@@ -219,7 +275,7 @@ func (app *galleryApp) drawScrollDemo(rect surface.Rect) {
 	app.sample.BlitSelf(surface.Rect{X: 8, Y: 6, Width: 84, Height: 12}, 128, 6)
 	app.sample.StrokeRoundedRectWidth(4, 4, app.sample.Width()-8, app.sample.Height()-8, uniformRadii(10), 1, alphaColor(colorWhite, 40))
 	app.canvas.BlitFrom(app.sample, app.sample.Bounds(), inner.X+2, inner.Y+2)
-	app.canvas.DrawText(inner.X+12, inner.Y+inner.Height-18, colorSilver, "BlitSelf mirrors the header block")
+	app.canvas.DrawText(inner.X+12, inner.Y+inner.Height-18, colorSilver, "DrawImageRect + ScrollRectY + BlitSelf")
 }
 
 func (app *galleryApp) draw() {
@@ -265,7 +321,7 @@ func (app *galleryApp) draw() {
 	})
 	app.drawAlphaDemo(leftBottom)
 
-	app.drawPanel(rightBottom, "Blit + Scroll", surface.Gradient{
+	app.drawPanel(rightBottom, "Image + Scroll", surface.Gradient{
 		From:      colorPanel,
 		To:        colorPanelLight,
 		Direction: surface.GradientVertical,

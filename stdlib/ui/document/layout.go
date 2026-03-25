@@ -283,6 +283,18 @@ func (document *Document) layoutElementNode(ctx LayoutContext, node *DocumentNod
 		autoWidth += maxRight - contentX
 		plan.width = clampWidthForStyle(style, autoWidth)
 	}
+	if display == DisplayBlock || plan.widthSet {
+		finalContentWidth := plan.width - insets.Left - insets.Right
+		if finalContentWidth < 0 {
+			finalContentWidth = 0
+		}
+		alignInlineChildFragments(style, Rect{
+			X:      contentX,
+			Y:      contentY,
+			Width:  finalContentWidth,
+			Height: container.Height,
+		}, children)
+	}
 	if plan.position == PositionAbsolute && !plan.topSet && plan.bottomSet {
 		finalY := container.Y + container.Height - plan.bottom - plan.margin.Bottom - height
 		if finalY != plan.y {
@@ -312,6 +324,81 @@ func (document *Document) layoutElementNode(ctx LayoutContext, node *DocumentNod
 	fragment.PaintBounds = fragmentPaintBounds(fragment)
 	document.registerFragment(fragment)
 	return fragment
+}
+
+func alignInlineChildFragments(style Style, content Rect, children []*Fragment) {
+	if len(children) == 0 || content.Width <= 0 {
+		return
+	}
+	align, ok := resolveTextAlign(style.textAlign)
+	if !ok || align == TextAlignLeft {
+		return
+	}
+	lineStart := -1
+	lineRight := content.X
+	lineY := 0
+	flush := func(end int) {
+		if lineStart < 0 || end <= lineStart {
+			lineStart = -1
+			lineRight = content.X
+			return
+		}
+		lineWidth := lineRight - content.X
+		if lineWidth <= 0 || lineWidth >= content.Width {
+			lineStart = -1
+			lineRight = content.X
+			return
+		}
+		shift := content.Width - lineWidth
+		if shift <= 0 {
+			lineStart = -1
+			lineRight = content.X
+			return
+		}
+		if align == TextAlignCenter {
+			shift /= 2
+		}
+		if shift > 0 {
+			shiftFragments(children[lineStart:end], shift, 0)
+		}
+		lineStart = -1
+		lineRight = content.X
+	}
+	for index, child := range children {
+		if child == nil {
+			continue
+		}
+		if effectivePosition(child.Style) == PositionAbsolute {
+			flush(index)
+			continue
+		}
+		childKind := DocumentNodeElement
+		if child.Node != nil {
+			childKind = child.Node.Kind
+		} else if child.Kind == FragmentKindText {
+			childKind = DocumentNodeText
+		}
+		childDisplay := documentDisplay(child.Style, childKind)
+		if childDisplay == DisplayBlock {
+			flush(index)
+			continue
+		}
+		if lineStart >= 0 && child.Bounds.Y != lineY {
+			flush(index)
+		}
+		if lineStart < 0 {
+			lineStart = index
+			lineY = child.Bounds.Y
+		}
+		right := child.Bounds.X + child.Bounds.Width
+		if margin, ok := resolveSpacingNormalized(child.Style.margin); ok {
+			right += margin.Right
+		}
+		if right > lineRight {
+			lineRight = right
+		}
+	}
+	flush(len(children))
 }
 
 func (document *Document) layoutTextInputNode(ctx LayoutContext, node *DocumentNode, style Style, display DisplayMode, container Rect, flowX int, flowY int) *Fragment {

@@ -25,9 +25,11 @@ type Node struct {
 }
 
 type Document struct {
-	Root    *Node
-	nodes   []*Node
-	idIndex map[string]*Node
+	Root             *Node
+	nodes            []*Node
+	idIndex          map[string]*Node
+	stylesheet       *pageStylesheet
+	stylesheetParsed bool
 }
 
 func NewDocument() *Document {

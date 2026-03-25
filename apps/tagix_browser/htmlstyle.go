@@ -67,13 +67,23 @@ func applyInlineStyleRule(style *ui.Style, name string, value string) {
 			style.SetForeground(color)
 		}
 	case "background", "background-color":
-		if color, ok := parseHTMLColor(lastStyleToken(value)); ok {
-			style.SetBackground(color)
+		applyHTMLBackground(style, value)
+	case "background-image":
+		if gradient, ok := parseHTMLLinearGradient(value); ok {
+			style.SetGradient(gradient)
+		}
+	case "background-attachment":
+		if attachment, ok := ui.ParseBackgroundAttachment(value); ok {
+			style.SetBackgroundAttachment(attachment)
 		}
 	case "display":
 		style.SetDisplayString(value)
 	case "position":
-		style.SetPositionString(value)
+		if strings.EqualFold(strings.TrimSpace(value), "fixed") {
+			style.SetPosition(ui.PositionAbsolute)
+		} else {
+			style.SetPositionString(value)
+		}
 	case "text-align":
 		style.SetTextAlignString(value)
 	case "text-decoration":
@@ -93,6 +103,14 @@ func applyInlineStyleRule(style *ui.Style, name string, value string) {
 	case "opacity":
 		if parsed, ok := parseHTMLOpacity(value); ok {
 			style.SetOpacityFloat(parsed)
+		}
+	case "box-shadow":
+		if shadow, ok := parseHTMLBoxShadow(value); ok {
+			style.SetShadow(shadow)
+		}
+	case "text-shadow":
+		if shadow, ok := parseHTMLTextShadow(value); ok {
+			style.SetTextShadow(shadow)
 		}
 	case "width":
 		if parsed, ok := parseHTMLLength(value); ok {
@@ -355,12 +373,37 @@ func parseHTMLOpacity(value string) (float64, bool) {
 }
 
 func parseHTMLColor(value string) (kos.Color, bool) {
-	value = strings.TrimSpace(strings.ToLower(value))
-	if value == "" {
+	r, g, b, a, ok := parseHTMLColorComponents(value)
+	if !ok {
 		return 0, false
 	}
+	if a < 255 {
+		alpha := int(a)
+		r = uint8((int(r)*alpha + 255*(255-alpha)) / 255)
+		g = uint8((int(g)*alpha + 255*(255-alpha)) / 255)
+		b = uint8((int(b)*alpha + 255*(255-alpha)) / 255)
+	}
+	return htmlRGBColor(r, g, b), true
+}
+
+func parseHTMLColorWithAlpha(value string) (kos.Color, uint8, bool) {
+	r, g, b, a, ok := parseHTMLColorComponents(value)
+	if !ok {
+		return 0, 0, false
+	}
+	return htmlRGBColor(r, g, b), a, true
+}
+
+func parseHTMLColorComponents(value string) (uint8, uint8, uint8, uint8, bool) {
+	value = strings.TrimSpace(strings.ToLower(value))
+	if value == "" {
+		return 0, 0, 0, 0, false
+	}
 	if named, ok := htmlNamedColors[value]; ok {
-		return named, true
+		if value == "transparent" {
+			return 255, 255, 255, 0, true
+		}
+		return uint8(uint32(named) >> 16), uint8(uint32(named) >> 8), uint8(named), 255, true
 	}
 	if strings.HasPrefix(value, "#") {
 		hex := value[1:]
@@ -370,18 +413,69 @@ func parseHTMLColor(value string) (kos.Color, bool) {
 			g, okG := parseHTMLHexNibble(hex[1])
 			b, okB := parseHTMLHexNibble(hex[2])
 			if !okR || !okG || !okB {
-				return 0, false
+				return 0, 0, 0, 0, false
 			}
-			return kos.Color(uint32(r)<<20 | uint32(r)<<16 | uint32(g)<<12 | uint32(g)<<8 | uint32(b)<<4 | uint32(b)), true
+			return r * 17, g * 17, b * 17, 255, true
 		case 6:
 			parsed, err := strconv.ParseUint(hex, 16, 32)
 			if err != nil {
-				return 0, false
+				return 0, 0, 0, 0, false
 			}
-			return kos.Color(parsed), true
+			return uint8(parsed >> 16), uint8(parsed >> 8), uint8(parsed), 255, true
 		}
 	}
-	return 0, false
+	if strings.HasPrefix(value, "rgb(") || strings.HasPrefix(value, "rgba(") {
+		args, ok := htmlFunctionArgs(value)
+		if !ok {
+			return 0, 0, 0, 0, false
+		}
+		parts := splitStyleFunctionArgs(args)
+		if len(parts) < 3 {
+			return 0, 0, 0, 0, false
+		}
+		r, okR := parseHTMLColorChannel(parts[0])
+		g, okG := parseHTMLColorChannel(parts[1])
+		b, okB := parseHTMLColorChannel(parts[2])
+		if !okR || !okG || !okB {
+			return 0, 0, 0, 0, false
+		}
+		alpha := uint8(255)
+		if len(parts) >= 4 {
+			value, ok := parseHTMLAlphaChannel(parts[3])
+			if !ok {
+				return 0, 0, 0, 0, false
+			}
+			alpha = value
+		}
+		return r, g, b, alpha, true
+	}
+	if strings.HasPrefix(value, "hsl(") || strings.HasPrefix(value, "hsla(") {
+		args, ok := htmlFunctionArgs(value)
+		if !ok {
+			return 0, 0, 0, 0, false
+		}
+		parts := splitStyleFunctionArgs(args)
+		if len(parts) < 3 {
+			return 0, 0, 0, 0, false
+		}
+		h, okH := parseHTMLHue(parts[0])
+		s, okS := parseHTMLPercent(parts[1])
+		l, okL := parseHTMLPercent(parts[2])
+		if !okH || !okS || !okL {
+			return 0, 0, 0, 0, false
+		}
+		r, g, b := htmlHSLToRGB(h, s, l)
+		alpha := uint8(255)
+		if len(parts) >= 4 {
+			value, ok := parseHTMLAlphaChannel(parts[3])
+			if !ok {
+				return 0, 0, 0, 0, false
+			}
+			alpha = value
+		}
+		return r, g, b, alpha, true
+	}
+	return 0, 0, 0, 0, false
 }
 
 func parseHTMLHexNibble(value byte) (uint8, bool) {
@@ -395,6 +489,323 @@ func parseHTMLHexNibble(value byte) (uint8, bool) {
 	default:
 		return 0, false
 	}
+}
+
+func htmlRGBColor(r uint8, g uint8, b uint8) kos.Color {
+	return kos.Color(uint32(r)<<16 | uint32(g)<<8 | uint32(b))
+}
+
+func parseHTMLColorChannel(value string) (uint8, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+	if strings.HasSuffix(value, "%") {
+		percent, ok := parseHTMLPercent(value)
+		if !ok {
+			return 0, false
+		}
+		return uint8(percent*255 + 0.5), true
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, false
+	}
+	if parsed < 0 {
+		parsed = 0
+	}
+	if parsed > 255 {
+		parsed = 255
+	}
+	return uint8(parsed + 0.5), true
+}
+
+func parseHTMLAlphaChannel(value string) (uint8, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+	if strings.HasSuffix(value, "%") {
+		percent, ok := parseHTMLPercent(value)
+		if !ok {
+			return 0, false
+		}
+		return uint8(percent*255 + 0.5), true
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, false
+	}
+	if parsed < 0 {
+		parsed = 0
+	}
+	if parsed > 1 {
+		if parsed > 255 {
+			parsed = 255
+		}
+		return uint8(parsed + 0.5), true
+	}
+	return uint8(parsed*255 + 0.5), true
+}
+
+func parseHTMLPercent(value string) (float64, bool) {
+	value = strings.TrimSpace(strings.TrimSuffix(value, "%"))
+	if value == "" {
+		return 0, false
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, false
+	}
+	if parsed < 0 {
+		parsed = 0
+	}
+	if parsed > 100 {
+		parsed = 100
+	}
+	return parsed / 100, true
+}
+
+func parseHTMLHue(value string) (float64, bool) {
+	value = strings.TrimSpace(strings.TrimSuffix(strings.ToLower(value), "deg"))
+	if value == "" {
+		return 0, false
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, false
+	}
+	for parsed < 0 {
+		parsed += 360
+	}
+	for parsed >= 360 {
+		parsed -= 360
+	}
+	return parsed / 360, true
+}
+
+func htmlHSLToRGB(h float64, s float64, l float64) (uint8, uint8, uint8) {
+	if s <= 0 {
+		value := uint8(l*255 + 0.5)
+		return value, value, value
+	}
+	var q float64
+	if l < 0.5 {
+		q = l * (1 + s)
+	} else {
+		q = l + s - l*s
+	}
+	p := 2*l - q
+	r := htmlHueToRGB(p, q, h+1.0/3.0)
+	g := htmlHueToRGB(p, q, h)
+	b := htmlHueToRGB(p, q, h-1.0/3.0)
+	return uint8(r*255 + 0.5), uint8(g*255 + 0.5), uint8(b*255 + 0.5)
+}
+
+func htmlHueToRGB(p float64, q float64, t float64) float64 {
+	for t < 0 {
+		t += 1
+	}
+	for t > 1 {
+		t -= 1
+	}
+	switch {
+	case t < 1.0/6.0:
+		return p + (q-p)*6*t
+	case t < 0.5:
+		return q
+	case t < 2.0/3.0:
+		return p + (q-p)*(2.0/3.0-t)*6
+	default:
+		return p
+	}
+}
+
+func htmlFunctionArgs(value string) (string, bool) {
+	start := strings.IndexByte(value, '(')
+	end := strings.LastIndexByte(value, ')')
+	if start <= 0 || end <= start {
+		return "", false
+	}
+	return strings.TrimSpace(value[start+1 : end]), true
+}
+
+func splitStyleValueTokens(value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	tokens := make([]string, 0, 8)
+	start := -1
+	depth := 0
+	for index := 0; index < len(value); index++ {
+		switch value[index] {
+		case '(':
+			if start < 0 {
+				start = index
+			}
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		case ' ', '\t', '\r', '\n':
+			if depth == 0 && start >= 0 {
+				tokens = append(tokens, strings.TrimSpace(value[start:index]))
+				start = -1
+			}
+			continue
+		}
+		if start < 0 {
+			start = index
+		}
+	}
+	if start >= 0 {
+		tokens = append(tokens, strings.TrimSpace(value[start:]))
+	}
+	return tokens
+}
+
+func splitStyleFunctionArgs(value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	parts := make([]string, 0, 4)
+	start := 0
+	depth := 0
+	for index := 0; index < len(value); index++ {
+		switch value[index] {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		case ',':
+			if depth == 0 {
+				parts = append(parts, strings.TrimSpace(value[start:index]))
+				start = index + 1
+			}
+		}
+	}
+	parts = append(parts, strings.TrimSpace(value[start:]))
+	return parts
+}
+
+func applyHTMLBackground(style *ui.Style, value string) {
+	if style == nil {
+		return
+	}
+	for _, token := range splitStyleValueTokens(value) {
+		if token == "" {
+			continue
+		}
+		if attachment, ok := ui.ParseBackgroundAttachment(token); ok {
+			style.SetBackgroundAttachment(attachment)
+			continue
+		}
+		if color, ok := parseHTMLColor(token); ok {
+			style.SetBackground(color)
+			continue
+		}
+		if gradient, ok := parseHTMLLinearGradient(token); ok {
+			style.SetGradient(gradient)
+		}
+	}
+}
+
+func parseHTMLLinearGradient(value string) (ui.Gradient, bool) {
+	args, ok := htmlFunctionArgs(strings.TrimSpace(value))
+	if !ok || !strings.HasPrefix(strings.ToLower(strings.TrimSpace(value)), "linear-gradient(") {
+		return ui.Gradient{}, false
+	}
+	parts := splitStyleFunctionArgs(args)
+	colors := make([]kos.Color, 0, 2)
+	direction := ui.GradientVertical
+	for _, part := range parts {
+		lower := strings.ToLower(strings.TrimSpace(part))
+		if lower == "" {
+			continue
+		}
+		if strings.Contains(lower, "to right") {
+			direction = ui.GradientHorizontal
+			continue
+		}
+		if strings.Contains(lower, "deg") {
+			if strings.Contains(lower, "90deg") || strings.Contains(lower, "270deg") {
+				direction = ui.GradientHorizontal
+			}
+			continue
+		}
+		if color, ok := parseHTMLColor(part); ok {
+			colors = append(colors, color)
+		}
+	}
+	if len(colors) < 2 {
+		return ui.Gradient{}, false
+	}
+	return ui.Gradient{
+		From:      colors[0],
+		To:        colors[1],
+		Direction: direction,
+	}, true
+}
+
+func parseHTMLBoxShadow(value string) (ui.Shadow, bool) {
+	return parseHTMLShadowValue(value, true)
+}
+
+func parseHTMLTextShadow(value string) (ui.TextShadow, bool) {
+	shadow, ok := parseHTMLShadowValue(value, false)
+	if !ok {
+		return ui.TextShadow{}, false
+	}
+	return ui.TextShadow{
+		OffsetX: shadow.OffsetX,
+		OffsetY: shadow.OffsetY,
+		Color:   shadow.Color,
+	}, true
+}
+
+func parseHTMLShadowValue(value string, includeBlur bool) (ui.Shadow, bool) {
+	shadow := ui.Shadow{}
+	tokens := splitStyleValueTokens(value)
+	if len(tokens) == 0 {
+		return shadow, false
+	}
+	lengths := make([]int, 0, 4)
+	alpha := uint8(255)
+	colorSet := false
+	for _, token := range tokens {
+		lower := strings.ToLower(strings.TrimSpace(token))
+		if lower == "" || lower == "inset" {
+			continue
+		}
+		if color, parsedAlpha, ok := parseHTMLColorWithAlpha(lower); ok {
+			shadow.Color = color
+			alpha = parsedAlpha
+			colorSet = true
+			continue
+		}
+		if length, ok := parseHTMLLength(lower); ok {
+			lengths = append(lengths, length)
+		}
+	}
+	if len(lengths) < 2 {
+		return shadow, false
+	}
+	shadow.OffsetX = lengths[0]
+	shadow.OffsetY = lengths[1]
+	if includeBlur && len(lengths) >= 3 {
+		shadow.Blur = lengths[2]
+	}
+	if !colorSet {
+		shadow.Color = 0x000000
+		alpha = 64
+	}
+	shadow.Alpha = alpha
+	return shadow, true
 }
 
 func parseHTMLFontPath(value string) string {

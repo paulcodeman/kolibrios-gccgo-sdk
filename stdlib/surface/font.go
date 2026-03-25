@@ -139,8 +139,15 @@ func computeFontMetrics(face xfont.Face) FontMetrics {
 	if ascent <= 0 {
 		ascent = height * 3 / 4
 	}
+	descent := m.Descent.Ceil()
+	if descent < 0 {
+		descent = 0
+	}
 	if ascent > height {
 		ascent = height
+	}
+	if minimum := ascent + descent; minimum > height {
+		height = minimum
 	}
 	width := glyphAdvancePixels(face, 'M')
 	if width <= 0 {

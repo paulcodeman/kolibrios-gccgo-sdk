@@ -316,6 +316,17 @@ func (fragment *Fragment) paintOffset(canvas *Canvas, offsetX int, offsetY int) 
 			bounds.Y += offsetY
 		}
 		drawStyledBox(canvas, bounds, style, bounds, nil)
+		if fragment.Node != nil && fragment.Node.Image != nil {
+			content := fragment.Content
+			if offsetX != 0 || offsetY != 0 {
+				content.X += offsetX
+				content.Y += offsetY
+			}
+			if content.Empty() {
+				content = bounds
+			}
+			canvas.DrawDocumentImage(content, fragment.Node.Image)
+		}
 		if documentNodeIsTextInput(fragment.Node) {
 			fragment.paintTextInputOffset(canvas, bounds, style)
 		}

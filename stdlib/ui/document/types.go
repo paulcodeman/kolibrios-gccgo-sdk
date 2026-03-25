@@ -18,6 +18,7 @@ type DocumentNode struct {
 	Kind            DocumentNodeKind
 	Name            string
 	Text            string
+	Image           *DocumentImage
 	Value           string
 	Placeholder     string
 	Editable        bool
