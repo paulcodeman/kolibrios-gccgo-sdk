@@ -1,34 +1,24 @@
 package main
 
 import (
+	"golang.org/x/image/colornames"
 	"kos"
 	"strconv"
 	"strings"
 	"ui"
 )
 
-var htmlNamedColors = map[string]kos.Color{
-	"black":       ui.Black,
-	"gray":        ui.Gray,
-	"grey":        ui.Gray,
-	"silver":      ui.Silver,
-	"white":       ui.White,
-	"fuchsia":     ui.Fuchsia,
-	"purple":      ui.Purple,
-	"red":         ui.Red,
-	"maroon":      ui.Maroon,
-	"yellow":      ui.Yellow,
-	"olive":       ui.Olive,
-	"lime":        ui.Lime,
-	"green":       ui.Green,
-	"aqua":        ui.Aqua,
-	"teal":        ui.Teal,
-	"blue":        ui.Blue,
-	"navy":        ui.Navy,
-	"orange":      0xFFA500,
-	"cyan":        ui.Aqua,
-	"magenta":     ui.Fuchsia,
-	"transparent": ui.White,
+var htmlNamedColors = buildHTMLNamedColors()
+
+func buildHTMLNamedColors() map[string]kos.Color {
+	colors := make(map[string]kos.Color, len(colornames.Map)+4)
+	for name, rgba := range colornames.Map {
+		colors[name] = htmlRGBColor(rgba.R, rgba.G, rgba.B)
+	}
+	// CSS-specific overlay on top of the upstream SVG color keyword set.
+	colors["transparent"] = ui.White
+	colors["rebeccapurple"] = 0x663399
+	return colors
 }
 
 var currentDocumentFontFamilies []fontFamilyEntry
@@ -668,13 +658,39 @@ func parseHTMLPercent(value string) (float64, bool) {
 }
 
 func parseHTMLHue(value string) (float64, bool) {
-	value = strings.TrimSpace(strings.TrimSuffix(strings.ToLower(value), "deg"))
+	value = strings.TrimSpace(strings.ToLower(value))
+	if value == "" {
+		return 0, false
+	}
+	unit := "deg"
+	switch {
+	case strings.HasSuffix(value, "turn"):
+		value = strings.TrimSpace(strings.TrimSuffix(value, "turn"))
+		unit = "turn"
+	case strings.HasSuffix(value, "grad"):
+		value = strings.TrimSpace(strings.TrimSuffix(value, "grad"))
+		unit = "grad"
+	case strings.HasSuffix(value, "rad"):
+		value = strings.TrimSpace(strings.TrimSuffix(value, "rad"))
+		unit = "rad"
+	case strings.HasSuffix(value, "deg"):
+		value = strings.TrimSpace(strings.TrimSuffix(value, "deg"))
+		unit = "deg"
+	}
 	if value == "" {
 		return 0, false
 	}
 	parsed, err := strconv.ParseFloat(value, 64)
 	if err != nil {
 		return 0, false
+	}
+	switch unit {
+	case "turn":
+		parsed *= 360
+	case "grad":
+		parsed *= 0.9
+	case "rad":
+		parsed *= 180 / 3.14159265358979323846
 	}
 	for parsed < 0 {
 		parsed += 360

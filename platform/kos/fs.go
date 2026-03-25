@@ -169,22 +169,52 @@ func ReadFolder(path string, start uint32, count uint32) (result FolderReadResul
 	if status != FileSystemOK && status != FileSystemEOF {
 		return FolderReadResult{}, status
 	}
+	if len(buffer) < folderHeaderSize {
+		return FolderReadResult{}, FileSystemInternalError
+	}
+
+	version := littleEndianUint32(buffer, 0)
+	placed := littleEndianUint32(buffer, 4)
+	total := littleEndianUint32(buffer, 8)
+	maxEntries := uint32((len(buffer) - folderHeaderSize) / entrySize)
+	if secondary > maxEntries {
+		secondary = maxEntries
+	}
+	if placed > maxEntries {
+		placed = maxEntries
+	}
+	if secondary == 0 || (placed != 0 && placed < secondary) {
+		secondary = placed
+	}
 
 	result = FolderReadResult{
-		Version: littleEndianUint32(buffer, 0),
-		Count:   littleEndianUint32(buffer, 4),
-		Total:   littleEndianUint32(buffer, 8),
+		Version: version,
+		Count:   secondary,
+		Total:   total,
 		Entries: make([]FolderEntry, 0, secondary),
 	}
 
 	for index := uint32(0); index < secondary; index++ {
 		offset := folderHeaderSize + int(index)*entrySize
-		block := buffer[offset : offset+entrySize]
+		if offset < folderHeaderSize || offset > len(buffer) {
+			break
+		}
+		end := offset + entrySize
+		if end < offset || end > len(buffer) {
+			break
+		}
+		block := buffer[offset:end]
+		nameStart := 40
+		nameEnd := nameStart + fileNameFieldSize(folderNamesEncoding)
+		if nameEnd > len(block) {
+			break
+		}
 		result.Entries = append(result.Entries, FolderEntry{
 			Info: parseFileInfoBlock(block),
-			Name: zeroTerminatedEncodedString(block[40:40+fileNameFieldSize(folderNamesEncoding)], folderNamesEncoding),
+			Name: zeroTerminatedEncodedString(block[nameStart:nameEnd], folderNamesEncoding),
 		})
 	}
+	result.Count = uint32(len(result.Entries))
 
 	return result, status
 }

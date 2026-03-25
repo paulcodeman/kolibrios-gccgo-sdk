@@ -326,8 +326,55 @@ func (app *App) loadURL(url string, referrer string) {
 		app.showMessageDocument("Load failed", app.networkErrorDetail(url, err))
 		return
 	}
+	if recovered, retried := app.retryNavigationWithoutCookies(url, referrer, response); retried {
+		response = recovered
+		if response == nil {
+			app.pageTitle = "Load failed"
+			app.statusBase = "Network error"
+			app.showMessageDocument("Load failed", "The page returned 400 Bad Request with stored cookies, and the cookie-free retry also failed.")
+			return
+		}
+	}
 	defer response.Body.Close()
 	app.handleHTTPResponse(response, url)
+}
+
+func (app *App) retryNavigationWithoutCookies(url string, referrer string, response *nethttp.Response) (*nethttp.Response, bool) {
+	if app == nil || response == nil {
+		return response, false
+	}
+	if response.StatusCode != nethttp.StatusBadRequest {
+		return response, false
+	}
+	request := response.Request
+	if request == nil || request.URL == nil {
+		return response, false
+	}
+	if strings.TrimSpace(request.Header.Get("Cookie")) == "" {
+		return response, false
+	}
+	app.debugf("http retry without cookies for %s after %s", displayURL(url), response.Status)
+	_ = response.Body.Close()
+	retried, err := app.doNavigationWithoutCookies(url, referrer)
+	if err != nil {
+		app.debugError("http retry without cookies "+displayURL(url), err)
+		return nil, true
+	}
+	return retried, true
+}
+
+func (app *App) doNavigationWithoutCookies(url string, referrer string) (*nethttp.Response, error) {
+	request, err := nethttp.NewRequest(nethttp.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	app.applyNavigationRequestHeaders(request, referrer)
+	request.Header.Del("Cookie")
+	client := &nethttp.Client{}
+	if app != nil && app.httpClient != nil {
+		client.Transport = app.httpClient.Transport
+	}
+	return client.Do(request)
 }
 
 func newBrowserHTTPClient(resourceCacheDir string) (*nethttp.Client, *persistentCookieJar, string, string) {
