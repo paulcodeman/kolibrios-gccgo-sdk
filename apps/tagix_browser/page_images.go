@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"io"
 	nethttp "net/http"
 	neturl "net/url"
 	"os"
@@ -124,8 +123,7 @@ func (app *App) loadImageResourceBytes(rawURL string, allowCache bool) ([]byte, 
 		app.debugError("img request "+rawURL, err)
 		return nil, "", "", false, false
 	}
-	request.Header.Set("Accept", "image/avif,image/webp,image/png,image/jpeg,image/gif,image/*;q=0.8,*/*;q=0.1")
-	request.Header.Set("User-Agent", "TagixBrowser/0.1")
+	app.applyImageRequestHeaders(request, app.currentURL)
 	response, err := app.httpClient.Do(request)
 	if err != nil {
 		app.debugError("img get "+rawURL, err)
@@ -136,7 +134,7 @@ func (app *App) loadImageResourceBytes(rawURL string, allowCache bool) ([]byte, 
 		app.debugf("img status %s for %s", response.Status, rawURL)
 		return nil, "", "", false, false
 	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, maxImageContent+1))
+	body, err := readDecodedHTTPResponseBody(response, maxImageContent)
 	if err != nil || len(body) == 0 || len(body) > maxImageContent {
 		if err != nil {
 			app.debugError("img read body "+rawURL, err)

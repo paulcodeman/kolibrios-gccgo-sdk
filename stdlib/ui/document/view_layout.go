@@ -213,7 +213,7 @@ func (view *DocumentView) resolvedWidthIn(style Style, container Rect) int {
 	}
 	if view.Document != nil {
 		insets := boxInsets(style)
-		content := view.Document.ContentBounds()
+		content := view.documentFlowBounds()
 		width := content.X + content.Width - view.Document.Viewport().X
 		if width < 0 {
 			width = 0
@@ -284,10 +284,26 @@ func (view *DocumentView) documentContentExtentHeight(content Rect, style Style)
 	if view == nil || view.Document == nil || content.Empty() {
 		return insets.Top + insets.Bottom
 	}
-	bounds := view.Document.ContentBounds()
+	bounds := view.documentFlowBounds()
 	height := bounds.Y + bounds.Height - content.Y
 	if height < 0 {
 		height = 0
 	}
 	return insets.Top + height + insets.Bottom
+}
+
+func (view *DocumentView) documentFlowBounds() Rect {
+	if view == nil || view.Document == nil {
+		return Rect{}
+	}
+	if root := view.Document.RootFragment(); root != nil {
+		bounds := root.Bounds
+		if bounds.Empty() {
+			bounds = root.PaintBounds
+		}
+		if !bounds.Empty() {
+			return bounds
+		}
+	}
+	return view.Document.ContentBounds()
 }

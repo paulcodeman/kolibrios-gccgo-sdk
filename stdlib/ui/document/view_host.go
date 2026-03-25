@@ -986,7 +986,7 @@ func (view *DocumentView) documentContentExtentHeightOnly() int {
 	if view == nil || view.Document == nil {
 		return 0
 	}
-	bounds := view.Document.ContentBounds()
+	bounds := view.documentFlowBounds()
 	height := bounds.Y + bounds.Height - view.Document.Viewport().Y
 	if height < 0 {
 		height = 0

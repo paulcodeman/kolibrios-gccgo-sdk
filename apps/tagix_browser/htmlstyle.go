@@ -112,6 +112,10 @@ func applyInlineStyleRule(style *ui.Style, name string, value string) {
 		if shadow, ok := parseHTMLTextShadow(value); ok {
 			style.SetTextShadow(shadow)
 		}
+	case "filter":
+		if shadow, ok := parseHTMLDropShadow(value); ok {
+			style.SetShadow(shadow)
+		}
 	case "width":
 		if parsed, ok := parseHTMLLength(value); ok {
 			style.SetWidth(parsed)
@@ -705,6 +709,9 @@ func applyHTMLBackground(style *ui.Style, value string) {
 			style.SetBackgroundAttachment(attachment)
 			continue
 		}
+		if colorAlphaZero(token) {
+			continue
+		}
 		if color, ok := parseHTMLColor(token); ok {
 			style.SetBackground(color)
 			continue
@@ -713,6 +720,33 @@ func applyHTMLBackground(style *ui.Style, value string) {
 			style.SetGradient(gradient)
 		}
 	}
+}
+
+func colorAlphaZero(value string) bool {
+	_, _, _, alpha, ok := parseHTMLColorComponents(value)
+	return ok && alpha == 0
+}
+
+func extractCSSURLValue(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if len(value) < 5 || !strings.HasSuffix(value, ")") {
+		return "", false
+	}
+	if !strings.EqualFold(strings.TrimSpace(value[:4]), "url(") {
+		return "", false
+	}
+	inner := strings.TrimSpace(value[4 : len(value)-1])
+	if len(inner) >= 2 {
+		quote := inner[0]
+		if (quote == '\'' || quote == '"') && inner[len(inner)-1] == quote {
+			inner = inner[1 : len(inner)-1]
+		}
+	}
+	inner = strings.TrimSpace(inner)
+	if inner == "" {
+		return "", false
+	}
+	return inner, true
 }
 
 func parseHTMLLinearGradient(value string) (ui.Gradient, bool) {
@@ -766,6 +800,14 @@ func parseHTMLTextShadow(value string) (ui.TextShadow, bool) {
 		OffsetY: shadow.OffsetY,
 		Color:   shadow.Color,
 	}, true
+}
+
+func parseHTMLDropShadow(value string) (ui.Shadow, bool) {
+	args, ok := htmlFunctionArgs(strings.TrimSpace(value))
+	if !ok || !strings.HasPrefix(strings.ToLower(strings.TrimSpace(value)), "drop-shadow(") {
+		return ui.Shadow{}, false
+	}
+	return parseHTMLShadowValue(args, true)
 }
 
 func parseHTMLShadowValue(value string, includeBlur bool) (ui.Shadow, bool) {

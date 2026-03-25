@@ -4,11 +4,8 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"golang.org/x/net/publicsuffix"
-	"io"
 	"kos"
 	nethttp "net/http"
-	netcookiejar "net/http/cookiejar"
 	neturl "net/url"
 	"os"
 	"path/filepath"
@@ -17,8 +14,8 @@ import (
 )
 
 const (
-	defaultWindowWidth  = 780
-	defaultWindowHeight = 560
+	defaultWindowWidth  = 1024
+	defaultWindowHeight = 720
 	defaultPageHeight   = 420
 	rootInset           = 0
 	shellGap            = 0
@@ -31,7 +28,7 @@ const (
 	localCABundleAsset  = "assets/ca-bundle.pem"
 )
 
-const defaultAboutHomeHTML = `<html><head><title>Tagix Browser</title></head><body><h1>Tagix Browser</h1><p>Browser chrome now loads from <code>assets/shell.html</code>, and page content is hosted in a dedicated iframe-like frame below the toolbar.</p><p><a href="about:forms">Open the built-in forms demo</a> or visit <a href="https://example.com">example.com</a>.</p><h2>What to test</h2><ul><li>Semantic shell tags: header, nav, section, h1, small, iframe</li><li>Shell styling through inline HTML5 <code>style</code> attributes</li><li>Inline links, lists, headings and forms in rendered pages</li><li>Document focus, hover and scroll inside the hosted page view</li></ul><details><summary>Pipeline</summary><p><code>shell.html -&gt; Parse -&gt; ui.DocumentNode -&gt; DocumentView</code></p></details></body></html>`
+const defaultAboutHomeHTML = `<html><head><title>Tagix Browser</title></head><body><h1>Tagix Browser</h1><p>Browser chrome now loads from <code>assets/shell.html</code>, and page content is hosted in a dedicated iframe-like frame below the toolbar.</p><p><a href="about:forms">Open the built-in forms demo</a>, visit <a href="https://example.com">example.com</a>, or open <a href="https://kolibrios.org">kolibrios.org</a>.</p><h2>What to test</h2><ul><li>Semantic shell tags: header, nav, section, h1, small, iframe</li><li>Shell styling through inline HTML5 <code>style</code> attributes</li><li>Inline links, lists, headings and forms in rendered pages</li><li>Document focus, hover and scroll inside the hosted page view</li></ul><details><summary>Pipeline</summary><p><code>shell.html -&gt; Parse -&gt; ui.DocumentNode -&gt; DocumentView</code></p></details></body></html>`
 
 const defaultAboutFormsHTML = `<html><head><title>Tagix Forms</title></head><body><h1>Tagix Forms</h1><p>This page exists to test browser-side HTML controls that are currently mapped onto the shared UI pipeline.</p><p><a href="about:tagix">Back to the built-in home page</a></p><p>Submit keeps you on built-in pages by targeting <code>about:tagix</code>; after submit, the address bar should include the serialized query string.</p><form action="about:tagix" method="get"><input type="hidden" name="source" value="about:forms"><h2>Text controls</h2><p><input type="text" name="url" value="https://kolibrios.org" placeholder="Type a URL"></p><p><input type="search" name="query" placeholder="Search demo"></p><p>Textarea currently submits its initial content; multiline editing is still pending in the shared DocumentView host.</p><textarea name="notes" rows="4">Textarea fallback content.
 Second line.
@@ -40,9 +37,11 @@ Third line.</textarea><h2>Choice controls</h2><p><input type="checkbox" name="re
 type App struct {
 	window *ui.Window
 
-	httpClient    *nethttp.Client
-	caBundlePath  string
-	caBundleError string
+	httpClient     *nethttp.Client
+	cookieJar      *persistentCookieJar
+	browserProfile browserRequestProfile
+	caBundlePath   string
+	caBundleError  string
 
 	stylesheetCache  map[string]string
 	imageCache       map[string]*ui.DocumentImage
@@ -86,15 +85,18 @@ type App struct {
 
 func NewApp() *App {
 	startupURL, webViewMode := resolveStartupTarget(os.Args[1:])
-	httpClient, caBundlePath, caBundleError := newBrowserHTTPClient()
+	resourceCacheDir := initResourceCacheDir()
+	httpClient, cookieJar, caBundlePath, caBundleError := newBrowserHTTPClient(resourceCacheDir)
 	app := &App{
 		httpClient:       httpClient,
+		cookieJar:        cookieJar,
+		browserProfile:   newBrowserRequestProfile(),
 		caBundlePath:     caBundlePath,
 		caBundleError:    caBundleError,
 		stylesheetCache:  map[string]string{},
 		imageCache:       map[string]*ui.DocumentImage{},
 		imageErrors:      map[string]string{},
-		resourceCacheDir: initResourceCacheDir(),
+		resourceCacheDir: resourceCacheDir,
 		statusBase:       "Ready",
 		historyIndex:     -1,
 		addressText:      defaultURL,
@@ -140,6 +142,7 @@ func (app *App) buildUI() {
 		style.SetBackground(windowBackground)
 	})
 	window.CenterOnScreen()
+	window.OnClose = app.handleWindowClose
 	app.window = window
 
 	root := ui.CreateBox()
@@ -213,7 +216,7 @@ func (app *App) Run() {
 	if startURL == "" {
 		startURL = defaultURL
 	}
-	app.openURL(startURL, true)
+	app.openURLWithReferrer(startURL, true, "")
 	app.window.Start()
 }
 
@@ -225,7 +228,7 @@ func (app *App) submitAddress() {
 	if value == "" {
 		value = defaultURL
 	}
-	app.openURL(value, true)
+	app.openURLWithReferrer(value, true, "")
 }
 
 func (app *App) reloadCurrent() {
@@ -236,36 +239,30 @@ func (app *App) reloadCurrent() {
 	if url == "" {
 		url = defaultURL
 	}
-	app.openURL(url, false)
+	app.openURLWithReferrer(url, false, app.currentURL)
 }
 
 func (app *App) goHome() {
 	if app == nil {
 		return
 	}
-	app.openURL(defaultURL, true)
+	app.openURLWithReferrer(defaultURL, true, "")
 }
 
 func (app *App) openURL(url string, push bool) {
 	if app == nil {
 		return
 	}
-	url = normalizeURL(url)
-	app.currentURL = url
-	app.addressText = url
-	if push {
-		app.pushHistory(url)
+	app.openURLWithReferrer(url, push, app.currentURL)
+}
+
+func (app *App) openURLWithReferrer(url string, push bool, referrer string) {
+	if app == nil {
+		return
 	}
-	app.statusBase = "Loading"
-	app.syncShell()
-	app.loadURL(url)
-	app.syncShell()
-	if app.shellView != nil {
-		app.shellView.MarkDirty()
-	}
-	if app.pageView != nil {
-		app.pageView.MarkDirty()
-	}
+	url = app.startNavigation(url, push)
+	app.loadURL(url, referrer)
+	app.finishNavigation()
 }
 
 func (app *App) pushHistory(url string) {
@@ -284,7 +281,7 @@ func (app *App) goBack() {
 		return
 	}
 	app.historyIndex--
-	app.openURL(app.history[app.historyIndex], false)
+	app.openURLWithReferrer(app.history[app.historyIndex], false, "")
 }
 
 func (app *App) goForward() {
@@ -292,10 +289,10 @@ func (app *App) goForward() {
 		return
 	}
 	app.historyIndex++
-	app.openURL(app.history[app.historyIndex], false)
+	app.openURLWithReferrer(app.history[app.historyIndex], false, "")
 }
 
-func (app *App) loadURL(url string) {
+func (app *App) loadURL(url string, referrer string) {
 	if app == nil {
 		return
 	}
@@ -321,8 +318,7 @@ func (app *App) loadURL(url string) {
 		app.showMessageDocument("Load failed", "Failed to prepare the request: "+err.Error())
 		return
 	}
-	request.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.5")
-	request.Header.Set("User-Agent", "TagixBrowser/0.1")
+	app.applyNavigationRequestHeaders(request, referrer)
 
 	response, err := app.httpClient.Do(request)
 	if err != nil {
@@ -333,41 +329,10 @@ func (app *App) loadURL(url string) {
 		return
 	}
 	defer response.Body.Close()
-
-	finalURL := url
-	if response.Request != nil && response.Request.URL != nil {
-		if resolved := strings.TrimSpace(response.Request.URL.String()); resolved != "" {
-			finalURL = normalizeURL(resolved)
-		}
-	}
-	redirected := finalURL != "" && finalURL != url
-	if finalURL != "" {
-		app.currentURL = finalURL
-		app.addressText = finalURL
-		app.replaceCurrentHistory(finalURL)
-	}
-
-	if response.StatusCode >= 400 {
-		app.debugf("http status %s for %s", response.Status, displayURL(finalURL))
-		app.pageTitle = response.Status
-		app.statusBase = response.Status
-		app.showMessageDocument("HTTP error", app.httpErrorDetail(response.Status, finalURL, redirected))
-		return
-	}
-
-	body, err := io.ReadAll(io.LimitReader(response.Body, maxContent+1))
-	if err != nil {
-		app.debugError("http read body "+displayURL(finalURL), err)
-		app.pageTitle = "Load failed"
-		app.statusBase = "Read error"
-		app.showMessageDocument("Load failed", "Failed while reading the response body: "+err.Error())
-		return
-	}
-
-	app.updateContent(response.Header.Get("Content-Type"), body, redirected)
+	app.handleHTTPResponse(response, url)
 }
 
-func newBrowserHTTPClient() (*nethttp.Client, string, string) {
+func newBrowserHTTPClient(resourceCacheDir string) (*nethttp.Client, *persistentCookieJar, string, string) {
 	caBundlePath, _ := configureLocalCABundle()
 	rootCAs, err := loadRootPool(caBundlePath)
 
@@ -388,18 +353,86 @@ func newBrowserHTTPClient() (*nethttp.Client, string, string) {
 		transport.TLSClientConfig.RootCAs = rootCAs
 	}
 
-	jar, jarErr := netcookiejar.New(&netcookiejar.Options{PublicSuffixList: publicsuffix.List})
-
+	jar, _ := newPersistentCookieJar(resourceCacheDir)
 	client := &nethttp.Client{
 		Transport: transport,
 	}
-	if jarErr == nil {
+	if jar != nil {
 		client.Jar = jar
 	}
 	if err != nil {
-		return client, caBundlePath, err.Error()
+		return client, jar, caBundlePath, err.Error()
 	}
-	return client, caBundlePath, ""
+	return client, jar, caBundlePath, ""
+}
+
+func (app *App) handleWindowClose() {
+	if app == nil || app.cookieJar == nil {
+		return
+	}
+	_ = app.cookieJar.Save()
+}
+
+func (app *App) startNavigation(url string, push bool) string {
+	if app == nil {
+		return normalizeURL(url)
+	}
+	url = normalizeURL(url)
+	app.currentURL = url
+	app.addressText = url
+	if push {
+		app.pushHistory(url)
+	}
+	app.statusBase = "Loading"
+	app.syncShell()
+	return url
+}
+
+func (app *App) finishNavigation() {
+	if app == nil {
+		return
+	}
+	app.syncShell()
+	if app.shellView != nil {
+		app.shellView.MarkDirty()
+	}
+	if app.pageView != nil {
+		app.pageView.MarkDirty()
+	}
+}
+
+func (app *App) handleHTTPResponse(response *nethttp.Response, requestedURL string) {
+	if app == nil || response == nil {
+		return
+	}
+	finalURL := requestedURL
+	if response.Request != nil && response.Request.URL != nil {
+		if resolved := strings.TrimSpace(response.Request.URL.String()); resolved != "" {
+			finalURL = normalizeURL(resolved)
+		}
+	}
+	redirected := finalURL != "" && finalURL != requestedURL
+	if finalURL != "" {
+		app.currentURL = finalURL
+		app.addressText = finalURL
+		app.replaceCurrentHistory(finalURL)
+	}
+	if response.StatusCode >= 400 {
+		app.debugf("http status %s for %s", response.Status, displayURL(finalURL))
+		app.pageTitle = response.Status
+		app.statusBase = response.Status
+		app.showMessageDocument("HTTP error", app.httpErrorDetail(response.Status, finalURL, redirected))
+		return
+	}
+	body, err := readDecodedHTTPResponseBody(response, maxContent)
+	if err != nil {
+		app.debugError("http read body "+displayURL(finalURL), err)
+		app.pageTitle = "Load failed"
+		app.statusBase = "Read error"
+		app.showMessageDocument("Load failed", "Failed while reading the response body: "+err.Error())
+		return
+	}
+	app.updateContent(response.Header.Get("Content-Type"), body, redirected)
 }
 
 func configureLocalCABundle() (string, bool) {
@@ -561,12 +594,49 @@ func (app *App) submitForm(actionURL string, method string, values neturl.Values
 		if values != nil {
 			encoded = values.Encode()
 		}
-		app.openURL(appendURLQuery(actionURL, encoded), true)
+		app.openURLWithReferrer(appendURLQuery(actionURL, encoded), true, app.currentURL)
+	case "post":
+		referrer := app.currentURL
+		targetURL := app.startNavigation(actionURL, true)
+		if app.httpClient == nil {
+			app.debugf("http unavailable for POST %s", displayURL(targetURL))
+			app.pageTitle = "HTTP unavailable"
+			app.statusBase = "HTTP client unavailable"
+			app.showMessageDocument("HTTP unavailable", "The network client is not available, so Tagix Browser cannot submit the form.")
+			app.finishNavigation()
+			return
+		}
+		encoded := ""
+		if values != nil {
+			encoded = values.Encode()
+		}
+		request, err := nethttp.NewRequest(nethttp.MethodPost, targetURL, strings.NewReader(encoded))
+		if err != nil {
+			app.debugError("http post request build "+displayURL(targetURL), err)
+			app.pageTitle = "Submit failed"
+			app.statusBase = "Invalid URL"
+			app.showMessageDocument("Submit failed", "Failed to prepare the POST request: "+err.Error())
+			app.finishNavigation()
+			return
+		}
+		app.applyFormRequestHeaders(request, referrer)
+		response, err := app.httpClient.Do(request)
+		if err != nil {
+			app.debugError("http post "+displayURL(targetURL), err)
+			app.pageTitle = "Submit failed"
+			app.statusBase = "Network error"
+			app.showMessageDocument("Submit failed", app.networkErrorDetail(targetURL, err))
+			app.finishNavigation()
+			return
+		}
+		defer response.Body.Close()
+		app.handleHTTPResponse(response, targetURL)
+		app.finishNavigation()
 	default:
 		app.debugf("unsupported form method %s for %s", strings.ToUpper(method), displayURL(actionURL))
 		app.pageTitle = "Unsupported form method"
 		app.statusBase = strings.ToUpper(method) + " not supported"
-		app.showMessageDocument("Unsupported form method", "This lite browser currently supports GET form submission only.")
+		app.showMessageDocument("Unsupported form method", "This lite browser currently supports GET and POST form submission.")
 		app.syncShell()
 	}
 }
@@ -630,7 +700,7 @@ func (app *App) showRenderedDocument(doc *Document) {
 	app.renderHeight = viewportHeight
 	app.applyDocumentViewportStyle(doc, viewportWidth, viewportHeight)
 	app.pageDocument.SetRoot(buildRenderedDocument(app.pageTitle, app.currentURL, doc, viewportWidth, viewportHeight, func(target string) {
-		app.openURL(target, true)
+		app.openURLWithReferrer(target, true, app.currentURL)
 	}, func(actionURL string, method string, values neturl.Values) {
 		app.submitForm(actionURL, method, values)
 	}, func(rawURL string) *ui.DocumentImage {
@@ -795,6 +865,9 @@ func (app *App) pageViewportSize() (int, int) {
 		width = client.Width - rootInset*2 - app.pageFrameHorizontalChrome()
 	}
 	if app != nil && app.pageView != nil {
+		if bounds := app.pageView.Bounds(); bounds.Width > 0 {
+			width = bounds.Width
+		}
 		if current, ok := app.pageView.Style.GetHeight(); ok && current > 0 {
 			height = current
 		}
