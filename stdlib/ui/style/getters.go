@@ -119,6 +119,10 @@ func (style Style) GetDisplay() (DisplayMode, bool) {
 	return resolveDisplay(style.display)
 }
 
+func (style Style) GetAlignItems() (AlignItemsMode, bool) {
+	return resolveAlignItems(style.alignItems)
+}
+
 func (style Style) GetVisibility() (VisibilityMode, bool) {
 	return resolveVisibility(style.visibility)
 }
@@ -215,6 +219,14 @@ func (style Style) GetBottom() (int, bool) {
 
 func (style Style) GetWidth() (int, bool) {
 	return resolveLength(style.width)
+}
+
+func (style Style) GetFlexGrow() (float64, bool) {
+	value, ok := resolveFlexGrow(style.flexGrow)
+	if !ok {
+		return 0, false
+	}
+	return float64(value) / 1000, true
 }
 
 func (style Style) GetHeight() (int, bool) {

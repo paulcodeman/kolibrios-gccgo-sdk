@@ -216,6 +216,13 @@ func (style *Style) SetDisplay(value DisplayMode) {
 	style.display = DisplayPtr(value)
 }
 
+func (style *Style) SetAlignItems(value AlignItemsMode) {
+	if style == nil {
+		return
+	}
+	style.alignItems = AlignItemsPtr(value)
+}
+
 func (style *Style) SetVisibility(value VisibilityMode) {
 	if style == nil {
 		return
@@ -483,6 +490,16 @@ func (style *Style) SetMinWidth(value int) {
 		value = 0
 	}
 	style.minWidth = IntPtr(value)
+}
+
+func (style *Style) SetFlexGrowFloat(value float64) {
+	if style == nil {
+		return
+	}
+	if value < 0 {
+		value = 0
+	}
+	style.flexGrow = IntPtr(int(value*1000 + 0.5))
 }
 
 func (style *Style) SetMaxWidth(value int) {

@@ -87,7 +87,24 @@ func resolveLineHeight(value *int) (int, bool) {
 	return *value, true
 }
 
+func resolveFlexGrow(value *int) (int, bool) {
+	if value == nil {
+		return 0, false
+	}
+	if *value < 0 {
+		return 0, true
+	}
+	return *value, true
+}
+
 func resolveTextAlign(value *TextAlign) (TextAlign, bool) {
+	if value == nil {
+		return 0, false
+	}
+	return *value, true
+}
+
+func resolveAlignItems(value *AlignItemsMode) (AlignItemsMode, bool) {
 	if value == nil {
 		return 0, false
 	}

@@ -1481,6 +1481,9 @@ func applyResolvedStyle(target *ui.Style, source ui.Style) {
 	if display, ok := source.GetDisplay(); ok {
 		target.SetDisplay(display)
 	}
+	if alignItems, ok := source.GetAlignItems(); ok {
+		target.SetAlignItems(alignItems)
+	}
 	if visibility, ok := source.GetVisibility(); ok {
 		target.SetVisibility(visibility)
 	}
@@ -1549,6 +1552,9 @@ func applyResolvedStyle(target *ui.Style, source ui.Style) {
 	}
 	if value, ok := source.GetWidth(); ok {
 		target.SetWidth(value)
+	}
+	if value, ok := source.GetFlexGrow(); ok {
+		target.SetFlexGrowFloat(value)
 	}
 	if value, ok := source.GetHeight(); ok {
 		target.SetHeight(value)
@@ -1663,6 +1669,9 @@ func applyResolvedStyleExceptBackground(target *ui.Style, source ui.Style) {
 	if display, ok := source.GetDisplay(); ok {
 		target.SetDisplay(display)
 	}
+	if alignItems, ok := source.GetAlignItems(); ok {
+		target.SetAlignItems(alignItems)
+	}
 	if position, ok := source.GetPosition(); ok {
 		target.SetPosition(position)
 	}
@@ -1686,6 +1695,9 @@ func applyResolvedStyleExceptBackground(target *ui.Style, source ui.Style) {
 	}
 	if value, ok := source.GetWidth(); ok {
 		target.SetWidth(value)
+	}
+	if value, ok := source.GetFlexGrow(); ok {
+		target.SetFlexGrowFloat(value)
 	}
 	if value, ok := source.GetHeight(); ok {
 		target.SetHeight(value)

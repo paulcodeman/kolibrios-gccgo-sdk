@@ -2,6 +2,7 @@ package ui
 
 import (
 	"kos"
+	"strconv"
 	"strings"
 )
 
@@ -43,8 +44,25 @@ func ParseDisplay(value string) (DisplayMode, bool) {
 		return DisplayInlineBlock, true
 	case "block":
 		return DisplayBlock, true
+	case "flex":
+		return DisplayFlex, true
 	case "none":
 		return DisplayNone, true
+	default:
+		return 0, false
+	}
+}
+
+func ParseAlignItems(value string) (AlignItemsMode, bool) {
+	switch normalizeCSSKeyword(value) {
+	case "stretch":
+		return AlignItemsStretch, true
+	case "flex-start", "start":
+		return AlignItemsFlexStart, true
+	case "center":
+		return AlignItemsCenter, true
+	case "flex-end", "end":
+		return AlignItemsFlexEnd, true
 	default:
 		return 0, false
 	}
@@ -324,6 +342,39 @@ func (style Style) GetDisplayString() (string, bool) {
 		return "", false
 	}
 	return value.String(), true
+}
+
+func (style *Style) SetAlignItemsString(value string) bool {
+	parsed, ok := ParseAlignItems(value)
+	if !ok || style == nil {
+		return false
+	}
+	style.SetAlignItems(parsed)
+	return true
+}
+
+func (style Style) GetAlignItemsString() (string, bool) {
+	value, ok := style.GetAlignItems()
+	if !ok {
+		return "", false
+	}
+	return value.String(), true
+}
+
+func (style *Style) SetFlexGrowString(value string) bool {
+	if style == nil {
+		return false
+	}
+	value = normalizeCSSKeyword(value)
+	if value == "" {
+		return false
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return false
+	}
+	style.SetFlexGrowFloat(parsed)
+	return true
 }
 
 func (style *Style) SetVisibilityString(value string) bool {

@@ -290,6 +290,13 @@ func equalColorPtr(a *kos.Color, b *kos.Color) bool {
 	return *a == *b
 }
 
+func equalAlignItemsPtr(a *AlignItemsMode, b *AlignItemsMode) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
 func equalIntPtr(a *int, b *int) bool {
 	if a == nil || b == nil {
 		return a == b
@@ -493,6 +500,9 @@ func mergeStyle(base Style, override Style) Style {
 	if override.display != nil {
 		style.display = override.display
 	}
+	if override.alignItems != nil {
+		style.alignItems = override.alignItems
+	}
 	if override.visibility != nil {
 		style.visibility = override.visibility
 	}
@@ -561,6 +571,9 @@ func mergeStyle(base Style, override Style) Style {
 	}
 	if override.width != nil {
 		style.width = override.width
+	}
+	if override.flexGrow != nil {
+		style.flexGrow = override.flexGrow
 	}
 	if override.height != nil {
 		style.height = override.height

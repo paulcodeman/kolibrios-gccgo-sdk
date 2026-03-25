@@ -53,6 +53,7 @@ const (
 	DisplayInline DisplayMode = iota
 	DisplayInlineBlock
 	DisplayBlock
+	DisplayFlex
 	DisplayNone
 )
 
@@ -64,8 +65,34 @@ func (value DisplayMode) String() string {
 		return "inline-block"
 	case DisplayBlock:
 		return "block"
+	case DisplayFlex:
+		return "flex"
 	case DisplayNone:
 		return "none"
+	default:
+		return ""
+	}
+}
+
+type AlignItemsMode int
+
+const (
+	AlignItemsStretch AlignItemsMode = iota
+	AlignItemsFlexStart
+	AlignItemsCenter
+	AlignItemsFlexEnd
+)
+
+func (value AlignItemsMode) String() string {
+	switch value {
+	case AlignItemsStretch:
+		return "stretch"
+	case AlignItemsFlexStart:
+		return "flex-start"
+	case AlignItemsCenter:
+		return "center"
+	case AlignItemsFlexEnd:
+		return "flex-end"
 	default:
 		return ""
 	}
@@ -316,6 +343,7 @@ type Style struct {
 	backgroundAttachment *BackgroundAttachment
 	shadow               *Shadow
 	display              *DisplayMode
+	alignItems           *AlignItemsMode
 	visibility           *VisibilityMode
 	textAlign            *TextAlign
 	textDecoration       *TextDecoration
@@ -339,6 +367,7 @@ type Style struct {
 	right                *int
 	bottom               *int
 	width                *int
+	flexGrow             *int
 	height               *int
 	minWidth             *int
 	maxWidth             *int
@@ -375,6 +404,7 @@ func (style Style) IsZero() bool {
 		style.backgroundAttachment == nil &&
 		style.shadow == nil &&
 		style.display == nil &&
+		style.alignItems == nil &&
 		style.visibility == nil &&
 		style.textAlign == nil &&
 		style.textDecoration == nil &&
@@ -398,6 +428,7 @@ func (style Style) IsZero() bool {
 		style.right == nil &&
 		style.bottom == nil &&
 		style.width == nil &&
+		style.flexGrow == nil &&
 		style.height == nil &&
 		style.minWidth == nil &&
 		style.maxWidth == nil &&
@@ -418,6 +449,7 @@ func (style Style) IsZero() bool {
 
 func (style Style) HasLayout() bool {
 	return style.display != nil ||
+		style.alignItems != nil ||
 		style.visibility != nil ||
 		style.position != nil ||
 		style.left != nil ||
@@ -425,6 +457,7 @@ func (style Style) HasLayout() bool {
 		style.right != nil ||
 		style.bottom != nil ||
 		style.width != nil ||
+		style.flexGrow != nil ||
 		style.height != nil ||
 		style.minWidth != nil ||
 		style.maxWidth != nil ||
@@ -518,6 +551,11 @@ func PositionPtr(value PositionMode) *PositionMode {
 }
 
 func DisplayPtr(value DisplayMode) *DisplayMode {
+	v := value
+	return &v
+}
+
+func AlignItemsPtr(value AlignItemsMode) *AlignItemsMode {
 	v := value
 	return &v
 }

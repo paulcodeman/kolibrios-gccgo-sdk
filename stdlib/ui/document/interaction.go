@@ -3,12 +3,14 @@ package ui
 func styleLayoutOnly(style Style) Style {
 	return Style{
 		display:           style.display,
+		alignItems:        style.alignItems,
 		position:          style.position,
 		left:              style.left,
 		top:               style.top,
 		right:             style.right,
 		bottom:            style.bottom,
 		width:             style.width,
+		flexGrow:          style.flexGrow,
 		height:            style.height,
 		minWidth:          style.minWidth,
 		maxWidth:          style.maxWidth,

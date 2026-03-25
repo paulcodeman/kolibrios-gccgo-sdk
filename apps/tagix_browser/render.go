@@ -347,6 +347,9 @@ func applyShellHostNodeStyles(style *ui.Style, node *Node, ctx *shellRenderConte
 	if display, ok := resolved.GetDisplay(); ok {
 		style.SetDisplay(display)
 	}
+	if alignItems, ok := resolved.GetAlignItems(); ok {
+		style.SetAlignItems(alignItems)
+	}
 	if color, ok := resolved.GetBackground(); ok {
 		style.SetBackground(color)
 	}
@@ -402,6 +405,9 @@ func applyShellHostNodeStyles(style *ui.Style, node *Node, ctx *shellRenderConte
 	}
 	if width, ok := resolved.GetWidth(); ok {
 		style.SetWidth(width)
+	}
+	if grow, ok := resolved.GetFlexGrow(); ok {
+		style.SetFlexGrowFloat(grow)
 	}
 	if width, ok := resolved.GetMinWidth(); ok {
 		style.SetMinWidth(width)
@@ -591,7 +597,8 @@ func buildShellDocument(app *App) *ui.DocumentNode {
 	root.Style.SetBackground(0xF1F3F4)
 
 	actions := ui.NewDocumentElement("browser-shell-actions", styled(func(style *ui.Style) {
-		style.SetDisplay(ui.DisplayBlock)
+		style.SetDisplay(ui.DisplayFlex)
+		style.SetAlignItems(ui.AlignItemsCenter)
 		style.SetMargin(0, 0, 8, 0)
 		style.SetContain(ui.ContainPaint)
 	}),
@@ -603,8 +610,9 @@ func buildShellDocument(app *App) *ui.DocumentNode {
 
 	address := shellAddressNode(app, currentURL)
 	address.Style.SetMargin(0, 0, 0, 0)
+	address.Style.SetFlexGrowFloat(1)
+	actions.Append(address)
 	root.Append(actions)
-	root.Append(address)
 	return root
 }
 
@@ -741,6 +749,7 @@ func shellButtonNodeWithSource(app *App, label string, action string, enabled bo
 		style.SetPadding(5, 0)
 		style.SetWidth(30)
 		style.SetHeight(28)
+		style.SetBoxSizing(ui.BoxSizingBorderBox)
 		style.SetBorderRadius(8)
 		style.SetBorder(1, 0xC3CAD2)
 		style.SetBackground(0xE5E9EE)
@@ -979,10 +988,9 @@ body{background:#f1f3f4;min-height:100vh}
 #browser-meta{display:block;margin:0 0 10px}
 #browser-title{display:block;margin:0 0 4px;font-size:20px;line-height:24px;color:#202124}
 #browser-status{display:block;margin:0;font-size:11px;line-height:15px;color:#5f6368}
-#browser-controls{display:block;margin:0 0 8px}
-.browser-button{display:inline-block;width:30px;height:28px;margin:0 6px 6px 0;padding:5px 0;border:1px solid #c3cad2;border-radius:8px;background:#e5e9ee;color:#202124;font-size:16px;line-height:18px;text-align:center}
-#browser-address-row{display:block}
-#browser-address{display:block;width:100%;padding:7px 12px;border:1px solid #808a96;border-radius:10px;background:#fff;color:#202124;font-size:13px;line-height:18px;min-width:260px;box-sizing:border-box}
+#browser-controls{display:flex;align-items:center;margin:0 0 8px}
+.browser-button{display:inline-block;width:30px;height:28px;margin:0 6px 0 0;padding:5px 0;border:1px solid #c3cad2;border-radius:8px;background:#e5e9ee;color:#202124;font-size:16px;line-height:18px;text-align:center;box-sizing:border-box}
+#browser-address{display:block;flex-grow:1;padding:7px 12px;border:1px solid #808a96;border-radius:10px;background:#fff;color:#202124;font-size:13px;line-height:18px;min-width:220px;box-sizing:border-box}
 #browser-page-frame{display:block;width:100%;margin:8px 0 0;border:1px solid #d7dee7;border-radius:16px;background:#fff;min-height:280px;height:calc(100vh - 176px);overflow:auto;box-sizing:border-box}
 </style>
 </head>
@@ -998,10 +1006,8 @@ body{background:#f1f3f4;min-height:100vh}
 <button id="browser-forward" class="browser-button" data-role="button" data-action="forward">&#x2192;</button>
 <button id="browser-reload" class="browser-button" data-role="button" data-action="reload">&#x21bb;</button>
 <button id="browser-home" class="browser-button" data-role="button" data-action="home">&#x2302;</button>
-</nav>
-<section id="browser-address-row">
 <input id="browser-address" data-role="address" value="">
-</section>
+</nav>
 <iframe id="browser-page-frame" data-role="page-frame" src="about:tagix"></iframe>
 </section>
 </header>

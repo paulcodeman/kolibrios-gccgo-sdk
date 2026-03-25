@@ -137,6 +137,8 @@ func applyInlineStyleRule(style *ui.Style, name string, value string) {
 		}
 	case "display":
 		style.SetDisplayString(value)
+	case "align-items":
+		style.SetAlignItemsString(value)
 	case "position":
 		if strings.EqualFold(strings.TrimSpace(value), "fixed") {
 			style.SetPosition(ui.PositionAbsolute)
@@ -179,6 +181,8 @@ func applyInlineStyleRule(style *ui.Style, name string, value string) {
 		if parsed, ok := parseHTMLLength(value); ok {
 			style.SetWidth(parsed)
 		}
+	case "flex-grow":
+		style.SetFlexGrowString(value)
 	case "height":
 		if parsed, ok := parseHTMLLength(value); ok {
 			style.SetHeight(parsed)

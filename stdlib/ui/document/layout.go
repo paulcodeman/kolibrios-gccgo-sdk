@@ -159,6 +159,10 @@ func (document *Document) layoutStyledNode(ctx LayoutContext, node *DocumentNode
 	}
 }
 
+func displayUsesBlockFlow(display DisplayMode) bool {
+	return display == DisplayBlock || display == DisplayFlex
+}
+
 func (document *Document) layoutChildren(ctx LayoutContext, parentStyle Style, nodes []*DocumentNode, container Rect) ([]*Fragment, int) {
 	if len(nodes) == 0 {
 		return nil, container.Y
@@ -185,6 +189,145 @@ func (document *Document) layoutChildren(ctx LayoutContext, parentStyle Style, n
 	return children, flowBottom
 }
 
+type documentFlexItem struct {
+	node      *DocumentNode
+	style     Style
+	display   DisplayMode
+	margin    Spacing
+	grow      int
+	baseWidth int
+	fragment  *Fragment
+}
+
+func flexAlignItems(style Style) AlignItemsMode {
+	if value, ok := resolveAlignItems(style.alignItems); ok {
+		return value
+	}
+	return AlignItemsFlexStart
+}
+
+func flexBaseOuterWidth(style Style) int {
+	if value, ok := explicitOuterWidth(style); ok {
+		return clampWidthForStyle(style, value)
+	}
+	return clampWidthForStyle(style, 0)
+}
+
+func setOuterWidthForStyle(style *Style, outerWidth int) {
+	if style == nil {
+		return
+	}
+	if outerWidth < 0 {
+		outerWidth = 0
+	}
+	width := outerWidth
+	if effectiveBoxSizing(*style) == BoxSizingContentBox {
+		insets := boxInsets(*style)
+		width -= insets.Left + insets.Right
+		if width < 0 {
+			width = 0
+		}
+	}
+	style.SetWidth(width)
+}
+
+func (document *Document) layoutFlexChildren(ctx LayoutContext, parentStyle Style, nodes []*DocumentNode, container Rect) ([]*Fragment, int) {
+	if len(nodes) == 0 {
+		return nil, container.Y
+	}
+	items := make([]documentFlexItem, 0, len(nodes))
+	children := make([]*Fragment, 0, len(nodes))
+	usedWidth := 0
+	totalGrow := 0
+	for _, child := range nodes {
+		if child == nil {
+			continue
+		}
+		style := documentComputedStyle(parentStyle, child)
+		display := documentDisplay(style, child.Kind)
+		if display == DisplayNone {
+			continue
+		}
+		if effectivePosition(style) == PositionAbsolute {
+			if fragment := document.layoutStyledNode(ctx, child, style, display, container, 0, container.Y); fragment != nil {
+				children = append(children, fragment)
+			}
+			continue
+		}
+		margin, _ := resolveSpacingNormalized(style.margin)
+		grow, _ := resolveFlexGrow(style.flexGrow)
+		baseWidth := flexBaseOuterWidth(style)
+		items = append(items, documentFlexItem{
+			node:      child,
+			style:     style,
+			display:   display,
+			margin:    margin,
+			grow:      grow,
+			baseWidth: baseWidth,
+		})
+		usedWidth += margin.Left + baseWidth + margin.Right
+		totalGrow += grow
+	}
+	remainingWidth := container.Width - usedWidth
+	if remainingWidth < 0 {
+		remainingWidth = 0
+	}
+	cursorX := 0
+	crossSize := 0
+	growRemaining := remainingWidth
+	growUnitsRemaining := totalGrow
+	for index := range items {
+		item := &items[index]
+		outerWidth := item.baseWidth
+		if item.grow > 0 && growUnitsRemaining > 0 && growRemaining > 0 {
+			share := growRemaining * item.grow / growUnitsRemaining
+			outerWidth += share
+			growRemaining -= share
+			growUnitsRemaining -= item.grow
+		}
+		childStyle := item.style
+		setOuterWidthForStyle(&childStyle, outerWidth)
+		childContainer := Rect{
+			X:      container.X + cursorX,
+			Y:      container.Y,
+			Width:  outerWidth + item.margin.Left + item.margin.Right,
+			Height: container.Height,
+		}
+		fragment := document.layoutStyledNode(ctx, item.node, childStyle, item.display, childContainer, 0, container.Y)
+		if fragment == nil {
+			continue
+		}
+		item.fragment = fragment
+		children = append(children, fragment)
+		outerHeight := fragment.Bounds.Height + item.margin.Top + item.margin.Bottom
+		if outerHeight > crossSize {
+			crossSize = outerHeight
+		}
+		cursorX += item.margin.Left + fragment.Bounds.Width + item.margin.Right
+	}
+	alignItems := flexAlignItems(parentStyle)
+	if alignItems == AlignItemsCenter || alignItems == AlignItemsFlexEnd {
+		for index := range items {
+			item := &items[index]
+			if item.fragment == nil {
+				continue
+			}
+			outerHeight := item.fragment.Bounds.Height + item.margin.Top + item.margin.Bottom
+			shiftY := 0
+			switch alignItems {
+			case AlignItemsCenter:
+				shiftY = (crossSize - outerHeight) / 2
+			case AlignItemsFlexEnd:
+				shiftY = crossSize - outerHeight
+			}
+			if shiftY > 0 {
+				shiftFragmentTree(item.fragment, 0, shiftY)
+			}
+		}
+	}
+	return children, container.Y + crossSize
+}
+
 func (document *Document) layoutChildFlow(ctx LayoutContext, parentStyle Style, node *DocumentNode, container Rect, cursorX int, cursorY int, lineHeight int, maxWidth int) (*Fragment, int, int, int) {
 	if node == nil {
 		return nil, cursorX, cursorY, lineHeight
@@ -199,7 +342,7 @@ func (document *Document) layoutChildFlow(ctx LayoutContext, parentStyle Style, 
 		return fragment, cursorX, cursorY, lineHeight
 	}
 	margin, _ := resolveSpacingNormalized(style.margin)
-	if display == DisplayBlock {
+	if displayUsesBlockFlow(display) {
 		if cursorX > 0 {
 			cursorX = 0
 			cursorY += lineHeight
@@ -255,7 +398,13 @@ func (document *Document) layoutElementNode(ctx LayoutContext, node *DocumentNod
 		Width:  contentWidth,
 		Height: container.Height,
 	}
-	children, flowBottom := document.layoutChildren(ctx, style, node.Children, childContainer)
+	children := []*Fragment(nil)
+	flowBottom := contentY
+	if display == DisplayFlex {
+		children, flowBottom = document.layoutFlexChildren(ctx, style, node.Children, childContainer)
+	} else {
+		children, flowBottom = document.layoutChildren(ctx, style, node.Children, childContainer)
+	}
 	height, heightSet := explicitOuterHeight(style)
 	if !heightSet {
 		contentHeight := 0
@@ -265,7 +414,7 @@ func (document *Document) layoutElementNode(ctx LayoutContext, node *DocumentNod
 		height = insets.Top + contentHeight + insets.Bottom
 	}
 	height = clampHeightForStyle(style, height)
-	if !plan.widthSet && display != DisplayBlock {
+	if !plan.widthSet && !displayUsesBlockFlow(display) {
 		autoWidth := insets.Left + insets.Right
 		maxRight := contentX
 		for _, child := range children {
@@ -283,7 +432,7 @@ func (document *Document) layoutElementNode(ctx LayoutContext, node *DocumentNod
 		autoWidth += maxRight - contentX
 		plan.width = clampWidthForStyle(style, autoWidth)
 	}
-	if display == DisplayBlock || plan.widthSet {
+	if display != DisplayFlex && (displayUsesBlockFlow(display) || plan.widthSet) {
 		finalContentWidth := plan.width - insets.Left - insets.Right
 		if finalContentWidth < 0 {
 			finalContentWidth = 0
@@ -379,7 +528,7 @@ func alignInlineChildFragments(style Style, content Rect, children []*Fragment) 
 			childKind = DocumentNodeText
 		}
 		childDisplay := documentDisplay(child.Style, childKind)
-		if childDisplay == DisplayBlock {
+		if displayUsesBlockFlow(childDisplay) {
 			flush(index)
 			continue
 		}
@@ -566,7 +715,7 @@ func planDocumentBox(style Style, display DisplayMode, container Rect, flowX int
 	plan.width, plan.widthSet = explicitOuterWidth(style)
 	if !plan.widthSet {
 		availableWidth := container.Width - plan.margin.Left - plan.margin.Right
-		if display != DisplayBlock {
+		if !displayUsesBlockFlow(display) {
 			availableWidth -= flowX
 		}
 		plan.width = availableWidth
