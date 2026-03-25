@@ -530,8 +530,8 @@ func parseHTMLColorComponents(value string) (uint8, uint8, uint8, uint8, bool) {
 		if !ok {
 			return 0, 0, 0, 0, false
 		}
-		parts := splitStyleFunctionArgs(args)
-		if len(parts) < 3 {
+		parts, alphaValue, ok := splitHTMLColorFunctionArgs(args)
+		if !ok || len(parts) != 3 {
 			return 0, 0, 0, 0, false
 		}
 		r, okR := parseHTMLColorChannel(parts[0])
@@ -541,8 +541,8 @@ func parseHTMLColorComponents(value string) (uint8, uint8, uint8, uint8, bool) {
 			return 0, 0, 0, 0, false
 		}
 		alpha := uint8(255)
-		if len(parts) >= 4 {
-			value, ok := parseHTMLAlphaChannel(parts[3])
+		if alphaValue != "" {
+			value, ok := parseHTMLAlphaChannel(alphaValue)
 			if !ok {
 				return 0, 0, 0, 0, false
 			}
@@ -555,8 +555,8 @@ func parseHTMLColorComponents(value string) (uint8, uint8, uint8, uint8, bool) {
 		if !ok {
 			return 0, 0, 0, 0, false
 		}
-		parts := splitStyleFunctionArgs(args)
-		if len(parts) < 3 {
+		parts, alphaValue, ok := splitHTMLColorFunctionArgs(args)
+		if !ok || len(parts) != 3 {
 			return 0, 0, 0, 0, false
 		}
 		h, okH := parseHTMLHue(parts[0])
@@ -567,8 +567,8 @@ func parseHTMLColorComponents(value string) (uint8, uint8, uint8, uint8, bool) {
 		}
 		r, g, b := htmlHSLToRGB(h, s, l)
 		alpha := uint8(255)
-		if len(parts) >= 4 {
-			value, ok := parseHTMLAlphaChannel(parts[3])
+		if alphaValue != "" {
+			value, ok := parseHTMLAlphaChannel(alphaValue)
 			if !ok {
 				return 0, 0, 0, 0, false
 			}
@@ -792,6 +792,124 @@ func splitStyleFunctionArgs(value string) []string {
 	}
 	parts = append(parts, strings.TrimSpace(value[start:]))
 	return parts
+}
+
+func normalizeCSSCommentWhitespace(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || !strings.Contains(value, "/*") {
+		return value
+	}
+	builder := strings.Builder{}
+	builder.Grow(len(value))
+	for index := 0; index < len(value); {
+		if index+1 < len(value) && value[index] == '/' && value[index+1] == '*' {
+			end := strings.Index(value[index+2:], "*/")
+			if end < 0 {
+				break
+			}
+			if builder.Len() > 0 {
+				last := builder.String()[builder.Len()-1]
+				if last != ' ' && last != '\t' && last != '\n' && last != '\r' {
+					builder.WriteByte(' ')
+				}
+			}
+			index += end + 4
+			continue
+		}
+		builder.WriteByte(value[index])
+		index++
+	}
+	return strings.TrimSpace(builder.String())
+}
+
+func splitHTMLColorFunctionTokens(value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	tokens := make([]string, 0, 5)
+	start := -1
+	depth := 0
+	for index := 0; index < len(value); index++ {
+		switch value[index] {
+		case '(':
+			if start < 0 {
+				start = index
+			}
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		case '/':
+			if depth == 0 {
+				if start >= 0 {
+					tokens = append(tokens, strings.TrimSpace(value[start:index]))
+					start = -1
+				}
+				tokens = append(tokens, "/")
+				continue
+			}
+		case ' ', '\t', '\r', '\n':
+			if depth == 0 {
+				if start >= 0 {
+					tokens = append(tokens, strings.TrimSpace(value[start:index]))
+					start = -1
+				}
+				continue
+			}
+		}
+		if start < 0 {
+			start = index
+		}
+	}
+	if start >= 0 {
+		tokens = append(tokens, strings.TrimSpace(value[start:]))
+	}
+	return tokens
+}
+
+func splitHTMLColorFunctionArgs(value string) ([]string, string, bool) {
+	value = normalizeCSSCommentWhitespace(value)
+	if value == "" {
+		return nil, "", false
+	}
+	if strings.Contains(value, ",") {
+		parts := splitStyleFunctionArgs(value)
+		if len(parts) < 3 || len(parts) > 4 {
+			return nil, "", false
+		}
+		alpha := ""
+		if len(parts) == 4 {
+			alpha = strings.TrimSpace(parts[3])
+		}
+		return parts[:3], alpha, true
+	}
+	tokens := splitHTMLColorFunctionTokens(value)
+	if len(tokens) < 3 {
+		return nil, "", false
+	}
+	alpha := ""
+	slash := -1
+	for index, token := range tokens {
+		if token == "/" {
+			if slash >= 0 {
+				return nil, "", false
+			}
+			slash = index
+		}
+	}
+	if slash >= 0 {
+		if slash != 3 || slash+1 != len(tokens)-1 {
+			return nil, "", false
+		}
+		alpha = strings.TrimSpace(tokens[slash+1])
+		tokens = tokens[:slash]
+	}
+	if len(tokens) != 3 {
+		return nil, "", false
+	}
+	return tokens, alpha, true
 }
 
 func applyHTMLBackground(style *ui.Style, value string) {

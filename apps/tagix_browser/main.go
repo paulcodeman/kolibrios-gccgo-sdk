@@ -28,8 +28,6 @@ const (
 	localCABundleAsset  = "assets/ca-bundle.pem"
 )
 
-const defaultAboutHomeHTML = `<html><head><title>Tagix Browser</title></head><body><h1>Tagix Browser</h1><p><strong>Tagix Browser</strong> is a web browser created specially for <a href="https://kolibrios.org">KolibriOS</a>.</p><p>It renders local and remote pages through the Tagix HTML/CSS pipeline and hosts page content inside the native KolibriOS UI.</p><p>The browser shell is loaded from <code>assets/shell.html</code>, and the current page is displayed in a dedicated document view below the toolbar.</p><h2>Quick Links</h2><ul><li><a href="https://kolibrios.org">KolibriOS Website</a></li><li><a href="https://kolibrios.org/en">KolibriOS English</a></li><li><a href="https://kolibrios.org/ru">KolibriOS Russian</a></li><li><a href="about:forms">Built-in Forms Demo</a></li><li><a href="https://example.com">example.com</a></li></ul><h2>What To Test</h2><ul><li>Semantic shell tags: header, nav, section, h1, small, iframe</li><li>Shell styling through inline HTML5 <code>style</code> attributes</li><li>Inline links, lists, headings and forms in rendered pages</li><li>Document focus, hover and scroll inside the hosted page view</li></ul><details><summary>Architecture</summary><p><code>shell.html -&gt; Parse -&gt; ui.DocumentNode -&gt; DocumentView</code></p><p>Tagix Browser is intended to be a native KolibriOS browser, not just a demo page viewer.</p></details></body></html>`
-
 const defaultAboutFormsHTML = `<html><head><title>Tagix Forms</title></head><body><h1>Tagix Forms</h1><p>This page exists to test browser-side HTML controls that are currently mapped onto the shared UI pipeline.</p><p><a href="about:tagix">Back to the built-in home page</a></p><p>Submit keeps you on built-in pages by targeting <code>about:tagix</code>; after submit, the address bar should include the serialized query string.</p><form action="about:tagix" method="get"><input type="hidden" name="source" value="about:forms"><h2>Text controls</h2><p><input type="text" name="url" value="https://kolibrios.org" placeholder="Type a URL"></p><p><input type="search" name="query" placeholder="Search demo"></p><p>Textarea currently submits its initial content; multiline editing is still pending in the shared DocumentView host.</p><textarea name="notes" rows="4">Textarea fallback content.
 Second line.
 Third line.</textarea><h2>Choice controls</h2><p><input type="checkbox" name="remember" checked value="1"></p><p><input type="checkbox" name="compact" value="1"></p><p><input type="radio" name="theme" checked value="ocean"></p><p><input type="radio" name="theme" value="sunset"></p><p><select name="mode"><option selected value="first">First option</option><option value="second">Second option</option><option value="third">Third option</option></select></p><h2>Range and progress</h2><p><input type="range" name="level" min="0" max="10" step="2" value="4"></p><p><progress value="42" max="100"></progress></p><h2>Buttons</h2><p><button type="submit" name="submitter" value="button">Submit form</button></p><p><input type="reset" value="Reset form"></p></form></body></html>`
@@ -562,20 +560,55 @@ func (app *App) loadLocalPage(url string) bool {
 func builtinPageSource(url string) (string, string, string, bool) {
 	switch strings.ToLower(strings.TrimSpace(stripFragment(stripQuery(url)))) {
 	case "about:tagix":
-		return "Tagix Browser", "Built-in page", loadBuiltinAsset(aboutHomeAsset, defaultAboutHomeHTML), true
+		if body, ok := loadBuiltinAsset(aboutHomeAsset); ok {
+			return "Tagix Browser", "Built-in page", body, true
+		}
+		title, status, html := missingBuiltinAssetPage(aboutHomeAsset)
+		return title, status, html, true
 	case strings.ToLower(aboutFormsURL):
-		return "Tagix Forms", "Built-in page", loadBuiltinAsset(aboutFormsAsset, defaultAboutFormsHTML), true
+		if body, ok := loadBuiltinAsset(aboutFormsAsset); ok {
+			return "Tagix Forms", "Built-in page", body, true
+		}
+		title, status, html := missingBuiltinAssetPage(aboutFormsAsset)
+		return title, status, html, true
 	default:
 		return "", "", "", false
 	}
 }
 
-func loadBuiltinAsset(path string, fallback string) string {
+func loadBuiltinAsset(path string) (string, bool) {
 	data, err := os.ReadFile(path)
 	if err != nil || len(data) == 0 {
-		return fallback
+		return "", false
 	}
-	return string(data)
+	return string(data), true
+}
+
+func escapeBuiltinHTMLText(value string) string {
+	replacer := strings.NewReplacer(
+		"&", "&amp;",
+		"<", "&lt;",
+		">", "&gt;",
+		`"`, "&quot;",
+	)
+	return replacer.Replace(value)
+}
+
+func missingBuiltinAssetPage(path string) (string, string, string) {
+	return "404 Not Found", "404 Not Found", missingBuiltinAssetHTML(path)
+}
+
+func missingBuiltinAssetHTML(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		path = "(unknown asset)"
+	}
+	return "<html><head><title>404 Not Found</title></head><body>" +
+		"<h1>404 Not Found</h1>" +
+		"<p><strong>Built-in page asset was not found.</strong></p>" +
+		"<p>Expected file: <code>" + escapeBuiltinHTMLText(path) + "</code></p>" +
+		"<p>Restore the HTML asset in the Tagix Browser bundle and reload the page.</p>" +
+		"</body></html>"
 }
 
 func (app *App) submitForm(actionURL string, method string, values neturl.Values) {

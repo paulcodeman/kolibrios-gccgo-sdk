@@ -175,6 +175,7 @@ func stripCSSComments(source string) string {
 			break
 		}
 		builder.WriteString(source[:start])
+		builder.WriteByte(' ')
 		source = source[start+2:]
 		end := strings.Index(source, "*/")
 		if end < 0 {
