@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	webSansFontPath              = "assets/OpenSans-Regular.ttf"
-	webMonoFontPath              = "assets/RobotoMono-Regular.ttf"
+	webSansFontPath              = "assets/fonts/Go.ttf"
+	webMonoFontPath              = "assets/fonts/GoMono.ttf"
 	webShellHTML                 = "assets/shell.html"
 	pageBackgroundMinTiledHeight = 8192
 )

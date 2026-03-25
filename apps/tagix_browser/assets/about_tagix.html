@@ -4,9 +4,18 @@
 </head>
 <body>
 <h1>Tagix Browser</h1>
-<p>Browser chrome now loads from <code>assets/shell.html</code>, and page content is hosted in a dedicated iframe-like frame below the toolbar.</p>
-<p><a href="about:forms">Open the built-in forms demo</a>, visit <a href="https://example.com">example.com</a>, or open <a href="https://kolibrios.org">kolibrios.org</a>.</p>
-<h2>What to test</h2>
+<p><strong>Tagix Browser</strong> is a web browser created specially for <a href="https://kolibrios.org">KolibriOS</a>.</p>
+<p>It renders local and remote pages through the Tagix HTML/CSS pipeline and hosts page content inside the native KolibriOS UI.</p>
+<p>The browser shell is loaded from <code>assets/shell.html</code>, and the current page is displayed in a dedicated document view below the toolbar.</p>
+<h2>Quick Links</h2>
+<ul>
+<li><a href="https://kolibrios.org">KolibriOS Website</a></li>
+<li><a href="https://kolibrios.org/en">KolibriOS English</a></li>
+<li><a href="https://kolibrios.org/ru">KolibriOS Russian</a></li>
+<li><a href="about:forms">Built-in Forms Demo</a></li>
+<li><a href="https://example.com">example.com</a></li>
+</ul>
+<h2>What To Test</h2>
 <ul>
 <li>Semantic shell tags: header, nav, section, h1, small, iframe</li>
 <li>Shell styling through inline HTML5 <code>style</code> attributes</li>
@@ -14,8 +23,9 @@
 <li>Document focus, hover and scroll inside the hosted page view</li>
 </ul>
 <details>
-<summary>Pipeline</summary>
+<summary>Architecture</summary>
 <p><code>shell.html -&gt; Parse -&gt; ui.DocumentNode -&gt; DocumentView</code></p>
+<p>Tagix Browser is intended to be a native KolibriOS browser, not just a demo page viewer.</p>
 </details>
 </body>
 </html>

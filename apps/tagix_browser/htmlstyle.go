@@ -31,6 +31,64 @@ var htmlNamedColors = map[string]kos.Color{
 	"transparent": ui.White,
 }
 
+var bundledDocumentFontFamilies []fontFamilyEntry
+var bundledDocumentFontFamiliesLoaded bool
+
+func setCurrentDocumentFontFamilies(registry []fontFamilyEntry) {
+	_ = registry
+}
+
+func lookupFontFamilyPath(registry []fontFamilyEntry, key string) string {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return ""
+	}
+	for _, entry := range registry {
+		if entry.key != key {
+			continue
+		}
+		if path := strings.TrimSpace(entry.path); path != "" {
+			return path
+		}
+	}
+	return ""
+}
+
+func lookupBundledFontFamilyPath(key string) string {
+	if !bundledDocumentFontFamiliesLoaded {
+		bundledDocumentFontFamilies = collectBundledFontFamilies()
+		bundledDocumentFontFamiliesLoaded = true
+	}
+	return lookupFontFamilyPath(bundledDocumentFontFamilies, key)
+}
+
+func normalizeCSSFontFamilyName(value string) string {
+	value = strings.Trim(strings.TrimSpace(strings.ToLower(value)), `"'`)
+	if value == "" {
+		return ""
+	}
+	builder := strings.Builder{}
+	builder.Grow(len(value))
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+			builder.WriteRune(r)
+		case r >= '0' && r <= '9':
+			builder.WriteRune(r)
+		}
+	}
+	return builder.String()
+}
+
+func isCSSWideKeyword(value string) bool {
+	switch value {
+	case "inherit", "initial", "unset", "revert", "revertlayer":
+		return true
+	default:
+		return false
+	}
+}
+
 func applyNodeInlineStyle(style *ui.Style, node *Node) {
 	if style == nil || node == nil {
 		return
@@ -248,7 +306,7 @@ func applyInlineStyleRule(style *ui.Style, name string, value string) {
 			style.SetFontSize(parsed)
 		}
 	case "line-height":
-		if parsed, ok := parseHTMLLength(value); ok {
+		if parsed, ok := parseHTMLLineHeight(style, value); ok {
 			style.SetLineHeight(parsed)
 		}
 	case "outline":
@@ -357,6 +415,40 @@ func parseHTMLLength(value string) (int, bool) {
 		return 0, false
 	}
 	return parsed, true
+}
+
+func parseHTMLLineHeight(style *ui.Style, value string) (int, bool) {
+	value = strings.TrimSpace(strings.ToLower(value))
+	if value == "" || value == "normal" {
+		return 0, false
+	}
+	if strings.HasSuffix(value, "%") {
+		percent, ok := parseHTMLPercent(value)
+		if !ok {
+			return 0, false
+		}
+		fontSize := defaultPageFontSize
+		if style != nil {
+			if current, ok := style.GetFontSize(); ok && current > 0 {
+				fontSize = current
+			}
+		}
+		return int(float64(fontSize)*percent + 0.5), true
+	}
+	if strings.ContainsAny(value, "abcdefghijklmnopqrstuvwxyz") {
+		return parseHTMLLength(value)
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, false
+	}
+	fontSize := defaultPageFontSize
+	if style != nil {
+		if current, ok := style.GetFontSize(); ok && current > 0 {
+			fontSize = current
+		}
+	}
+	return int(float64(fontSize)*parsed + 0.5), true
 }
 
 func parseHTMLOpacity(value string) (float64, bool) {
@@ -855,19 +947,28 @@ func parseHTMLFontPath(value string) string {
 		return ""
 	}
 	parts := strings.Split(value, ",")
+	sawFamily := false
 	for _, part := range parts {
-		family := strings.Trim(strings.TrimSpace(strings.ToLower(part)), `"'`)
-		switch family {
-		case "ui-sans", "sans", "sans-serif", "system-ui", "tagix-sans", "opensans":
-			return webSansFontPath
-		case "ui-mono", "mono", "monospace", "tagix-mono", "robotomono":
-			return webMonoFontPath
+		raw := strings.Trim(strings.TrimSpace(part), `"'`)
+		if raw == "" {
+			continue
 		}
-		if strings.HasSuffix(family, ".ttf") {
-			return strings.Trim(strings.TrimSpace(part), `"'`)
+		if fontPathSupported(raw) {
+			return raw
+		}
+		family := normalizeCSSFontFamilyName(part)
+		if family == "" || isCSSWideKeyword(family) {
+			continue
+		}
+		sawFamily = true
+		if path := lookupBundledFontFamilyPath(family); path != "" {
+			return path
 		}
 	}
-	return ""
+	if !sawFamily {
+		return ""
+	}
+	return webSansFontPath
 }
 
 func lastStyleToken(value string) string {

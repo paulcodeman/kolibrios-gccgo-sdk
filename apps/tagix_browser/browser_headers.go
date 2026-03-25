@@ -157,6 +157,16 @@ func (app *App) applyImageRequestHeaders(request *nethttp.Request, referrer stri
 	}
 }
 
+func (app *App) applyFontRequestHeaders(request *nethttp.Request, referrer string) {
+	app.applyStandardBrowserHeaders(request, "font/ttf,font/otf,font/sfnt,application/font-sfnt,application/octet-stream;q=0.8,*/*;q=0.5", referrer)
+	if request == nil {
+		return
+	}
+	request.Header.Set("Sec-Fetch-Dest", "font")
+	request.Header.Set("Sec-Fetch-Mode", "no-cors")
+	request.Header.Set("Sec-Fetch-Site", browserFetchSite(request.URL, referrer))
+}
+
 func (app *App) applyStandardBrowserHeaders(request *nethttp.Request, accept string, referrer string) {
 	if request == nil {
 		return

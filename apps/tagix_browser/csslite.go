@@ -2125,11 +2125,8 @@ func parseCSSLineHeight(value string, layout cssLayoutContext) (int, bool) {
 		}
 		return roundCSSPixels(float64(layout.fontSize) * percent / 100), true
 	}
-	if parsed, ok := parseCSSLength(value, layout); ok {
-		return parsed, true
-	}
 	if strings.ContainsAny(value, "abcdefghijklmnopqrstuvwxyz") {
-		return 0, false
+		return parseCSSLength(value, layout)
 	}
 	parsed, err := strconv.ParseFloat(value, 64)
 	if err != nil {

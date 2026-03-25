@@ -28,7 +28,7 @@ const (
 	localCABundleAsset  = "assets/ca-bundle.pem"
 )
 
-const defaultAboutHomeHTML = `<html><head><title>Tagix Browser</title></head><body><h1>Tagix Browser</h1><p>Browser chrome now loads from <code>assets/shell.html</code>, and page content is hosted in a dedicated iframe-like frame below the toolbar.</p><p><a href="about:forms">Open the built-in forms demo</a>, visit <a href="https://example.com">example.com</a>, or open <a href="https://kolibrios.org">kolibrios.org</a>.</p><h2>What to test</h2><ul><li>Semantic shell tags: header, nav, section, h1, small, iframe</li><li>Shell styling through inline HTML5 <code>style</code> attributes</li><li>Inline links, lists, headings and forms in rendered pages</li><li>Document focus, hover and scroll inside the hosted page view</li></ul><details><summary>Pipeline</summary><p><code>shell.html -&gt; Parse -&gt; ui.DocumentNode -&gt; DocumentView</code></p></details></body></html>`
+const defaultAboutHomeHTML = `<html><head><title>Tagix Browser</title></head><body><h1>Tagix Browser</h1><p><strong>Tagix Browser</strong> is a web browser created specially for <a href="https://kolibrios.org">KolibriOS</a>.</p><p>It renders local and remote pages through the Tagix HTML/CSS pipeline and hosts page content inside the native KolibriOS UI.</p><p>The browser shell is loaded from <code>assets/shell.html</code>, and the current page is displayed in a dedicated document view below the toolbar.</p><h2>Quick Links</h2><ul><li><a href="https://kolibrios.org">KolibriOS Website</a></li><li><a href="https://kolibrios.org/en">KolibriOS English</a></li><li><a href="https://kolibrios.org/ru">KolibriOS Russian</a></li><li><a href="about:forms">Built-in Forms Demo</a></li><li><a href="https://example.com">example.com</a></li></ul><h2>What To Test</h2><ul><li>Semantic shell tags: header, nav, section, h1, small, iframe</li><li>Shell styling through inline HTML5 <code>style</code> attributes</li><li>Inline links, lists, headings and forms in rendered pages</li><li>Document focus, hover and scroll inside the hosted page view</li></ul><details><summary>Architecture</summary><p><code>shell.html -&gt; Parse -&gt; ui.DocumentNode -&gt; DocumentView</code></p><p>Tagix Browser is intended to be a native KolibriOS browser, not just a demo page viewer.</p></details></body></html>`
 
 const defaultAboutFormsHTML = `<html><head><title>Tagix Forms</title></head><body><h1>Tagix Forms</h1><p>This page exists to test browser-side HTML controls that are currently mapped onto the shared UI pipeline.</p><p><a href="about:tagix">Back to the built-in home page</a></p><p>Submit keeps you on built-in pages by targeting <code>about:tagix</code>; after submit, the address bar should include the serialized query string.</p><form action="about:tagix" method="get"><input type="hidden" name="source" value="about:forms"><h2>Text controls</h2><p><input type="text" name="url" value="https://kolibrios.org" placeholder="Type a URL"></p><p><input type="search" name="query" placeholder="Search demo"></p><p>Textarea currently submits its initial content; multiline editing is still pending in the shared DocumentView host.</p><textarea name="notes" rows="4">Textarea fallback content.
 Second line.
@@ -514,6 +514,7 @@ func (app *App) loadBuiltinPage(url string) bool {
 	}
 	doc := Parse(html)
 	app.inlineLinkedStylesheets(doc, url)
+	app.primeDocumentFontFaces(doc, url)
 	if parsedTitle := documentTitle(doc); parsedTitle != "" {
 		pageTitle = parsedTitle
 	}
@@ -542,6 +543,7 @@ func (app *App) loadLocalPage(url string) bool {
 	canonicalURL := fileURLFromPath(path)
 	doc := Parse(string(body))
 	app.inlineLinkedStylesheets(doc, canonicalURL)
+	app.primeDocumentFontFaces(doc, canonicalURL)
 	app.currentURL = canonicalURL
 	app.addressText = canonicalURL
 	app.replaceCurrentHistory(canonicalURL)
@@ -661,6 +663,7 @@ func (app *App) updateContent(contentType string, body []byte, redirected bool) 
 
 	doc := Parse(string(body))
 	app.inlineLinkedStylesheets(doc, app.currentURL)
+	app.primeDocumentFontFaces(doc, app.currentURL)
 	app.pageTitle = documentTitle(doc)
 	app.showRenderedDocument(doc)
 	app.statusBase = loadedStatus(truncated, redirected)
@@ -670,6 +673,7 @@ func (app *App) showMessageDocument(title string, detail string) {
 	if app == nil || app.pageDocument == nil {
 		return
 	}
+	setCurrentDocumentFontFamilies(nil)
 	app.renderDoc = nil
 	app.messageTitle = title
 	app.messageDetail = detail
@@ -692,6 +696,7 @@ func (app *App) showRenderedDocument(doc *Document) {
 	if app == nil || app.pageDocument == nil || doc == nil {
 		return
 	}
+	setCurrentDocumentFontFamilies(doc.fontFamilies)
 	app.renderDoc = doc
 	app.messageTitle = ""
 	app.messageDetail = ""

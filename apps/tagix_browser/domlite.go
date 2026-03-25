@@ -28,6 +28,7 @@ type Document struct {
 	Root             *Node
 	nodes            []*Node
 	idIndex          map[string]*Node
+	fontFamilies     []fontFamilyEntry
 	stylesheet       *pageStylesheet
 	stylesheetParsed bool
 }
