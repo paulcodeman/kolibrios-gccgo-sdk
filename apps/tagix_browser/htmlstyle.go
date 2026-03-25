@@ -31,11 +31,12 @@ var htmlNamedColors = map[string]kos.Color{
 	"transparent": ui.White,
 }
 
+var currentDocumentFontFamilies []fontFamilyEntry
 var bundledDocumentFontFamilies []fontFamilyEntry
 var bundledDocumentFontFamiliesLoaded bool
 
 func setCurrentDocumentFontFamilies(registry []fontFamilyEntry) {
-	_ = registry
+	currentDocumentFontFamilies = registry
 }
 
 func lookupFontFamilyPath(registry []fontFamilyEntry, key string) string {
@@ -961,6 +962,9 @@ func parseHTMLFontPath(value string) string {
 			continue
 		}
 		sawFamily = true
+		if path := lookupFontFamilyPath(currentDocumentFontFamilies, family); path != "" {
+			return path
+		}
 		if path := lookupBundledFontFamilyPath(family); path != "" {
 			return path
 		}

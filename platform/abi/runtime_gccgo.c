@@ -2109,6 +2109,14 @@ typedef struct {
     size_t entry_stride;
 } runtime_map;
 
+typedef struct {
+    runtime_map_entry* entries;
+    const go_map_type_descriptor* type;
+    intptr_t cap;
+    size_t value_offset;
+    size_t entry_stride;
+} runtime_map_storage_scan;
+
 typedef void (*runtime_defer_fn)(void* arg);
 
 static runtime_m runtime_m0;
@@ -4122,7 +4130,7 @@ static void* runtime_gc_alloc_object(const go_type_descriptor* descriptor);
 static void* runtime_gc_alloc_array(const go_type_descriptor* descriptor, intptr_t count, size_t total_size);
 static runtime_map* runtime_gc_alloc_map_object(void);
 static runtime_map_entry* runtime_gc_alloc_map_entries(runtime_map* map, intptr_t cap);
-static unsigned char* runtime_gc_alloc_map_storage(runtime_map* map, intptr_t cap);
+static unsigned char* runtime_gc_alloc_map_storage(runtime_map* map, runtime_map_entry* entries, intptr_t cap);
 static runtime_map_iter_state* runtime_gc_alloc_map_iter_state(void);
 static void runtime_gc_free_exact(void* ptr);
 static uint32_t runtime_strhash_impl(const void* value);
@@ -6674,7 +6682,7 @@ static void runtime_gc_scan_runtime_map_entries(runtime_gc_header* header) {
 }
 
 static void runtime_gc_scan_runtime_map_storage(runtime_gc_header* header) {
-    runtime_map* map;
+    runtime_map_storage_scan* scan;
     unsigned char* storage;
     uintptr_t index;
 
@@ -6682,33 +6690,37 @@ static void runtime_gc_scan_runtime_map_storage(runtime_gc_header* header) {
         return;
     }
 
-    map = (runtime_map*)(uintptr_t)header->aux;
+    scan = (runtime_map_storage_scan*)(uintptr_t)header->aux;
     storage = (unsigned char*)runtime_gc_payload(header);
-    if (map == NULL || storage == NULL || map->entries == NULL || map->type == NULL) {
+    if (scan == NULL || storage == NULL || scan->entries == NULL || scan->type == NULL) {
         return;
     }
 
-    for (index = 0; index < (uintptr_t)map->cap; index++) {
+    if (scan->cap <= 0 || scan->entry_stride == 0) {
+        return;
+    }
+
+    for (index = 0; index < (uintptr_t)scan->cap; index++) {
         unsigned char* base;
         runtime_map_entry* entry;
 
-        entry = &map->entries[index];
+        entry = &scan->entries[index];
         if (entry->state != 1) {
             continue;
         }
 
-        base = storage + index * map->entry_stride;
-        if (map->type->key_type != NULL && map->type->key_type->ptrdata != 0 && map->type->key_type->size != 0) {
+        base = storage + index * scan->entry_stride;
+        if (scan->type->key_type != NULL && scan->type->key_type->ptrdata != 0 && scan->type->key_type->size != 0) {
             runtime_gc_scan_precise_words(base,
-                                          map->type->key_type->size,
-                                          map->type->key_type->ptrdata,
-                                          (const uint8_t*)map->type->key_type->gcdata);
+                                          scan->type->key_type->size,
+                                          scan->type->key_type->ptrdata,
+                                          (const uint8_t*)scan->type->key_type->gcdata);
         }
-        if (map->type->value_type != NULL && map->type->value_type->ptrdata != 0 && map->type->value_type->size != 0) {
-            runtime_gc_scan_precise_words(base + map->value_offset,
-                                          map->type->value_type->size,
-                                          map->type->value_type->ptrdata,
-                                          (const uint8_t*)map->type->value_type->gcdata);
+        if (scan->type->value_type != NULL && scan->type->value_type->ptrdata != 0 && scan->type->value_type->size != 0) {
+            runtime_gc_scan_precise_words(base + scan->value_offset,
+                                          scan->type->value_type->size,
+                                          scan->type->value_type->ptrdata,
+                                          (const uint8_t*)scan->type->value_type->gcdata);
         }
     }
 }
@@ -7279,10 +7291,11 @@ static runtime_map_entry* runtime_gc_alloc_map_entries(runtime_map* map, intptr_
         (uintptr_t)cap);
 }
 
-static unsigned char* runtime_gc_alloc_map_storage(runtime_map* map, intptr_t cap) {
+static unsigned char* runtime_gc_alloc_map_storage(runtime_map* map, runtime_map_entry* entries, intptr_t cap) {
+    runtime_map_storage_scan* scan;
     size_t total_size;
 
-    if (map == NULL || cap <= 0 || map->entry_stride == 0) {
+    if (map == NULL || entries == NULL || cap <= 0 || map->entry_stride == 0 || map->type == NULL) {
         return NULL;
     }
 
@@ -7290,13 +7303,23 @@ static unsigned char* runtime_gc_alloc_map_storage(runtime_map* map, intptr_t ca
         runtime_panicmem();
     }
 
+    scan = (runtime_map_storage_scan*)runtime_persistent_alloc(sizeof(runtime_map_storage_scan), sizeof(void*));
+    if (scan == NULL) {
+        return NULL;
+    }
+    scan->entries = entries;
+    scan->type = map->type;
+    scan->cap = cap;
+    scan->value_offset = map->value_offset;
+    scan->entry_stride = map->entry_stride;
+
     total_size = (size_t)cap * map->entry_stride;
     return (unsigned char*)runtime_gc_alloc_managed(
         total_size,
         NULL,
         runtime_gc_scan_runtime_map_storage,
         NULL,
-        (uintptr_t)map);
+        (uintptr_t)scan);
 }
 
 static runtime_map_iter_state* runtime_gc_alloc_map_iter_state(void) {
@@ -8615,7 +8638,7 @@ static bool runtime_map_rehash(runtime_map* map, intptr_t new_cap) {
     if (resized == NULL) {
         return false;
     }
-    resized_storage = runtime_gc_alloc_map_storage(map, new_cap);
+    resized_storage = runtime_gc_alloc_map_storage(map, resized, new_cap);
     if (resized_storage == NULL) {
         runtime_gc_free_exact(resized);
         return false;

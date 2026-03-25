@@ -1,8 +1,10 @@
 package main
 
 import (
+	"kos"
 	neturl "net/url"
 	"os"
+	pathpkg "path"
 	"strconv"
 	"strings"
 	"ui"
@@ -10,7 +12,13 @@ import (
 
 const (
 	webSansFontPath              = "assets/fonts/Go.ttf"
+	webSansBoldFontPath          = "assets/fonts/GoBold.ttf"
+	webSansItalicFontPath        = "assets/fonts/GoItalic.ttf"
+	webSansBoldItalicFontPath    = "assets/fonts/GoBoldItalic.ttf"
 	webMonoFontPath              = "assets/fonts/GoMono.ttf"
+	webMonoBoldFontPath          = "assets/fonts/GoMonoBold.ttf"
+	webMonoItalicFontPath        = "assets/fonts/GoMonoItalic.ttf"
+	webMonoBoldItalicFontPath    = "assets/fonts/GoMonoBoldItalic.ttf"
 	webShellHTML                 = "assets/shell.html"
 	pageBackgroundMinTiledHeight = 8192
 )
@@ -1069,6 +1077,8 @@ func appendFlowContentNodes(out *[]*ui.DocumentNode, node *Node, ctx *renderCont
 	if out == nil || node == nil {
 		return
 	}
+	inlineStyle := inlineTextStyleFromStyle(paragraphInlineStyle())
+	applyPageTextPropertiesToInlineStyle(&inlineStyle, node, ctx)
 	builder := inlinePieceBuilder{}
 	flushParagraph := func() {
 		if paragraph := flowParagraphNode(builder.pieces, node, ctx); paragraph != nil {
@@ -1084,7 +1094,7 @@ func appendFlowContentNodes(out *[]*ui.DocumentNode, node *Node, ctx *renderCont
 		case CommentNode:
 			continue
 		case TextNode:
-			builder.appendText(child.Text)
+			builder.appendText(child.Text, inlineStyle)
 		case DocumentNode:
 			flushParagraph()
 			appendFlowContentNodes(out, child, ctx)
@@ -1096,7 +1106,7 @@ func appendFlowContentNodes(out *[]*ui.DocumentNode, node *Node, ctx *renderCont
 				continue
 			}
 			if nodeParticipatesInInlineFlow(child) {
-				collectInlinePieces(&builder, child, ctx)
+				collectInlinePieces(&builder, child, ctx, inlineStyle)
 				continue
 			}
 			flushParagraph()
@@ -1718,15 +1728,28 @@ const (
 )
 
 type inlinePiece struct {
-	kind inlinePieceKind
-	text string
-	href string
-	node *Node
+	kind  inlinePieceKind
+	text  string
+	href  string
+	node  *Node
+	style inlineTextStyle
 }
 
 type inlinePieceBuilder struct {
 	pieces    []inlinePiece
 	needSpace bool
+}
+
+type inlineTextStyle struct {
+	fontPath          string
+	fontSize          int
+	lineHeight        int
+	foreground        kos.Color
+	hasForeground     bool
+	textDecoration    ui.TextDecoration
+	hasTextDecoration bool
+	whiteSpace        ui.WhiteSpaceMode
+	hasWhiteSpace     bool
 }
 
 func paragraphInlineStyle() ui.Style {
@@ -1754,11 +1777,7 @@ func paragraphNode(text string) *ui.DocumentNode {
 }
 
 func flowParagraphNode(pieces []inlinePiece, owner *Node, ctx *renderContext) *ui.DocumentNode {
-	inlineStyle := paragraphInlineStyle()
-	if owner != nil {
-		applyPageTextProperties(&inlineStyle, owner, ctx)
-	}
-	children := inlineNodesFromPieces(pieces, inlineStyle, ctx)
+	children := inlineNodesFromPieces(pieces, ctx)
 	if len(children) == 0 {
 		return nil
 	}
@@ -2248,13 +2267,14 @@ func genericBlockContainerNode(node *Node, ctx *renderContext) *ui.DocumentNode 
 
 func buildInlineNodes(node *Node, ctx *renderContext, baseStyle ui.Style) []*ui.DocumentNode {
 	builder := inlinePieceBuilder{}
+	inlineStyle := inlineTextStyleFromStyle(baseStyle)
 	for _, child := range node.Children {
-		collectInlinePieces(&builder, child, ctx)
+		collectInlinePieces(&builder, child, ctx, inlineStyle)
 	}
-	return inlineNodesFromPieces(builder.pieces, baseStyle, ctx)
+	return inlineNodesFromPieces(builder.pieces, ctx)
 }
 
-func collectInlinePieces(builder *inlinePieceBuilder, node *Node, ctx *renderContext) {
+func collectInlinePieces(builder *inlinePieceBuilder, node *Node, ctx *renderContext, currentStyle inlineTextStyle) {
 	if builder == nil || node == nil {
 		return
 	}
@@ -2262,11 +2282,11 @@ func collectInlinePieces(builder *inlinePieceBuilder, node *Node, ctx *renderCon
 	case CommentNode:
 		return
 	case TextNode:
-		builder.appendText(node.Text)
+		builder.appendText(node.Text, currentStyle)
 		return
 	case DocumentNode:
 		for _, child := range node.Children {
-			collectInlinePieces(builder, child, ctx)
+			collectInlinePieces(builder, child, ctx, currentStyle)
 		}
 		return
 	case ElementNode:
@@ -2276,22 +2296,25 @@ func collectInlinePieces(builder *inlinePieceBuilder, node *Node, ctx *renderCon
 	if pageNodeDisplayNone(node, ctx) {
 		return
 	}
+	nextStyle := currentStyle
+	applyPageTextPropertiesToInlineStyle(&nextStyle, node, ctx)
+	applyInlineSemanticStyle(&nextStyle, node)
 
 	switch node.Tag {
 	case "script", "style", "head", "title", "meta", "link", "source", "template":
 		return
 	case "br":
-		builder.appendBreak()
+		builder.appendBreak(nextStyle)
 		return
 	case "a":
 		baseURL := ""
 		if ctx != nil {
 			baseURL = ctx.baseURL
 		}
-		builder.appendLink(node, collectNodeText(node, false), resolveURL(baseURL, node.Attrs["href"]))
+		builder.appendLink(node, collectNodeText(node, false), resolveURL(baseURL, node.Attrs["href"]), nextStyle)
 		return
 	case "code":
-		builder.appendCode(collectNodeTextPreserve(node, false))
+		builder.appendCode(collectNodeTextPreserve(node, false), inlineCodeTextStyle(nextStyle))
 		return
 	case "img":
 		label := normalizeBlockText(node.Attrs["alt"])
@@ -2301,25 +2324,25 @@ func collectInlinePieces(builder *inlinePieceBuilder, node *Node, ctx *renderCon
 		if label == "" {
 			label = displayURL(strings.TrimSpace(node.Attrs["src"]))
 		}
-		builder.appendImage(node, label)
+		builder.appendImage(node, label, nextStyle)
 		return
 	case "button", "textarea", "select", "progress":
-		builder.appendControl(node)
+		builder.appendControl(node, nextStyle)
 		return
 	case "input":
 		if htmlInputType(node) == "hidden" {
 			return
 		}
-		builder.appendControl(node)
+		builder.appendControl(node, nextStyle)
 		return
 	default:
 		for _, child := range node.Children {
-			collectInlinePieces(builder, child, ctx)
+			collectInlinePieces(builder, child, ctx, nextStyle)
 		}
 	}
 }
 
-func (builder *inlinePieceBuilder) appendText(raw string) {
+func (builder *inlinePieceBuilder) appendText(raw string, style inlineTextStyle) {
 	if builder == nil {
 		return
 	}
@@ -2332,17 +2355,17 @@ func (builder *inlinePieceBuilder) appendText(raw string) {
 	}
 	for i, word := range words {
 		if builder.needSpace || i > 0 {
-			builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceText, text: " "})
+			builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceText, text: " ", style: style})
 			builder.needSpace = false
 		}
-		builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceText, text: word})
+		builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceText, text: word, style: style})
 	}
 	if len(raw) > 0 && isSpaceByte(raw[len(raw)-1]) {
 		builder.needSpace = true
 	}
 }
 
-func (builder *inlinePieceBuilder) appendLink(node *Node, label string, href string) {
+func (builder *inlinePieceBuilder) appendLink(node *Node, label string, href string, style inlineTextStyle) {
 	if builder == nil || strings.TrimSpace(href) == "" {
 		return
 	}
@@ -2354,13 +2377,13 @@ func (builder *inlinePieceBuilder) appendLink(node *Node, label string, href str
 		return
 	}
 	if builder.needSpace && len(builder.pieces) > 0 {
-		builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceText, text: " "})
+		builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceText, text: " ", style: style})
 		builder.needSpace = false
 	}
-	builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceLink, text: label, href: href, node: node})
+	builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceLink, text: label, href: href, node: node, style: style})
 }
 
-func (builder *inlinePieceBuilder) appendCode(text string) {
+func (builder *inlinePieceBuilder) appendCode(text string, style inlineTextStyle) {
 	if builder == nil {
 		return
 	}
@@ -2369,38 +2392,38 @@ func (builder *inlinePieceBuilder) appendCode(text string) {
 		return
 	}
 	if builder.needSpace && len(builder.pieces) > 0 {
-		builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceText, text: " "})
+		builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceText, text: " ", style: style})
 		builder.needSpace = false
 	}
-	builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceCode, text: text})
+	builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceCode, text: text, style: style})
 }
 
-func (builder *inlinePieceBuilder) appendImage(node *Node, label string) {
+func (builder *inlinePieceBuilder) appendImage(node *Node, label string, style inlineTextStyle) {
 	if builder == nil {
 		return
 	}
 	label = normalizeBlockText(label)
 	if builder.needSpace && len(builder.pieces) > 0 {
-		builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceText, text: " "})
+		builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceText, text: " ", style: style})
 		builder.needSpace = false
 	}
-	builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceImage, text: label, node: node})
+	builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceImage, text: label, node: node, style: style})
 }
 
-func (builder *inlinePieceBuilder) appendBreak() {
+func (builder *inlinePieceBuilder) appendBreak(style inlineTextStyle) {
 	if builder == nil {
 		return
 	}
 	builder.needSpace = false
-	builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceBreak})
+	builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceBreak, style: style})
 }
 
-func (builder *inlinePieceBuilder) appendControl(node *Node) {
+func (builder *inlinePieceBuilder) appendControl(node *Node, style inlineTextStyle) {
 	if builder == nil || node == nil {
 		return
 	}
 	if builder.needSpace && len(builder.pieces) > 0 {
-		builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceText, text: " "})
+		builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceText, text: " ", style: style})
 		builder.needSpace = false
 	}
 	builder.pieces = append(builder.pieces, inlinePiece{
@@ -2409,12 +2432,13 @@ func (builder *inlinePieceBuilder) appendControl(node *Node) {
 	})
 }
 
-func inlineNodesFromPieces(pieces []inlinePiece, baseStyle ui.Style, ctx *renderContext) []*ui.DocumentNode {
+func inlineNodesFromPieces(pieces []inlinePiece, ctx *renderContext) []*ui.DocumentNode {
 	if len(pieces) == 0 {
 		return nil
 	}
 	nodes := make([]*ui.DocumentNode, 0, len(pieces))
 	for _, piece := range pieces {
+		baseStyle := piece.style.uiStyle()
 		switch piece.kind {
 		case inlinePieceText:
 			nodes = append(nodes, inlineTextNode(piece.text, baseStyle))
@@ -2439,6 +2463,262 @@ func inlineNodesFromPieces(pieces []inlinePiece, baseStyle ui.Style, ctx *render
 		}
 	}
 	return nodes
+}
+
+func inlineTextStyleFromStyle(style ui.Style) inlineTextStyle {
+	value := inlineTextStyle{}
+	if path, ok := style.GetFontPath(); ok {
+		value.fontPath = strings.TrimSpace(path)
+	}
+	if size, ok := style.GetFontSize(); ok && size > 0 {
+		value.fontSize = size
+	}
+	if lineHeight, ok := style.GetLineHeight(); ok && lineHeight > 0 {
+		value.lineHeight = lineHeight
+	}
+	if color, ok := style.GetForeground(); ok {
+		value.foreground = color
+		value.hasForeground = true
+	}
+	if decoration, ok := style.GetTextDecoration(); ok {
+		value.textDecoration = decoration
+		value.hasTextDecoration = true
+	}
+	if whiteSpace, ok := style.GetWhiteSpace(); ok {
+		value.whiteSpace = whiteSpace
+		value.hasWhiteSpace = true
+	}
+	return value
+}
+
+func (style inlineTextStyle) uiStyle() ui.Style {
+	value := ui.Style{}
+	value.SetDisplay(ui.DisplayInline)
+	if style.fontPath != "" {
+		value.SetFontPath(style.fontPath)
+	}
+	if style.fontSize > 0 {
+		value.SetFontSize(style.fontSize)
+	}
+	if style.lineHeight > 0 {
+		value.SetLineHeight(style.lineHeight)
+	}
+	if style.hasForeground {
+		value.SetForeground(style.foreground)
+	}
+	if style.hasTextDecoration {
+		value.SetTextDecoration(style.textDecoration)
+	}
+	if style.hasWhiteSpace {
+		value.SetWhiteSpace(style.whiteSpace)
+	}
+	return value
+}
+
+func copyPageTextPropertiesToInlineStyle(target *inlineTextStyle, source ui.Style) {
+	if target == nil {
+		return
+	}
+	if path, ok := source.GetFontPath(); ok {
+		target.fontPath = strings.TrimSpace(path)
+	}
+	if size, ok := source.GetFontSize(); ok && size > 0 {
+		target.fontSize = size
+	}
+	if lineHeight, ok := source.GetLineHeight(); ok && lineHeight > 0 {
+		target.lineHeight = lineHeight
+	}
+	if color, ok := source.GetForeground(); ok {
+		target.foreground = color
+		target.hasForeground = true
+	}
+	if decoration, ok := source.GetTextDecoration(); ok {
+		target.textDecoration = decoration
+		target.hasTextDecoration = true
+	}
+	if whiteSpace, ok := source.GetWhiteSpace(); ok {
+		target.whiteSpace = whiteSpace
+		target.hasWhiteSpace = true
+	}
+}
+
+func applyPageTextPropertiesToInlineStyle(style *inlineTextStyle, node *Node, ctx *renderContext) {
+	if style == nil || node == nil {
+		return
+	}
+	resolved := ui.Style{}
+	applyPageNodeStyles(&resolved, node, ctx)
+	copyPageTextPropertiesToInlineStyle(style, resolved)
+}
+
+func styleFontPath(style ui.Style) string {
+	if path, ok := style.GetFontPath(); ok {
+		return strings.TrimSpace(path)
+	}
+	return ""
+}
+
+func inlineStyleFontSize(style inlineTextStyle) int {
+	if style.fontSize > 0 {
+		return style.fontSize
+	}
+	return defaultPageFontSize
+}
+
+func bundledFontVariantInfo(path string) (string, bool, bool, bool) {
+	path = strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
+	if path == "" || !strings.HasPrefix(path, bundledFontDir+"/") {
+		return "", false, false, false
+	}
+	key := normalizeCSSFontFamilyName(strings.TrimSuffix(pathpkg.Base(path), pathpkg.Ext(path)))
+	if key == "" {
+		return "", false, false, false
+	}
+	family := key
+	bold := false
+	italic := false
+	switch {
+	case strings.HasSuffix(key, "bolditalic"):
+		family = strings.TrimSuffix(key, "bolditalic")
+		bold = true
+		italic = true
+	case strings.HasSuffix(key, "italicbold"):
+		family = strings.TrimSuffix(key, "italicbold")
+		bold = true
+		italic = true
+	case strings.HasSuffix(key, "bold"):
+		family = strings.TrimSuffix(key, "bold")
+		bold = true
+	case strings.HasSuffix(key, "italic"):
+		family = strings.TrimSuffix(key, "italic")
+		italic = true
+	case strings.HasSuffix(key, "regular"):
+		family = strings.TrimSuffix(key, "regular")
+	}
+	if family == "" {
+		family = key
+	}
+	return family, bold, italic, true
+}
+
+func isBundledMonospaceFamilyKey(key string) bool {
+	switch key {
+	case "gomono", "mono", "monospace", "uimonospace", "fixed",
+		"consolas", "couriernew", "dejavusansmono", "jetbrainsmono",
+		"liberationmono", "menlo", "monaco", "robotomono", "sfmono":
+		return true
+	default:
+		return false
+	}
+}
+
+func lookupBundledFontVariantPath(key string, bold bool, italic bool) string {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return ""
+	}
+	candidates := make([]string, 0, 4)
+	switch {
+	case bold && italic:
+		candidates = append(candidates, key+"bolditalic", key+"italicbold")
+	case bold:
+		candidates = append(candidates, key+"bold")
+	case italic:
+		candidates = append(candidates, key+"italic")
+	}
+	candidates = append(candidates, key, key+"regular")
+	for _, candidate := range candidates {
+		if path := lookupBundledFontFamilyPath(candidate); path != "" {
+			return path
+		}
+	}
+	return ""
+}
+
+func defaultSemanticFontVariantPath(preferMono bool, bold bool, italic bool) string {
+	if preferMono {
+		if path := lookupBundledFontVariantPath("gomono", bold, italic); path != "" {
+			return path
+		}
+		if path := lookupBundledFontFamilyPath("gomono"); path != "" {
+			return path
+		}
+		return webMonoFontPath
+	}
+	if path := lookupBundledFontVariantPath("go", bold, italic); path != "" {
+		return path
+	}
+	if path := lookupBundledFontFamilyPath("go"); path != "" {
+		return path
+	}
+	if bold || italic {
+		return webSansFontPath
+	}
+	return webSansFontPath
+}
+
+func resolveSemanticFontPath(current string, preferMono bool, wantBold bool, wantItalic bool) string {
+	family, currentBold, currentItalic, bundled := bundledFontVariantInfo(current)
+	targetBold := currentBold || wantBold
+	targetItalic := currentItalic || wantItalic
+	if bundled {
+		if path := lookupBundledFontVariantPath(family, targetBold, targetItalic); path != "" {
+			return path
+		}
+		if preferMono && !isBundledMonospaceFamilyKey(family) {
+			if path := lookupBundledFontVariantPath("gomono", targetBold, targetItalic); path != "" {
+				return path
+			}
+		}
+		if current != "" {
+			return current
+		}
+	}
+	if current != "" && !preferMono {
+		return current
+	}
+	return defaultSemanticFontVariantPath(preferMono, targetBold, targetItalic)
+}
+
+func scaleInlineFontSize(style *inlineTextStyle, factor float64, minSize int) {
+	if style == nil || factor <= 0 {
+		return
+	}
+	size := roundCSSPixels(float64(inlineStyleFontSize(*style)) * factor)
+	if size < minSize {
+		size = minSize
+	}
+	if size <= 0 {
+		return
+	}
+	style.fontSize = size
+}
+
+func applyInlineSemanticStyle(style *inlineTextStyle, node *Node) {
+	if style == nil || node == nil {
+		return
+	}
+	switch node.Tag {
+	case "b", "strong":
+		style.fontPath = resolveSemanticFontPath(style.fontPath, false, true, false)
+	case "i", "em", "cite", "dfn", "var":
+		style.fontPath = resolveSemanticFontPath(style.fontPath, false, false, true)
+	case "u", "ins":
+		style.textDecoration = ui.TextDecorationUnderline
+		style.hasTextDecoration = true
+	case "tt", "kbd", "samp":
+		style.fontPath = resolveSemanticFontPath(style.fontPath, true, false, false)
+	case "small":
+		scaleInlineFontSize(style, 0.85, 10)
+	case "big":
+		scaleInlineFontSize(style, 1.15, 0)
+	}
+}
+
+func inlineCodeTextStyle(baseStyle inlineTextStyle) inlineTextStyle {
+	style := baseStyle
+	style.fontPath = resolveSemanticFontPath(style.fontPath, true, false, false)
+	return style
 }
 
 func inlineControlNode(node *Node, ctx *renderContext) *ui.DocumentNode {
@@ -2573,7 +2853,7 @@ func inlineCodeNode(text string, baseStyle ui.Style) *ui.DocumentNode {
 	style.SetBorderRadius(6)
 	style.SetBackground(ui.Silver)
 	style.SetForeground(ui.Navy)
-	style.SetFontPath(webMonoFontPath)
+	style.SetFontPath(resolveSemanticFontPath(styleFontPath(baseStyle), true, false, false))
 	style.SetFontSize(12)
 	style.SetLineHeight(16)
 	childStyle := style

@@ -23,7 +23,18 @@ func (app *App) primeDocumentFontFaces(doc *Document, baseURL string) {
 	if app == nil || doc == nil {
 		return
 	}
-	doc.fontFamilies = nil
+	registry := []fontFamilyEntry{}
+	for _, node := range doc.GetElementsByTagName("style") {
+		if node == nil {
+			continue
+		}
+		registry = app.collectDocumentFontFaces(registry, collectText(node), baseURL)
+	}
+	if len(registry) == 0 {
+		doc.fontFamilies = nil
+		return
+	}
+	doc.fontFamilies = registry
 }
 
 func collectBundledFontFamilies() []fontFamilyEntry {
