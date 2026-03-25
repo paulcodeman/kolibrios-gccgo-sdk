@@ -44,7 +44,8 @@ const (
 )
 
 type LibImg struct {
-	table       DLLExportTable
+	table        DLLExportTable
+	decodeProc   DLLProc
 	fromFileProc DLLProc
 	createProc   DLLProc
 	destroyProc  DLLProc
@@ -66,6 +67,7 @@ func LoadLibImg() (LibImg, bool) {
 func LoadLibImgFromDLL(table DLLExportTable) (LibImg, bool) {
 	lib := LibImg{
 		table:        table,
+		decodeProc:   LookupDLLExportAny(table, "img_decode"),
 		fromFileProc: LookupDLLExportAny(table, "img_from_file"),
 		createProc:   LookupDLLExportAny(table, "img_create"),
 		destroyProc:  LookupDLLExportAny(table, "img_destroy"),
@@ -106,6 +108,17 @@ func (lib LibImg) Version() uint32 {
 
 func (lib LibImg) Ready() bool {
 	return lib.ready
+}
+
+func (lib LibImg) Decode(data []byte, background uint32) (ImageHandle, bool) {
+	var handle ImageHandle
+
+	if !lib.ready || !lib.decodeProc.Valid() || len(data) == 0 {
+		return 0, false
+	}
+
+	handle = ImageHandle(CallStdcall3Raw(uint32(lib.decodeProc), byteSliceAddress(data), uint32(len(data)), background))
+	return handle, handle != 0
 }
 
 func (lib LibImg) FromFile(path string) (ImageHandle, bool) {
@@ -217,4 +230,48 @@ func (image ImageHandle) DataPointer() uint32 {
 	}
 
 	return ReadUint32Raw(uint32(image), libImgOffsetData)
+}
+
+func (image ImageHandle) CopyPixels32() ([]uint32, bool) {
+	if image == 0 || image.Type() != ImageTypeBPP32 {
+		return nil, false
+	}
+
+	width := image.Width()
+	height := image.Height()
+	if width <= 0 || height <= 0 {
+		return nil, false
+	}
+
+	count64 := int64(width) * int64(height)
+	count := int(count64)
+	if count64 <= 0 || int64(count) != count64 {
+		return nil, false
+	}
+
+	byteSize64 := count64 * 4
+	byteSize := uint32(byteSize64)
+	if byteSize64 <= 0 || uint64(byteSize) != uint64(byteSize64) {
+		return nil, false
+	}
+
+	dataPtr := image.DataPointer()
+	if dataPtr == 0 {
+		return nil, false
+	}
+
+	raw := CopyBytesRaw(dataPtr, byteSize)
+	if len(raw) != int(byteSize) {
+		return nil, false
+	}
+
+	pixels := make([]uint32, count)
+	for index := 0; index < count; index++ {
+		offset := index * 4
+		pixels[index] = uint32(raw[offset+0]) |
+			uint32(raw[offset+1])<<8 |
+			uint32(raw[offset+2])<<16 |
+			uint32(raw[offset+3])<<24
+	}
+	return pixels, true
 }
