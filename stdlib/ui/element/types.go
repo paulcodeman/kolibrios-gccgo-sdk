@@ -169,23 +169,24 @@ type elementRenderKey struct {
 }
 
 type elementLayoutKey struct {
-	kind        ElementKind
-	position    *PositionMode
-	display     *DisplayMode
-	containerX  int
-	containerY  int
-	containerW  int
-	containerH  int
-	left        *int
-	top         *int
-	right       *int
-	bottom      *int
-	width       int
-	height      int
-	styleWidth  *int
-	styleHeight *int
-	margin      *Spacing
-	flowSet     bool
-	flowX       int
-	flowY       int
+	kind              ElementKind
+	position          *PositionMode
+	display           *DisplayMode
+	containerX        int
+	containerY        int
+	containerW        int
+	containerH        int
+	left              *int
+	top               *int
+	right             *int
+	bottom            *int
+	width             int
+	height            int
+	styleWidth        *int
+	styleWidthPercent *int
+	styleHeight       *int
+	margin            *Spacing
+	flowSet           bool
+	flowX             int
+	flowY             int
 }

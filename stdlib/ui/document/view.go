@@ -144,22 +144,23 @@ type documentViewHostStateCache struct {
 }
 
 type documentViewLayoutKey struct {
-	position    *PositionMode
-	display     *DisplayMode
-	containerX  int
-	containerY  int
-	containerW  int
-	containerH  int
-	left        *int
-	top         *int
-	right       *int
-	bottom      *int
-	styleWidth  *int
-	styleHeight *int
-	margin      *Spacing
-	flowSet     bool
-	flowX       int
-	flowY       int
+	position          *PositionMode
+	display           *DisplayMode
+	containerX        int
+	containerY        int
+	containerW        int
+	containerH        int
+	left              *int
+	top               *int
+	right             *int
+	bottom            *int
+	styleWidth        *int
+	styleWidthPercent *int
+	styleHeight       *int
+	margin            *Spacing
+	flowSet           bool
+	flowX             int
+	flowY             int
 }
 
 func DefaultDocumentViewStyle() Style {
@@ -490,6 +491,7 @@ func documentViewLayoutKeyEqual(a documentViewLayoutKey, b documentViewLayoutKey
 		equalIntPtr(a.right, b.right) &&
 		equalIntPtr(a.bottom, b.bottom) &&
 		equalIntPtr(a.styleWidth, b.styleWidth) &&
+		equalIntPtr(a.styleWidthPercent, b.styleWidthPercent) &&
 		equalIntPtr(a.styleHeight, b.styleHeight) &&
 		equalSpacingPtr(a.margin, b.margin) &&
 		a.flowSet == b.flowSet &&

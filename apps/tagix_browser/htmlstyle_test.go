@@ -28,3 +28,17 @@ func TestApplyInlineStyleRuleMapsInsetBorderShadowToOutline(t *testing.T) {
 		t.Fatalf("did not expect regular shadow for inset border shadow")
 	}
 }
+
+func TestApplyInlineStyleRuleParsesWidthPercent(t *testing.T) {
+	style := ui.Style{}
+
+	applyInlineStyleRule(&style, "width", "10.638%")
+
+	value, ok := style.GetWidthPercent()
+	if !ok || value != 10638 {
+		t.Fatalf("width percent mismatch: got %d set=%v", value, ok)
+	}
+	if _, ok := style.GetWidth(); ok {
+		t.Fatalf("did not expect pixel width when percent width is used")
+	}
+}

@@ -47,6 +47,51 @@ func (value PositionMode) String() string {
 	}
 }
 
+type FloatMode int
+
+const (
+	FloatNone FloatMode = iota
+	FloatLeft
+	FloatRight
+)
+
+func (value FloatMode) String() string {
+	switch value {
+	case FloatNone:
+		return "none"
+	case FloatLeft:
+		return "left"
+	case FloatRight:
+		return "right"
+	default:
+		return ""
+	}
+}
+
+type ClearMode int
+
+const (
+	ClearNone ClearMode = iota
+	ClearLeft
+	ClearRight
+	ClearBoth
+)
+
+func (value ClearMode) String() string {
+	switch value {
+	case ClearNone:
+		return "none"
+	case ClearLeft:
+		return "left"
+	case ClearRight:
+		return "right"
+	case ClearBoth:
+		return "both"
+	default:
+		return ""
+	}
+}
+
 type DisplayMode int
 
 const (
@@ -362,11 +407,14 @@ type Style struct {
 	outlineOffset        *int
 	outlineRadius        *int
 	position             *PositionMode
+	floatMode            *FloatMode
+	clearMode            *ClearMode
 	left                 *int
 	top                  *int
 	right                *int
 	bottom               *int
 	width                *int
+	widthPercent         *int
 	flexGrow             *int
 	height               *int
 	minWidth             *int
@@ -423,11 +471,14 @@ func (style Style) IsZero() bool {
 		style.outlineOffset == nil &&
 		style.outlineRadius == nil &&
 		style.position == nil &&
+		style.floatMode == nil &&
+		style.clearMode == nil &&
 		style.left == nil &&
 		style.top == nil &&
 		style.right == nil &&
 		style.bottom == nil &&
 		style.width == nil &&
+		style.widthPercent == nil &&
 		style.flexGrow == nil &&
 		style.height == nil &&
 		style.minWidth == nil &&
@@ -452,11 +503,14 @@ func (style Style) HasLayout() bool {
 		style.alignItems != nil ||
 		style.visibility != nil ||
 		style.position != nil ||
+		style.floatMode != nil ||
+		style.clearMode != nil ||
 		style.left != nil ||
 		style.top != nil ||
 		style.right != nil ||
 		style.bottom != nil ||
 		style.width != nil ||
+		style.widthPercent != nil ||
 		style.flexGrow != nil ||
 		style.height != nil ||
 		style.minWidth != nil ||
@@ -546,6 +600,16 @@ func AlignPtr(value TextAlign) *TextAlign {
 }
 
 func PositionPtr(value PositionMode) *PositionMode {
+	v := value
+	return &v
+}
+
+func FloatPtr(value FloatMode) *FloatMode {
+	v := value
+	return &v
+}
+
+func ClearPtr(value ClearMode) *ClearMode {
 	v := value
 	return &v
 }

@@ -409,6 +409,20 @@ func equalPositionPtr(a *PositionMode, b *PositionMode) bool {
 	return *a == *b
 }
 
+func equalFloatPtr(a *FloatMode, b *FloatMode) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func equalClearPtr(a *ClearMode, b *ClearMode) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
 func equalBoxSizingPtr(a *BoxSizing, b *BoxSizing) bool {
 	if a == nil || b == nil {
 		return a == b
@@ -557,6 +571,12 @@ func mergeStyle(base Style, override Style) Style {
 	if override.position != nil {
 		style.position = override.position
 	}
+	if override.floatMode != nil {
+		style.floatMode = override.floatMode
+	}
+	if override.clearMode != nil {
+		style.clearMode = override.clearMode
+	}
 	if override.left != nil {
 		style.left = override.left
 	}
@@ -571,6 +591,11 @@ func mergeStyle(base Style, override Style) Style {
 	}
 	if override.width != nil {
 		style.width = override.width
+		style.widthPercent = nil
+	}
+	if override.widthPercent != nil {
+		style.widthPercent = override.widthPercent
+		style.width = nil
 	}
 	if override.flexGrow != nil {
 		style.flexGrow = override.flexGrow

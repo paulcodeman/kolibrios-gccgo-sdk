@@ -112,6 +112,11 @@ func (element *Element) layoutKeyForContext(ctx LayoutContext, style Style, cont
 		v := value
 		styleWidth = &v
 	}
+	var styleWidthPercent *int
+	if value, ok := resolveScaledPercent(style.widthPercent); ok {
+		v := value
+		styleWidthPercent = &v
+	}
 	var styleHeight *int
 	if value, ok := resolveLength(style.height); ok {
 		v := value
@@ -132,25 +137,26 @@ func (element *Element) layoutKeyForContext(ctx LayoutContext, style Style, cont
 		flowY = element.flowY
 	}
 	return elementLayoutKey{
-		kind:        element.kind,
-		position:    position,
-		display:     display,
-		containerX:  container.X,
-		containerY:  container.Y,
-		containerW:  container.Width,
-		containerH:  container.Height,
-		left:        left,
-		top:         top,
-		right:       right,
-		bottom:      bottom,
-		width:       element.resolvedWidthInWithContext(ctx, style, container),
-		height:      element.resolvedHeightInWithContext(ctx, style, container),
-		styleWidth:  styleWidth,
-		styleHeight: styleHeight,
-		margin:      margin,
-		flowSet:     flowSet,
-		flowX:       flowX,
-		flowY:       flowY,
+		kind:              element.kind,
+		position:          position,
+		display:           display,
+		containerX:        container.X,
+		containerY:        container.Y,
+		containerW:        container.Width,
+		containerH:        container.Height,
+		left:              left,
+		top:               top,
+		right:             right,
+		bottom:            bottom,
+		width:             element.resolvedWidthInWithContext(ctx, style, container),
+		height:            element.resolvedHeightInWithContext(ctx, style, container),
+		styleWidth:        styleWidth,
+		styleWidthPercent: styleWidthPercent,
+		styleHeight:       styleHeight,
+		margin:            margin,
+		flowSet:           flowSet,
+		flowX:             flowX,
+		flowY:             flowY,
 	}
 }
 
@@ -279,7 +285,7 @@ func (element *Element) resolvedWidthIn(style Style, container Rect) int {
 }
 
 func (element *Element) resolvedWidthInWithContext(ctx LayoutContext, style Style, container Rect) int {
-	if value, ok := explicitOuterWidth(style); ok {
+	if value, ok := explicitOuterWidthIn(style, container.Width); ok {
 		return clampWidthForStyle(style, value)
 	}
 	if display, ok := resolveDisplay(style.display); ok && display == DisplayBlock {

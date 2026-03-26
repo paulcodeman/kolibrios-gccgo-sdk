@@ -1284,6 +1284,11 @@ func nodeParticipatesInInlineFlow(node *Node, ctx *renderContext) bool {
 	default:
 		return false
 	}
+	resolved := ui.Style{}
+	applyPageNodeStyles(&resolved, node, ctx)
+	if floatMode, ok := resolved.GetFloat(); ok && floatMode != ui.FloatNone {
+		return false
+	}
 	if display, ok := resolvedNodeDisplay(node, ctx); ok {
 		switch display {
 		case ui.DisplayNone, ui.DisplayBlock, ui.DisplayFlex:
@@ -1355,8 +1360,13 @@ func appendDocumentNodes(out *[]*ui.DocumentNode, node *Node, ctx *renderContext
 			*out = append(*out, container)
 		}
 		return
-	case "label", "dl", "tbody", "thead", "tfoot", "tr", "td", "th":
+	case "label", "tbody", "thead", "tfoot", "tr", "td", "th":
 		appendFlowContentNodes(out, node, ctx)
+		return
+	case "dl":
+		if container := genericBlockContainerNode(node, ctx); container != nil {
+			*out = append(*out, container)
+		}
 		return
 	case "fieldset":
 		if fieldset := fieldsetBlockNode(node, ctx); fieldset != nil {
@@ -1438,6 +1448,12 @@ func appendDocumentNodes(out *[]*ui.DocumentNode, node *Node, ctx *renderContext
 		appendListNodes(out, node, ctx)
 		return
 	case "li":
+		if !listItemUsesMarker(node, ctx) {
+			if container := genericBlockContainerNode(node, ctx); container != nil {
+				*out = append(*out, container)
+			}
+			return
+		}
 		if item := listItemBlockNode(node, ctx, "-"); item != nil {
 			*out = append(*out, item)
 		}
@@ -1517,6 +1533,12 @@ func appendListNodes(out *[]*ui.DocumentNode, node *Node, ctx *renderContext) {
 			continue
 		}
 		if child.Type == ElementNode && child.Tag == "li" {
+			if !listItemUsesMarker(child, ctx) {
+				if container := genericBlockContainerNode(child, ctx); container != nil {
+					*out = append(*out, container)
+				}
+				continue
+			}
 			itemIndex := index
 			if ordered && hasAttr(child, "value") {
 				itemIndex = attrInt(child, "value", index)
@@ -1533,6 +1555,16 @@ func appendListNodes(out *[]*ui.DocumentNode, node *Node, ctx *renderContext) {
 		}
 		appendDocumentNodes(out, child, ctx)
 	}
+}
+
+func listItemUsesMarker(node *Node, ctx *renderContext) bool {
+	if node == nil || node.Tag != "li" {
+		return false
+	}
+	if _, ok := resolvedNodeDisplay(node, ctx); ok {
+		return false
+	}
+	return true
 }
 
 func listItemElements(node *Node) []*Node {
@@ -1933,7 +1965,6 @@ type inlineTextStyle struct {
 func paragraphInlineStyle() ui.Style {
 	return styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayInline)
-		style.SetForeground(0x333333)
 		style.SetFontSize(defaultPageFontSize)
 		style.SetLineHeight(defaultLineHeightForFontSize(defaultPageFontSize))
 	})
@@ -1943,7 +1974,6 @@ func paragraphBlockStyle() ui.Style {
 	return styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
 		style.SetMargin(0, 0, defaultBlockMarginBottom(defaultPageFontSize, 1.0), 0)
-		style.SetForeground(0x333333)
 		style.SetFontSize(defaultPageFontSize)
 		style.SetLineHeight(defaultLineHeightForFontSize(defaultPageFontSize))
 		style.SetContain(ui.ContainPaint)
@@ -2083,17 +2113,22 @@ func blockquoteBlockNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 	if len(children) == 0 {
 		return nil
 	}
-	return ui.NewDocumentElement("blockquote", styled(func(style *ui.Style) {
+	style := styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
 		style.SetMargin(0, 0, 10, 0)
 		style.SetPadding(2, 0, 2, 12)
 		style.SetBorder(0, ui.White)
 		style.SetBorderLeft(3, 0xC0C6CC)
-		style.SetForeground(ui.Black)
 		style.SetFontSize(13)
 		style.SetLineHeight(18)
 		style.SetContain(ui.ContainPaint)
-	}), children...)
+	})
+	applyPageNodeStyles(&style, node, ctx)
+	inheritTextPropertiesFromStyle(children, style)
+	value := ui.NewDocumentElement("blockquote", style, children...)
+	applyPageInteractionStyles(value, node, ctx)
+	applyPageInteractionTextStyles(value)
+	return value
 }
 
 func semanticLabelInlineStyle() ui.Style {
@@ -2174,11 +2209,22 @@ func definitionTermBlockNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 	if node == nil {
 		return nil
 	}
-	children := buildInlineNodes(node, ctx, semanticLabelInlineStyle())
+	inlineStyle := paragraphInlineStyle()
+	applyPageTextProperties(&inlineStyle, node, ctx)
+	children := buildInlineNodes(node, ctx, inlineStyle)
 	if len(children) == 0 {
 		return nil
 	}
-	value := ui.NewDocumentElement("definition-term", semanticLabelBlockStyle(2), children...)
+	blockStyle := styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 2, 0)
+		style.SetFontSize(defaultPageFontSize)
+		style.SetLineHeight(defaultLineHeightForFontSize(defaultPageFontSize))
+		style.SetContain(ui.ContainPaint)
+	})
+	applyPageNodeStyles(&blockStyle, node, ctx)
+	inheritTextPropertiesFromStyle(children, blockStyle)
+	value := ui.NewDocumentElement("definition-term", blockStyle, children...)
 	applyPageInteractionStyles(value, node, ctx)
 	applyPageInteractionTextStyles(value)
 	return value
@@ -2192,11 +2238,17 @@ func definitionDetailBlockNode(node *Node, ctx *renderContext) *ui.DocumentNode 
 	if len(children) == 0 {
 		return nil
 	}
-	return ui.NewDocumentElement("definition-detail", styled(func(style *ui.Style) {
+	style := styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayBlock)
 		style.SetMargin(0, 0, 8, 14)
 		style.SetContain(ui.ContainPaint)
-	}), children...)
+	})
+	applyPageNodeStyles(&style, node, ctx)
+	inheritTextPropertiesFromStyle(children, style)
+	value := ui.NewDocumentElement("definition-detail", style, children...)
+	applyPageInteractionStyles(value, node, ctx)
+	applyPageInteractionTextStyles(value)
+	return value
 }
 
 func fieldsetBlockNode(node *Node, ctx *renderContext) *ui.DocumentNode {
@@ -4315,6 +4367,44 @@ func htmlControlStyle() ui.Style {
 	})
 }
 
+func htmlCheckableControlStyle() ui.Style {
+	return styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayInlineBlock)
+		style.SetContain(ui.ContainPaint)
+		style.SetFontPath(webSansFontPath)
+		style.SetFontSize(13)
+		style.SetLineHeight(18)
+		style.SetForeground(ui.Black)
+	})
+}
+
+func applyCheckableFallbackChrome(style *ui.Style, round bool) {
+	if style == nil {
+		return
+	}
+	if _, ok := style.GetBackground(); !ok {
+		style.SetBackground(ui.White)
+	}
+	if _, ok := style.GetBorderWidth(); !ok {
+		style.SetBorder(1, 0x5A5A5A)
+	} else if _, ok := style.GetBorderColor(); !ok {
+		style.SetBorderColor(0x5A5A5A)
+	}
+	if _, ok := style.GetForeground(); !ok {
+		style.SetForeground(ui.Black)
+	}
+	if _, ok := style.GetPadding(); !ok {
+		style.SetPadding(1)
+	}
+	if _, ok := style.GetBorderRadius(); !ok {
+		if round {
+			style.SetBorderRadius(8)
+		} else {
+			style.SetBorderRadius(3)
+		}
+	}
+}
+
 func neutralHTMLControlStyle() ui.Style {
 	return styled(func(style *ui.Style) {
 		style.SetDisplay(ui.DisplayInlineBlock)
@@ -4349,7 +4439,7 @@ func htmlControlHintStyle() ui.Style {
 
 func htmlControlIndicatorStyle() ui.Style {
 	return styled(func(style *ui.Style) {
-		applyTagixIconTextStyle(style, 16, 18, ui.Navy)
+		applyTagixIconTextStyle(style, 16, 18, ui.Black)
 	})
 }
 
@@ -4372,6 +4462,16 @@ func applyInteractiveControlStyles(node *ui.DocumentNode) {
 	})
 }
 
+func applyInteractiveCheckableStyles(node *ui.DocumentNode) {
+	if node == nil {
+		return
+	}
+	node.StyleFocus = styled(func(style *ui.Style) {
+		style.SetOutline(2, 0x1A73E8)
+		style.SetOutlineOffset(1)
+	})
+}
+
 func applyDisabledControlState(node *ui.DocumentNode) {
 	if node == nil {
 		return
@@ -4381,6 +4481,16 @@ func applyDisabledControlState(node *ui.DocumentNode) {
 	node.Style.SetForeground(ui.Gray)
 	node.Style.SetBorderColor(ui.Silver)
 	node.Style.SetBackground(ui.White)
+	node.Style.SetOpacity(190)
+}
+
+func applyDisabledCheckableControlState(node *ui.DocumentNode) {
+	if node == nil {
+		return
+	}
+	node.Focusable = false
+	node.Editable = false
+	node.Style.SetForeground(ui.Gray)
 	node.Style.SetOpacity(190)
 }
 
@@ -4567,15 +4677,12 @@ func htmlCheckboxNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 	checked := hasAttr(node, "checked")
 	initialChecked := checked
 	indicator := ui.NewDocumentText(htmlCheckboxGlyph(checked), htmlControlIndicatorStyle())
-	label := htmlControlLabel(node, "Checkbox")
-	control := ui.NewDocumentElement("html-checkbox", htmlControlStyle(),
-		indicator,
-		ui.NewDocumentText(" "+label, htmlControlTextStyle()),
-	)
+	control := ui.NewDocumentElement("html-checkbox", htmlCheckableControlStyle(), indicator)
 	applyPageNodeStyles(&control.Style, node, ctx)
 	applyPresentationalNodeAttrs(&control.Style, node)
+	applyCheckableFallbackChrome(&control.Style, false)
 	control.Focusable = true
-	applyInteractiveControlStyles(control)
+	applyInteractiveCheckableStyles(control)
 	applyPageInteractionStyles(control, node, ctx)
 	applyPageInteractionTextStyles(control)
 	disabled := hasAttr(node, "disabled")
@@ -4604,7 +4711,7 @@ func htmlCheckboxNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 		})
 	}
 	if disabled {
-		applyDisabledControlState(control)
+		applyDisabledCheckableControlState(control)
 		return control
 	}
 	toggle := func() {
@@ -4632,19 +4739,16 @@ func htmlRadioNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 	checked := hasAttr(node, "checked")
 	initialChecked := checked
 	indicator := ui.NewDocumentText(htmlRadioGlyph(checked), htmlControlIndicatorStyle())
-	label := htmlControlLabel(node, "Radio")
-	control := ui.NewDocumentElement("html-radio", htmlControlStyle(),
-		indicator,
-		ui.NewDocumentText(" "+label, htmlControlTextStyle()),
-	)
+	control := ui.NewDocumentElement("html-radio", htmlCheckableControlStyle(), indicator)
 	applyPageNodeStyles(&control.Style, node, ctx)
 	applyPresentationalNodeAttrs(&control.Style, node)
+	applyCheckableFallbackChrome(&control.Style, true)
 	control.Focusable = true
-	applyInteractiveControlStyles(control)
+	applyInteractiveCheckableStyles(control)
 	applyPageInteractionStyles(control, node, ctx)
 	applyPageInteractionTextStyles(control)
 	if hasAttr(node, "disabled") {
-		applyDisabledControlState(control)
+		applyDisabledCheckableControlState(control)
 		return control
 	}
 	group := attrValue(node, "name")

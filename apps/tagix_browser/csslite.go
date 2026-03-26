@@ -57,8 +57,9 @@ type cssRule struct {
 }
 
 type pageStylesheet struct {
-	rules []cssRule
-	cache map[string]ui.Style
+	rules         []cssRule
+	cache         map[string]ui.Style
+	fontSizeCache map[string]int
 }
 
 type cssAutoMargins struct {
@@ -133,13 +134,15 @@ func parseDocumentStylesheet(doc *Document) *pageStylesheet {
 	}
 	if len(rules) == 0 {
 		doc.stylesheet = &pageStylesheet{
-			cache: map[string]ui.Style{},
+			cache:         map[string]ui.Style{},
+			fontSizeCache: map[string]int{},
 		}
 		return doc.stylesheet
 	}
 	doc.stylesheet = &pageStylesheet{
-		rules: rules,
-		cache: map[string]ui.Style{},
+		rules:         rules,
+		cache:         map[string]ui.Style{},
+		fontSizeCache: map[string]int{},
 	}
 	return doc.stylesheet
 }
@@ -153,6 +156,16 @@ func cssResolvedStyleCacheKey(node *Node, layout cssLayoutContext, variant cssSt
 		"|" + strconv.Itoa(layout.viewportHeight) +
 		"|" + strconv.Itoa(layout.fontSize) +
 		"|v" + strconv.Itoa(int(variant))
+}
+
+func cssResolvedFontSizeCacheKey(node *Node, layout cssLayoutContext) string {
+	if node == nil {
+		return ""
+	}
+	return strconv.Itoa(node.ID) +
+		"|" + strconv.Itoa(layout.viewportWidth) +
+		"|" + strconv.Itoa(layout.viewportHeight) +
+		"|fs"
 }
 
 func parseCSSRules(source string, order *int) []cssRule {
@@ -875,6 +888,43 @@ func nearestParentElement(node *Node) *Node {
 	return nil
 }
 
+func resolvedNodeInheritedFontSize(node *Node, ctx *renderContext) int {
+	if node == nil || ctx == nil {
+		return defaultPageFontSize
+	}
+	parent := nearestParentElement(node)
+	if parent == nil {
+		return defaultPageFontSize
+	}
+	return resolvedNodeComputedFontSize(parent, ctx)
+}
+
+func resolvedNodeComputedFontSize(node *Node, ctx *renderContext) int {
+	if node == nil {
+		return defaultPageFontSize
+	}
+	layout := cssLayoutContext{}
+	if ctx != nil {
+		layout = ctx.cssLayoutContext()
+	}
+	if ctx != nil && ctx.stylesheet != nil {
+		return ctx.stylesheet.fontSize(node, layout, ctx)
+	}
+	inherited := defaultPageFontSize
+	if parent := nearestParentElement(node); parent != nil {
+		inherited = resolvedNodeComputedFontSize(parent, ctx)
+	}
+	fontStyle := ui.Style{}
+	layout.fontSize = inherited
+	if inline := attrValue(node, "style"); inline != "" {
+		applyCSSFontDeclarations(&fontStyle, inline, &layout)
+	}
+	if size, ok := fontStyle.GetFontSize(); ok && size > 0 {
+		return size
+	}
+	return inherited
+}
+
 func previousElementSibling(node *Node) *Node {
 	if node == nil || node.Parent == nil {
 		return nil
@@ -978,6 +1028,61 @@ func (sheet *pageStylesheet) resolvedStyle(node *Node, layout cssLayoutContext, 
 	}
 	sheet.cache[key] = style
 	return style
+}
+
+func (sheet *pageStylesheet) fontSize(node *Node, layout cssLayoutContext, ctx *renderContext) int {
+	if node == nil {
+		return defaultPageFontSize
+	}
+	if sheet == nil {
+		return resolvedNodeInheritedFontSize(node, ctx)
+	}
+	if sheet.fontSizeCache == nil {
+		sheet.fontSizeCache = map[string]int{}
+	}
+	key := cssResolvedFontSizeCacheKey(node, layout)
+	if cached, ok := sheet.fontSizeCache[key]; ok && cached > 0 {
+		return cached
+	}
+	inherited := defaultPageFontSize
+	if parent := nearestParentElement(node); parent != nil {
+		inherited = sheet.fontSize(parent, layout, ctx)
+	}
+	fontStyle := ui.Style{}
+	layout.fontSize = inherited
+	matched := make([]cssRule, 0, 8)
+	for _, rule := range sheet.rules {
+		if !rule.media.matches(layout) {
+			continue
+		}
+		if rule.selector.hasDynamicPseudo() {
+			continue
+		}
+		if !rule.selector.matchesStatic(node) {
+			continue
+		}
+		matched = append(matched, rule)
+	}
+	if len(matched) > 0 {
+		sort.SliceStable(matched, func(i int, j int) bool {
+			if matched[i].specificity != matched[j].specificity {
+				return matched[i].specificity < matched[j].specificity
+			}
+			return matched[i].order < matched[j].order
+		})
+		for _, rule := range matched {
+			applyCSSFontDeclarations(&fontStyle, rule.declarations, &layout)
+		}
+	}
+	if inline := attrValue(node, "style"); inline != "" {
+		applyCSSFontDeclarations(&fontStyle, inline, &layout)
+	}
+	if size, ok := fontStyle.GetFontSize(); ok && size > 0 {
+		sheet.fontSizeCache[key] = size
+		return size
+	}
+	sheet.fontSizeCache[key] = inherited
+	return inherited
 }
 
 func (sheet *pageStylesheet) apply(style *ui.Style, node *Node, layout cssLayoutContext) {
@@ -1314,6 +1419,7 @@ func applyPageNodeStyles(style *ui.Style, node *Node, ctx *renderContext) {
 		return
 	}
 	layout := ctx.cssLayoutContext()
+	layout.fontSize = resolvedNodeInheritedFontSize(node, ctx)
 	if ctx != nil && ctx.stylesheet != nil {
 		ctx.stylesheet.apply(style, node, layout)
 	} else if inline := attrValue(node, "style"); inline != "" {
@@ -1327,6 +1433,7 @@ func applyPageNodeStylesExceptBackground(style *ui.Style, node *Node, ctx *rende
 		return
 	}
 	layout := ctx.cssLayoutContext()
+	layout.fontSize = resolvedNodeInheritedFontSize(node, ctx)
 	resolved := ui.Style{}
 	if ctx != nil && ctx.stylesheet != nil {
 		ctx.stylesheet.apply(&resolved, node, layout)
@@ -1542,6 +1649,12 @@ func applyResolvedStyle(target *ui.Style, source ui.Style) {
 	if position, ok := source.GetPosition(); ok {
 		target.SetPosition(position)
 	}
+	if value, ok := source.GetFloat(); ok {
+		target.SetFloat(value)
+	}
+	if value, ok := source.GetClear(); ok {
+		target.SetClear(value)
+	}
 	if value, ok := source.GetLeft(); ok {
 		target.SetLeft(value)
 	}
@@ -1556,6 +1669,9 @@ func applyResolvedStyle(target *ui.Style, source ui.Style) {
 	}
 	if value, ok := source.GetWidth(); ok {
 		target.SetWidth(value)
+	}
+	if value, ok := source.GetWidthPercent(); ok {
+		target.SetWidthPercent(value)
 	}
 	if value, ok := source.GetFlexGrow(); ok {
 		target.SetFlexGrowFloat(value)
@@ -1679,6 +1795,12 @@ func applyResolvedStyleExceptBackground(target *ui.Style, source ui.Style) {
 	if position, ok := source.GetPosition(); ok {
 		target.SetPosition(position)
 	}
+	if value, ok := source.GetFloat(); ok {
+		target.SetFloat(value)
+	}
+	if value, ok := source.GetClear(); ok {
+		target.SetClear(value)
+	}
 	if value, ok := source.GetTop(); ok {
 		target.SetTop(value)
 	}
@@ -1699,6 +1821,9 @@ func applyResolvedStyleExceptBackground(target *ui.Style, source ui.Style) {
 	}
 	if value, ok := source.GetWidth(); ok {
 		target.SetWidth(value)
+	}
+	if value, ok := source.GetWidthPercent(); ok {
+		target.SetWidthPercent(value)
 	}
 	if value, ok := source.GetFlexGrow(); ok {
 		target.SetFlexGrowFloat(value)
@@ -1796,16 +1921,29 @@ func applyPageCanvasStyles(style *ui.Style, doc *Document, ctx *renderContext) {
 	if style == nil || doc == nil {
 		return
 	}
+	nodesByTag := map[string]*Node{}
 	for _, tag := range []string{"html", "body"} {
 		nodes := doc.GetElementsByTagName(tag)
-		if len(nodes) == 0 {
-			continue
+		if len(nodes) > 0 {
+			nodesByTag[tag] = nodes[0]
 		}
-		resolved := ui.Style{}
-		applyPageNodeStyles(&resolved, nodes[0], ctx)
-		if color, ok := resolved.GetBackground(); ok {
-			style.SetBackground(color)
-		}
+	}
+	htmlNode := nodesByTag["html"]
+	bodyNode := nodesByTag["body"]
+	htmlResolved := ui.Style{}
+	if htmlNode != nil {
+		applyPageNodeStyles(&htmlResolved, htmlNode, ctx)
+	}
+	bodyResolved := ui.Style{}
+	if bodyNode != nil {
+		applyPageNodeStyles(&bodyResolved, bodyNode, ctx)
+	}
+	if color, ok := htmlResolved.GetBackground(); ok {
+		style.SetBackground(color)
+	} else if color, ok := bodyResolved.GetBackground(); ok {
+		style.SetBackground(color)
+	}
+	for _, resolved := range []ui.Style{htmlResolved, bodyResolved} {
 		if color, ok := resolved.GetForeground(); ok {
 			style.SetForeground(color)
 		}
@@ -1857,6 +1995,48 @@ func applyCSSDeclarations(style *ui.Style, declarations string, layout cssLayout
 	}
 }
 
+func applyCSSFontDeclarations(style *ui.Style, declarations string, layout *cssLayoutContext) {
+	if style == nil || layout == nil {
+		return
+	}
+	*layout = normalizeCSSLayoutContext(*layout)
+	for _, chunk := range strings.Split(declarations, ";") {
+		chunk = strings.TrimSpace(chunk)
+		if chunk == "" {
+			continue
+		}
+		colon := strings.IndexByte(chunk, ':')
+		if colon <= 0 || colon+1 >= len(chunk) {
+			continue
+		}
+		name := strings.ToLower(strings.TrimSpace(chunk[:colon]))
+		value := strings.TrimSpace(chunk[colon+1:])
+		switch name {
+		case "font":
+			if applyHTMLFontShorthand(style, value) {
+				if size, ok := style.GetFontSize(); ok && size > 0 {
+					layout.fontSize = size
+				}
+			}
+		case "font-family":
+			if path := parseHTMLFontPath(value); path != "" {
+				style.SetFontPath(path)
+			}
+		case "font-weight":
+			applyHTMLFontWeight(style, value)
+		case "font-size":
+			if parsed, ok := parseCSSFontSize(value, *layout); ok {
+				style.SetFontSize(parsed)
+				layout.fontSize = parsed
+			}
+		case "line-height":
+			if parsed, ok := parseCSSLineHeight(value, *layout); ok {
+				style.SetLineHeight(parsed)
+			}
+		}
+	}
+}
+
 func normalizeCSSLayoutContext(layout cssLayoutContext) cssLayoutContext {
 	if layout.fontSize <= 0 {
 		layout.fontSize = defaultPageFontSize
@@ -1869,9 +2049,36 @@ func applyCSSDeclaration(style *ui.Style, name string, value string, layout *css
 		return
 	}
 	switch name {
+	case "font":
+		if applyHTMLFontShorthand(style, value) {
+			if size, ok := style.GetFontSize(); ok && size > 0 {
+				layout.fontSize = size
+			}
+			return
+		}
+	case "font-family":
+		if path := parseHTMLFontPath(value); path != "" {
+			style.SetFontPath(path)
+			return
+		}
+	case "font-weight":
+		applyHTMLFontWeight(style, value)
+		return
+	case "float":
+		if style.SetFloatString(value) {
+			return
+		}
+	case "clear":
+		if style.SetClearString(value) {
+			return
+		}
 	case "width":
 		if parsed, ok := parseCSSLength(value, *layout); ok {
 			style.SetWidth(parsed)
+			return
+		}
+		if percent, ok := parseScaledPercentValue(value); ok {
+			style.SetWidthPercent(percent)
 			return
 		}
 	case "height":

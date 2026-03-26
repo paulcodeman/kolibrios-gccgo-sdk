@@ -189,11 +189,39 @@ func boxInsets(style Style) Spacing {
 	}
 }
 
+const percentScale = 1000
+
+func scaledPercentPixels(base int, value int) int {
+	if base <= 0 || value <= 0 {
+		return 0
+	}
+	return (base*value + 50*percentScale) / (100 * percentScale)
+}
+
 func explicitOuterWidth(style Style) (int, bool) {
 	value, ok := resolveLength(style.width)
 	if !ok {
 		return 0, false
 	}
+	if effectiveBoxSizing(style) == BoxSizingContentBox {
+		insets := boxInsets(style)
+		value += insets.Left + insets.Right
+	}
+	if value < 0 {
+		value = 0
+	}
+	return value, true
+}
+
+func explicitOuterWidthIn(style Style, containerWidth int) (int, bool) {
+	if value, ok := explicitOuterWidth(style); ok {
+		return value, true
+	}
+	percent, ok := resolveScaledPercent(style.widthPercent)
+	if !ok {
+		return 0, false
+	}
+	value := scaledPercentPixels(containerWidth, percent)
 	if effectiveBoxSizing(style) == BoxSizingContentBox {
 		insets := boxInsets(style)
 		value += insets.Left + insets.Right

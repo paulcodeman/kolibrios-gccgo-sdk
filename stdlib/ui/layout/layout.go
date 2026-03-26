@@ -18,7 +18,7 @@ func resolveRect(base Rect, container Rect, style Style) Rect {
 	width := clampWidthForStyle(style, rect.Width)
 	height := clampHeightForStyle(style, rect.Height)
 	widthSet := false
-	if resolved, ok := explicitOuterWidth(style); ok {
+	if resolved, ok := explicitOuterWidthIn(style, container.Width); ok {
 		width = resolved
 		widthSet = true
 	}

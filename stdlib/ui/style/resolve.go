@@ -9,6 +9,13 @@ func resolveLength(value *int) (int, bool) {
 	return *value, true
 }
 
+func resolveScaledPercent(value *int) (int, bool) {
+	if value == nil {
+		return 0, false
+	}
+	return *value, true
+}
+
 func resolveScrollbarWidth(value *int) (int, bool) {
 	if value == nil {
 		return 0, false
@@ -182,6 +189,20 @@ func resolveBackgroundAttachment(value *BackgroundAttachment) (BackgroundAttachm
 }
 
 func resolvePosition(value *PositionMode) (PositionMode, bool) {
+	if value == nil {
+		return 0, false
+	}
+	return *value, true
+}
+
+func resolveFloat(value *FloatMode) (FloatMode, bool) {
+	if value == nil {
+		return 0, false
+	}
+	return *value, true
+}
+
+func resolveClear(value *ClearMode) (ClearMode, bool) {
 	if value == nil {
 		return 0, false
 	}

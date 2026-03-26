@@ -201,6 +201,14 @@ func (style Style) GetPosition() (PositionMode, bool) {
 	return resolvePosition(style.position)
 }
 
+func (style Style) GetFloat() (FloatMode, bool) {
+	return resolveFloat(style.floatMode)
+}
+
+func (style Style) GetClear() (ClearMode, bool) {
+	return resolveClear(style.clearMode)
+}
+
 func (style Style) GetLeft() (int, bool) {
 	return resolveLength(style.left)
 }
@@ -219,6 +227,10 @@ func (style Style) GetBottom() (int, bool) {
 
 func (style Style) GetWidth() (int, bool) {
 	return resolveLength(style.width)
+}
+
+func (style Style) GetWidthPercent() (int, bool) {
+	return resolveScaledPercent(style.widthPercent)
 }
 
 func (style Style) GetFlexGrow() (float64, bool) {

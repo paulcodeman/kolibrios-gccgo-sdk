@@ -142,6 +142,129 @@ func TestStandaloneLinkNodeHonorsBlockAnchorWrappingStyles(t *testing.T) {
 	}
 }
 
+func TestHtmlRadioNodeDoesNotRenderValueAsVisibleLabel(t *testing.T) {
+	node := &Node{
+		Type: ElementNode,
+		Tag:  "input",
+		Attrs: map[string]string{
+			"type":  "radio",
+			"value": "off",
+		},
+	}
+
+	control := htmlRadioNode(node, nil)
+	if control == nil {
+		t.Fatalf("expected radio control")
+	}
+	if len(control.Children) != 1 {
+		t.Fatalf("radio child count mismatch: got %d want 1", len(control.Children))
+	}
+	if control.Children[0] == nil || control.Children[0].Text != htmlRadioGlyph(false) {
+		t.Fatalf("radio indicator mismatch: got %#v", control.Children[0])
+	}
+	if width, ok := control.Style.GetBorderWidth(); !ok || width != 1 {
+		t.Fatalf("radio border mismatch: got %d set=%v", width, ok)
+	}
+	if background, ok := control.Style.GetBackground(); !ok || background != ui.White {
+		t.Fatalf("radio background mismatch: got %v set=%v", background, ok)
+	}
+}
+
+func TestHtmlCheckboxNodeDoesNotRenderValueAsVisibleLabel(t *testing.T) {
+	node := &Node{
+		Type: ElementNode,
+		Tag:  "input",
+		Attrs: map[string]string{
+			"type":  "checkbox",
+			"value": "on",
+		},
+	}
+
+	control := htmlCheckboxNode(node, nil)
+	if control == nil {
+		t.Fatalf("expected checkbox control")
+	}
+	if len(control.Children) != 1 {
+		t.Fatalf("checkbox child count mismatch: got %d want 1", len(control.Children))
+	}
+	if control.Children[0] == nil || control.Children[0].Text != htmlCheckboxGlyph(false) {
+		t.Fatalf("checkbox indicator mismatch: got %#v", control.Children[0])
+	}
+	if width, ok := control.Style.GetBorderWidth(); !ok || width != 1 {
+		t.Fatalf("checkbox border mismatch: got %d set=%v", width, ok)
+	}
+	if background, ok := control.Style.GetBackground(); !ok || background != ui.White {
+		t.Fatalf("checkbox background mismatch: got %v set=%v", background, ok)
+	}
+}
+
+func TestDefinitionTermBlockNodeDoesNotForceSemanticForeground(t *testing.T) {
+	node := &Node{Type: ElementNode, Tag: "dt", Children: []*Node{{Type: TextNode, Text: "toggle"}}}
+
+	term := definitionTermBlockNode(node, nil)
+	if term == nil {
+		t.Fatalf("expected definition term")
+	}
+	if _, ok := term.Style.GetForeground(); ok {
+		t.Fatalf("definition term should not force its own foreground color")
+	}
+}
+
+func TestBlockquoteBlockNodeHonorsPageStyles(t *testing.T) {
+	doc := Parse(`<!doctype html><html><head><style>
+blockquote {
+  margin: 1em 1em 1em 2em;
+  border-width: 1em 1.5em 2em .5em;
+  border-style: solid;
+  border-color: black;
+  padding: 1em 0;
+  width: 5em;
+  height: 9em;
+  float: left;
+  background-color: #FC0;
+  color: black;
+}
+</style></head><body><blockquote>bar maids,</blockquote></body></html>`)
+	ctx := &renderContext{
+		stylesheet:     parseDocumentStylesheet(doc),
+		viewportWidth:  800,
+		viewportHeight: 600,
+	}
+	node := findFirstNodeByTag(doc, "blockquote")
+	if node == nil {
+		t.Fatalf("expected blockquote node")
+	}
+
+	quote := blockquoteBlockNode(node, ctx)
+	if quote == nil {
+		t.Fatalf("expected blockquote")
+	}
+	if value, ok := quote.Style.GetFloat(); !ok || value != ui.FloatLeft {
+		t.Fatalf("blockquote float mismatch: got %v set=%v", value, ok)
+	}
+	if value, ok := quote.Style.GetBackground(); !ok || value != 0xFFCC00 {
+		t.Fatalf("blockquote background mismatch: got %v set=%v", value, ok)
+	}
+	if value, ok := quote.Style.GetWidth(); !ok || value != 80 {
+		t.Fatalf("blockquote width mismatch: got %d set=%v", value, ok)
+	}
+}
+
+func TestBuildRenderedDocumentPrefersHTMLCanvasBackground(t *testing.T) {
+	doc := Parse(`<!doctype html><html><head><style>
+html { background-color: blue; color: white; }
+body { background-color: white; width: 48em; border: .5em solid black; }
+</style></head><body><p>hello</p></body></html>`)
+
+	page := buildRenderedDocument("", "https://example.com", doc, 800, 600, nil, nil, nil, nil, nil, nil, nil)
+	if page == nil {
+		t.Fatalf("expected rendered page")
+	}
+	if background, ok := page.Style.GetBackground(); !ok || background != ui.Blue {
+		t.Fatalf("page background mismatch: got %v set=%v", background, ok)
+	}
+}
+
 func TestNestedAnchorDisplayNodeIsNotFocusable(t *testing.T) {
 	anchor := &Node{
 		Type: ElementNode,
@@ -331,6 +454,109 @@ func TestApplySimpleTableRowLayoutUsesFlexForThreeCellRows(t *testing.T) {
 	}
 }
 
+func TestApplyPageNodeStylesParsesPercentWidthsFromStylesheet(t *testing.T) {
+	doc := Parse(`<!doctype html><html><head><style>
+dt { width: 10.638%; float: left; }
+#bar { width: 41.17%; }
+</style></head><body><dl><dt>toggle</dt><dd><ul><li id="bar">the world ends</li></ul></dd></dl></body></html>`)
+	ctx := &renderContext{
+		baseURL:        "https://www.w3.org/Style/CSS/Test/CSS1/current/test5526c.htm",
+		stylesheet:     parseDocumentStylesheet(doc),
+		viewportWidth:  1000,
+		viewportHeight: 800,
+	}
+
+	term := findFirstNodeByTag(doc, "dt")
+	if term == nil {
+		t.Fatalf("expected dt node")
+	}
+	termStyle := ui.Style{}
+	applyPageNodeStyles(&termStyle, term, ctx)
+	if value, ok := termStyle.GetWidthPercent(); !ok || value != 10638 {
+		t.Fatalf("dt width percent mismatch: got %d set=%v", value, ok)
+	}
+	if value, ok := termStyle.GetFloat(); !ok || value != ui.FloatLeft {
+		t.Fatalf("dt float mismatch: got %v set=%v", value, ok)
+	}
+
+	bar := doc.GetElementByID("bar")
+	if bar == nil {
+		t.Fatalf("expected #bar node")
+	}
+	barStyle := ui.Style{}
+	applyPageNodeStyles(&barStyle, bar, ctx)
+	if value, ok := barStyle.GetWidthPercent(); !ok || value != 41170 {
+		t.Fatalf("#bar width percent mismatch: got %d set=%v", value, ok)
+	}
+}
+
+func TestDocumentLayoutUsesPercentWidthsForFloats(t *testing.T) {
+	leftStyle := styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetFloat(ui.FloatLeft)
+		style.SetBoxSizing(ui.BoxSizingContentBox)
+		style.SetWidthPercent(10638)
+		style.SetHeight(280)
+		style.SetPadding(10)
+		style.SetBorder(5, 0)
+	})
+	left := ui.NewDocumentElement("left", leftStyle, ui.NewDocumentText("toggle", ui.Style{}))
+
+	rightStyle := styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetFloat(ui.FloatRight)
+		style.SetBoxSizing(ui.BoxSizingContentBox)
+		style.SetWidth(340)
+		style.SetHeight(270)
+		style.SetPadding(10)
+		style.SetBorder(10, 0)
+		style.SetMargin(0, 0, 0, 10)
+	})
+	right := ui.NewDocumentElement("right", rightStyle, ui.NewDocumentText("content", ui.Style{}))
+
+	clearStyle := styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetClear(ui.ClearBoth)
+	})
+	clearNode := ui.NewDocumentElement("clear", clearStyle, ui.NewDocumentText("after", ui.Style{}))
+
+	root := ui.NewDocumentElement("root", styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetWidth(470)
+	}), left, right, clearNode)
+
+	document := ui.NewDocument(root)
+	document.Layout(ui.DefaultLayoutContext(ui.Rect{X: 0, Y: 0, Width: 470, Height: 800}))
+
+	leftFragment := document.FragmentForNode(left)
+	if leftFragment == nil {
+		t.Fatalf("expected left float fragment")
+	}
+	if leftFragment.Bounds.Width != 80 {
+		t.Fatalf("left float width mismatch: got %d want 80", leftFragment.Bounds.Width)
+	}
+
+	rightFragment := document.FragmentForNode(right)
+	if rightFragment == nil {
+		t.Fatalf("expected right float fragment")
+	}
+	if rightFragment.Bounds.X != 90 {
+		t.Fatalf("right float x mismatch: got %d want 90", rightFragment.Bounds.X)
+	}
+	if rightFragment.Bounds.Width != 380 {
+		t.Fatalf("right float width mismatch: got %d want 380", rightFragment.Bounds.Width)
+	}
+
+	clearFragment := document.FragmentForNode(clearNode)
+	if clearFragment == nil {
+		t.Fatalf("expected clear fragment")
+	}
+	rightBottom := rightFragment.Bounds.Y + rightFragment.Bounds.Height
+	if clearFragment.Bounds.Y < rightBottom {
+		t.Fatalf("clear fragment should start below floats: got y=%d rightBottom=%d", clearFragment.Bounds.Y, rightBottom)
+	}
+}
+
 func inlinePieceTexts(pieces []inlinePiece) []string {
 	texts := make([]string, 0, len(pieces))
 	for _, piece := range pieces {
@@ -348,6 +574,21 @@ func findDocumentNodeByName(node *ui.DocumentNode, name string) *ui.DocumentNode
 	}
 	for _, child := range node.Children {
 		if found := findDocumentNodeByName(child, name); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+func findFirstNodeByTag(node *Node, tag string) *Node {
+	if node == nil {
+		return nil
+	}
+	if node.Type == ElementNode && node.Tag == tag {
+		return node
+	}
+	for _, child := range node.Children {
+		if found := findFirstNodeByTag(child, tag); found != nil {
 			return found
 		}
 	}

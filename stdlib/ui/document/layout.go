@@ -163,6 +163,25 @@ func displayUsesBlockFlow(display DisplayMode) bool {
 	return display == DisplayBlock || display == DisplayFlex
 }
 
+type documentFloatBox struct {
+	side FloatMode
+	rect Rect
+}
+
+func effectiveFloat(style Style) FloatMode {
+	if value, ok := resolveFloat(style.floatMode); ok {
+		return value
+	}
+	return FloatNone
+}
+
+func effectiveClear(style Style) ClearMode {
+	if value, ok := resolveClear(style.clearMode); ok {
+		return value
+	}
+	return ClearNone
+}
+
 func (document *Document) layoutChildren(ctx LayoutContext, parentStyle Style, nodes []*DocumentNode, container Rect) ([]*Fragment, int) {
 	if len(nodes) == 0 {
 		return nil, container.Y
@@ -172,15 +191,55 @@ func (document *Document) layoutChildren(ctx LayoutContext, parentStyle Style, n
 	cursorY := container.Y
 	lineHeight := 0
 	maxWidth := container.Width
+	floats := make([]documentFloatBox, 0, 4)
 	for _, child := range nodes {
-		fragment, nextX, nextY, nextLineHeight := document.layoutChildFlow(ctx, parentStyle, child, container, cursorX, cursorY, lineHeight, maxWidth)
+		if child == nil {
+			continue
+		}
+		style := documentComputedStyle(parentStyle, child)
+		display := documentDisplay(style, child.Kind)
+		if display == DisplayNone {
+			continue
+		}
+		floatMode := effectiveFloat(style)
+		clearMode := effectiveClear(style)
+		if len(floats) == 0 && floatMode == FloatNone && clearMode == ClearNone {
+			fragment, nextX, nextY, nextLineHeight := document.layoutChildFlow(ctx, parentStyle, child, container, cursorX, cursorY, lineHeight, maxWidth)
+			if fragment == nil {
+				continue
+			}
+			children = append(children, fragment)
+			cursorX = nextX
+			cursorY = nextY
+			lineHeight = nextLineHeight
+			for _, floatBox := range collectEscapedFloatBoxes(fragment) {
+				floats = append(floats, floatBox)
+			}
+			continue
+		}
+		if cursorX > 0 {
+			cursorX = 0
+			cursorY += lineHeight
+			lineHeight = 0
+		}
+		if floatMode != FloatNone {
+			fragment, floatBox := document.layoutFloatChild(ctx, child, style, display, container, cursorY, floats)
+			if fragment == nil {
+				continue
+			}
+			children = append(children, fragment)
+			floats = append(floats, floatBox)
+			continue
+		}
+		fragment, nextY := document.layoutFlowChildWithFloats(ctx, child, style, display, container, cursorY, floats, clearMode)
 		if fragment == nil {
 			continue
 		}
 		children = append(children, fragment)
-		cursorX = nextX
 		cursorY = nextY
-		lineHeight = nextLineHeight
+		for _, floatBox := range collectEscapedFloatBoxes(fragment) {
+			floats = append(floats, floatBox)
+		}
 	}
 	flowBottom := cursorY
 	if lineHeight > 0 && cursorY+lineHeight > flowBottom {
@@ -206,8 +265,8 @@ func flexAlignItems(style Style) AlignItemsMode {
 	return AlignItemsFlexStart
 }
 
-func flexBaseOuterWidth(style Style) int {
-	if value, ok := explicitOuterWidth(style); ok {
+func flexBaseOuterWidth(style Style, containerWidth int) int {
+	if value, ok := explicitOuterWidthIn(style, containerWidth); ok {
 		return clampWidthForStyle(style, value)
 	}
 	return clampWidthForStyle(style, 0)
@@ -256,7 +315,7 @@ func (document *Document) layoutFlexChildren(ctx LayoutContext, parentStyle Styl
 		}
 		margin, _ := resolveSpacingNormalized(style.margin)
 		grow, _ := resolveFlexGrow(style.flexGrow)
-		baseWidth := flexBaseOuterWidth(style)
+		baseWidth := flexBaseOuterWidth(style, container.Width)
 		items = append(items, documentFlexItem{
 			node:      child,
 			style:     style,
@@ -378,6 +437,182 @@ func (document *Document) layoutChildFlow(ctx LayoutContext, parentStyle Style, 
 		lineHeight = outerH
 	}
 	return fragment, cursorX, cursorY, lineHeight
+}
+
+func documentFloatOuterRect(fragment *Fragment) Rect {
+	if fragment == nil {
+		return Rect{}
+	}
+	margin, _ := resolveSpacingNormalized(fragment.Style.margin)
+	return Rect{
+		X:      fragment.Bounds.X - margin.Left,
+		Y:      fragment.Bounds.Y - margin.Top,
+		Width:  fragment.Bounds.Width + margin.Left + margin.Right,
+		Height: fragment.Bounds.Height + margin.Top + margin.Bottom,
+	}
+}
+
+func documentFloatInterval(container Rect, floats []documentFloatBox, y int) (int, int, int) {
+	left := container.X
+	right := container.X + container.Width
+	nextBottom := 0
+	for _, floatBox := range floats {
+		bottom := floatBox.rect.Y + floatBox.rect.Height
+		if bottom <= y || floatBox.rect.Y > y {
+			continue
+		}
+		if bottom > nextBottom {
+			nextBottom = bottom
+		}
+		switch floatBox.side {
+		case FloatLeft:
+			edge := floatBox.rect.X + floatBox.rect.Width
+			if edge > left {
+				left = edge
+			}
+		case FloatRight:
+			if floatBox.rect.X < right {
+				right = floatBox.rect.X
+			}
+		}
+	}
+	if right < left {
+		right = left
+	}
+	return left, right, nextBottom
+}
+
+func documentClearY(floats []documentFloatBox, y int, clear ClearMode) int {
+	if clear == ClearNone {
+		return y
+	}
+	cleared := y
+	for _, floatBox := range floats {
+		switch clear {
+		case ClearLeft:
+			if floatBox.side != FloatLeft {
+				continue
+			}
+		case ClearRight:
+			if floatBox.side != FloatRight {
+				continue
+			}
+		case ClearBoth:
+		default:
+			continue
+		}
+		bottom := floatBox.rect.Y + floatBox.rect.Height
+		if bottom > cleared {
+			cleared = bottom
+		}
+	}
+	return cleared
+}
+
+func (document *Document) layoutFloatChild(ctx LayoutContext, node *DocumentNode, style Style, display DisplayMode, container Rect, cursorY int, floats []documentFloatBox) (*Fragment, documentFloatBox) {
+	y := cursorY
+	y = documentClearY(floats, y, effectiveClear(style))
+	for attempts := 0; attempts < len(floats)+2; attempts++ {
+		left, right, nextBottom := documentFloatInterval(container, floats, y)
+		width := right - left
+		if width <= 0 {
+			if nextBottom > y {
+				y = nextBottom
+				continue
+			}
+			width = container.Width
+			left = container.X
+		}
+		childContainer := Rect{
+			X:      left,
+			Y:      y,
+			Width:  width,
+			Height: container.Height,
+		}
+		fragment := document.layoutStyledNode(ctx, node, style, display, childContainer, 0, y)
+		if fragment == nil {
+			return nil, documentFloatBox{}
+		}
+		outer := documentFloatOuterRect(fragment)
+		if outer.Width > width && nextBottom > y {
+			y = nextBottom
+			continue
+		}
+		if effectiveFloat(style) == FloatRight {
+			targetOuterLeft := right - outer.Width
+			if dx := targetOuterLeft - outer.X; dx != 0 {
+				shiftFragmentTree(fragment, dx, 0)
+				outer.X += dx
+			}
+		}
+		return fragment, documentFloatBox{side: effectiveFloat(style), rect: outer}
+	}
+	return nil, documentFloatBox{}
+}
+
+func (document *Document) layoutFlowChildWithFloats(ctx LayoutContext, node *DocumentNode, style Style, display DisplayMode, container Rect, cursorY int, floats []documentFloatBox, clear ClearMode) (*Fragment, int) {
+	y := documentClearY(floats, cursorY, clear)
+	for attempts := 0; attempts < len(floats)+2; attempts++ {
+		left, right, nextBottom := documentFloatInterval(container, floats, y)
+		width := right - left
+		if width <= 0 {
+			if nextBottom > y {
+				y = nextBottom
+				continue
+			}
+			width = container.Width
+			left = container.X
+		}
+		childContainer := Rect{
+			X:      left,
+			Y:      y,
+			Width:  width,
+			Height: container.Height,
+		}
+		fragment := document.layoutStyledNode(ctx, node, style, display, childContainer, 0, y)
+		if fragment == nil {
+			return nil, cursorY
+		}
+		margin, _ := resolveSpacingNormalized(style.margin)
+		outerWidth := fragment.Bounds.Width + margin.Left + margin.Right
+		if outerWidth > width && nextBottom > y {
+			y = nextBottom
+			continue
+		}
+		if effectivePosition(style) == PositionAbsolute {
+			return fragment, cursorY
+		}
+		return fragment, y + fragment.Bounds.Height + margin.Top + margin.Bottom
+	}
+	return nil, cursorY
+}
+
+func collectEscapedFloatBoxes(fragment *Fragment) []documentFloatBox {
+	if fragment == nil {
+		return nil
+	}
+	boxes := make([]documentFloatBox, 0, 4)
+	var visit func(*Fragment)
+	visit = func(current *Fragment) {
+		if current == nil {
+			return
+		}
+		for _, child := range current.Children {
+			if child == nil {
+				continue
+			}
+			if side := effectiveFloat(child.Style); side != FloatNone {
+				boxes = append(boxes, documentFloatBox{
+					side: side,
+					rect: documentFloatOuterRect(child),
+				})
+				continue
+			}
+			visit(child)
+		}
+	}
+	visit(fragment)
+	return boxes
 }
 
 func (document *Document) layoutElementNode(ctx LayoutContext, node *DocumentNode, style Style, display DisplayMode, container Rect, flowX int, flowY int) *Fragment {
@@ -843,7 +1078,7 @@ func planDocumentBox(style Style, display DisplayMode, container Rect, flowX int
 	plan.top, plan.topSet = resolveLength(style.top)
 	plan.right, plan.rightSet = resolveLength(style.right)
 	plan.bottom, plan.bottomSet = resolveLength(style.bottom)
-	plan.width, plan.widthSet = explicitOuterWidth(style)
+	plan.width, plan.widthSet = explicitOuterWidthIn(style, container.Width)
 	if !plan.widthSet {
 		availableWidth := container.Width - plan.margin.Left - plan.margin.Right
 		if !displayUsesBlockFlow(display) {
@@ -894,6 +1129,12 @@ func nextFlowY(plan documentBoxPlan, height int, flowY int) int {
 }
 
 func documentDisplay(style Style, kind DocumentNodeKind) DisplayMode {
+	if effectiveFloat(style) != FloatNone && kind != DocumentNodeText {
+		if display, ok := resolveDisplay(style.display); ok && display == DisplayNone {
+			return DisplayNone
+		}
+		return DisplayBlock
+	}
 	if display, ok := resolveDisplay(style.display); ok {
 		return display
 	}

@@ -36,6 +36,34 @@ func ParsePosition(value string) (PositionMode, bool) {
 	}
 }
 
+func ParseFloat(value string) (FloatMode, bool) {
+	switch normalizeCSSKeyword(value) {
+	case "none":
+		return FloatNone, true
+	case "left":
+		return FloatLeft, true
+	case "right":
+		return FloatRight, true
+	default:
+		return 0, false
+	}
+}
+
+func ParseClear(value string) (ClearMode, bool) {
+	switch normalizeCSSKeyword(value) {
+	case "none":
+		return ClearNone, true
+	case "left":
+		return ClearLeft, true
+	case "right":
+		return ClearRight, true
+	case "both":
+		return ClearBoth, true
+	default:
+		return 0, false
+	}
+}
+
 func ParseDisplay(value string) (DisplayMode, bool) {
 	switch normalizeCSSKeyword(value) {
 	case "inline":
@@ -405,6 +433,40 @@ func (style *Style) SetPositionString(value string) bool {
 
 func (style Style) GetPositionString() (string, bool) {
 	value, ok := style.GetPosition()
+	if !ok {
+		return "", false
+	}
+	return value.String(), true
+}
+
+func (style *Style) SetFloatString(value string) bool {
+	parsed, ok := ParseFloat(value)
+	if !ok || style == nil {
+		return false
+	}
+	style.SetFloat(parsed)
+	return true
+}
+
+func (style Style) GetFloatString() (string, bool) {
+	value, ok := style.GetFloat()
+	if !ok {
+		return "", false
+	}
+	return value.String(), true
+}
+
+func (style *Style) SetClearString(value string) bool {
+	parsed, ok := ParseClear(value)
+	if !ok || style == nil {
+		return false
+	}
+	style.SetClear(parsed)
+	return true
+}
+
+func (style Style) GetClearString() (string, bool) {
+	value, ok := style.GetClear()
 	if !ok {
 		return "", false
 	}

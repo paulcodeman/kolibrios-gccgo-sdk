@@ -364,6 +364,7 @@ func elementLayoutKeyEqual(a elementLayoutKey, b elementLayoutKey) bool {
 		a.width == b.width &&
 		a.height == b.height &&
 		equalIntPtr(a.styleWidth, b.styleWidth) &&
+		equalIntPtr(a.styleWidthPercent, b.styleWidthPercent) &&
 		equalIntPtr(a.styleHeight, b.styleHeight) &&
 		equalSpacingPtr(a.margin, b.margin) &&
 		a.flowSet == b.flowSet &&

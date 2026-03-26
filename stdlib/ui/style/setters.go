@@ -17,6 +17,7 @@ func (style *Style) Size(width int, height int) {
 	}
 	if width >= 0 {
 		style.width = IntPtr(width)
+		style.widthPercent = nil
 	}
 	if height >= 0 {
 		style.height = IntPtr(height)
@@ -28,6 +29,16 @@ func (style *Style) SetWidth(value int) bool {
 		return false
 	}
 	style.width = IntPtr(value)
+	style.widthPercent = nil
+	return true
+}
+
+func (style *Style) SetWidthPercent(value int) bool {
+	if style == nil {
+		return false
+	}
+	style.widthPercent = IntPtr(value)
+	style.width = nil
 	return true
 }
 
@@ -235,6 +246,20 @@ func (style *Style) SetPosition(value PositionMode) {
 		return
 	}
 	style.position = PositionPtr(value)
+}
+
+func (style *Style) SetFloat(value FloatMode) {
+	if style == nil {
+		return
+	}
+	style.floatMode = FloatPtr(value)
+}
+
+func (style *Style) SetClear(value ClearMode) {
+	if style == nil {
+		return
+	}
+	style.clearMode = ClearPtr(value)
 }
 
 func (style *Style) SetTextAlign(value TextAlign) {

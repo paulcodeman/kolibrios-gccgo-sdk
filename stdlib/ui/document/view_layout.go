@@ -162,6 +162,11 @@ func (view *DocumentView) layoutKeyFor(style Style, container Rect) documentView
 		v := value
 		styleWidth = &v
 	}
+	var styleWidthPercent *int
+	if value, ok := resolveScaledPercent(style.widthPercent); ok {
+		v := value
+		styleWidthPercent = &v
+	}
 	var styleHeight *int
 	if value, ok := resolveLength(style.height); ok {
 		v := value
@@ -173,27 +178,28 @@ func (view *DocumentView) layoutKeyFor(style Style, container Rect) documentView
 		margin = &v
 	}
 	return documentViewLayoutKey{
-		position:    position,
-		display:     display,
-		containerX:  container.X,
-		containerY:  container.Y,
-		containerW:  container.Width,
-		containerH:  container.Height,
-		left:        left,
-		top:         top,
-		right:       right,
-		bottom:      bottom,
-		styleWidth:  styleWidth,
-		styleHeight: styleHeight,
-		margin:      margin,
-		flowSet:     view.flowSet,
-		flowX:       view.flowX,
-		flowY:       view.flowY,
+		position:          position,
+		display:           display,
+		containerX:        container.X,
+		containerY:        container.Y,
+		containerW:        container.Width,
+		containerH:        container.Height,
+		left:              left,
+		top:               top,
+		right:             right,
+		bottom:            bottom,
+		styleWidth:        styleWidth,
+		styleWidthPercent: styleWidthPercent,
+		styleHeight:       styleHeight,
+		margin:            margin,
+		flowSet:           view.flowSet,
+		flowX:             view.flowX,
+		flowY:             view.flowY,
 	}
 }
 
 func (view *DocumentView) resolvedWidthIn(style Style, container Rect) int {
-	if value, ok := explicitOuterWidth(style); ok {
+	if value, ok := explicitOuterWidthIn(style, container.Width); ok {
 		return clampWidthForStyle(style, value)
 	}
 	if display, ok := resolveDisplay(style.display); ok && display == DisplayBlock {

@@ -135,6 +135,10 @@ func applyInlineStyleRule(style *ui.Style, name string, value string) {
 		} else {
 			style.SetPositionString(value)
 		}
+	case "float":
+		style.SetFloatString(value)
+	case "clear":
+		style.SetClearString(value)
 	case "text-align":
 		style.SetTextAlignString(value)
 	case "text-decoration":
@@ -177,6 +181,8 @@ func applyInlineStyleRule(style *ui.Style, name string, value string) {
 	case "width":
 		if parsed, ok := parseHTMLLength(value); ok {
 			style.SetWidth(parsed)
+		} else if percent, ok := parseScaledPercentValue(value); ok {
+			style.SetWidthPercent(percent)
 		}
 	case "flex-grow":
 		style.SetFlexGrowString(value)
@@ -303,6 +309,8 @@ func applyInlineStyleRule(style *ui.Style, name string, value string) {
 		if path := parseHTMLFontPath(value); path != "" {
 			style.SetFontPath(path)
 		}
+	case "font":
+		applyHTMLFontShorthand(style, value)
 	case "font-weight":
 		applyHTMLFontWeight(style, value)
 	case "font-size":
@@ -425,6 +433,56 @@ func applyHTMLBorder(style *ui.Style, value string, side string) {
 	default:
 		style.SetBorder(width, color)
 	}
+}
+
+func applyHTMLFontShorthand(style *ui.Style, value string) bool {
+	if style == nil {
+		return false
+	}
+	tokens := splitStyleValueTokens(value)
+	if len(tokens) == 0 {
+		return false
+	}
+	sizeIndex := -1
+	lineHeightValue := ""
+	for index, token := range tokens {
+		token = strings.TrimSpace(token)
+		if token == "" {
+			continue
+		}
+		lower := strings.ToLower(token)
+		switch lower {
+		case "normal", "italic", "oblique", "small-caps", "bold", "bolder", "lighter":
+			if lower == "bold" || lower == "bolder" || lower == "lighter" {
+				applyHTMLFontWeight(style, lower)
+			}
+			continue
+		}
+		sizeToken := token
+		if slash := strings.IndexByte(token, '/'); slash >= 0 {
+			sizeToken = strings.TrimSpace(token[:slash])
+			lineHeightValue = strings.TrimSpace(token[slash+1:])
+		}
+		if parsed, ok := parseHTMLLength(sizeToken); ok && parsed > 0 {
+			style.SetFontSize(parsed)
+			sizeIndex = index
+			break
+		}
+	}
+	if sizeIndex < 0 {
+		return false
+	}
+	if lineHeightValue != "" {
+		if parsed, ok := parseHTMLLineHeight(style, lineHeightValue); ok {
+			style.SetLineHeight(parsed)
+		}
+	}
+	if family := strings.TrimSpace(strings.Join(tokens[sizeIndex+1:], " ")); family != "" {
+		if path := parseHTMLFontPath(family); path != "" {
+			style.SetFontPath(path)
+		}
+	}
+	return true
 }
 
 func parseHTMLBorder(value string) (int, kos.Color, bool) {
@@ -727,6 +785,21 @@ func parseHTMLAlphaChannel(value string) (uint8, bool) {
 		return uint8(parsed + 0.5), true
 	}
 	return uint8(parsed*255 + 0.5), true
+}
+
+func parseScaledPercentValue(value string) (int, bool) {
+	value = strings.TrimSpace(strings.ToLower(value))
+	if !strings.HasSuffix(value, "%") {
+		return 0, false
+	}
+	parsed, err := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(value, "%")), 64)
+	if err != nil {
+		return 0, false
+	}
+	if parsed < 0 {
+		parsed = 0
+	}
+	return int(parsed*1000 + 0.5), true
 }
 
 func parseHTMLPercent(value string) (float64, bool) {
