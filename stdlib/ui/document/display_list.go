@@ -350,7 +350,7 @@ func (fragment *Fragment) paintTextInputOffset(canvas *Canvas, bounds Rect, styl
 		return
 	}
 	text, placeholder := documentNodeInputDisplayText(fragment.Node)
-	font, _, charWidth, lineHeight := documentNodeInputLineMetrics(style)
+	font, metrics, charWidth, lineHeight := documentNodeInputLineMetrics(style)
 	foreground, ok := resolveColor(style.foreground)
 	if !ok {
 		foreground = Black
@@ -379,7 +379,7 @@ func (fragment *Fragment) paintTextInputOffset(canvas *Canvas, bounds Rect, styl
 			drawText = textSliceColumns(text, startCol, endCol)
 		}
 		textX := content.X + textWidthForColumns(text, startCol, font, charWidth) - fragment.Node.inputScrollX
-		textY := content.Y + (content.Height-lineHeight)/2
+		textY := content.Y + (content.Height-lineHeight)/2 + textLineTopInset(lineHeight, metrics.height)
 		if shadowOK {
 			if font != nil {
 				canvas.DrawTextFont(textX+shadow.OffsetX, textY+shadow.OffsetY, shadow.Color, drawText, font)
@@ -421,6 +421,7 @@ func (fragment *Fragment) paintTextOffset(canvas *Canvas, offsetX int, offsetY i
 	if lineHeight <= 0 {
 		lineHeight = lineHeightForStyle(style, fragment.metrics.height)
 	}
+	textTopInset := textLineTopInset(lineHeight, fragment.metrics.height)
 	if charWidth <= 0 {
 		charWidth = defaultCharWidth
 	}
@@ -439,7 +440,7 @@ func (fragment *Fragment) paintTextOffset(canvas *Canvas, offsetX int, offsetY i
 			bounds.Y += offsetY
 		}
 		x := textLineXForWidth(bounds, style, leftPad, rightPad, availableW, line.width)
-		y := bounds.Y + topPad + i*lineHeight
+		y := bounds.Y + topPad + i*lineHeight + textTopInset
 		if shadowOK {
 			if font != nil {
 				canvas.DrawTextFont(x+shadow.OffsetX, y+shadow.OffsetY, shadow.Color, line.text, font)

@@ -40,9 +40,9 @@ const (
 )
 
 var (
-	cachedShellTemplate        string
-	cachedShellTemplateRead    bool
-	cachedShellTemplateSource  string
+	cachedShellTemplate       string
+	cachedShellTemplateRead   bool
+	cachedShellTemplateSource string
 )
 
 type renderContext struct {
@@ -2524,10 +2524,13 @@ func (builder *inlinePieceBuilder) appendText(raw string, style inlineTextStyle)
 		}
 		return
 	}
+	if (builder.needSpace || (len(raw) > 0 && isSpaceByte(raw[0]))) && len(builder.pieces) > 0 {
+		builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceText, text: " ", style: style})
+		builder.needSpace = false
+	}
 	for i, word := range words {
-		if builder.needSpace || i > 0 {
+		if i > 0 {
 			builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceText, text: " ", style: style})
-			builder.needSpace = false
 		}
 		builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceText, text: word, style: style})
 	}

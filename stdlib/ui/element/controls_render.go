@@ -109,6 +109,7 @@ func (element *Element) drawControlText(canvas *Canvas, rect Rect, style Style) 
 	}
 	ensureTextLineMetrics(lines, font, charWidth)
 	lineHeight := lineHeightForStyle(style, metrics.height)
+	textTopInset := textLineTopInset(lineHeight, metrics.height)
 	totalHeight := len(lines) * lineHeight
 	startY := rect.Y
 	if rect.Height > totalHeight {
@@ -117,7 +118,7 @@ func (element *Element) drawControlText(canvas *Canvas, rect Rect, style Style) 
 	for index, line := range lines {
 		lineRect := Rect{X: rect.X, Y: startY + index*lineHeight, Width: rect.Width, Height: lineHeight}
 		textX := textLineXForWidth(lineRect, style, 0, 0, rect.Width, line.width)
-		textY := lineRect.Y
+		textY := lineRect.Y + textTopInset
 		if font != nil {
 			canvas.DrawTextFont(textX, textY, foreground, line.text, font)
 		} else {

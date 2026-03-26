@@ -819,6 +819,7 @@ func (element *Element) forEachTextLine(rect Rect, style Style, fn func(x, y int
 	font, metrics := fontAndMetricsForStyle(style)
 	charWidth := metrics.width
 	lineHeight := lineHeightForStyle(style, metrics.height)
+	textTopInset := textLineTopInset(lineHeight, metrics.height)
 	if charWidth <= 0 {
 		charWidth = defaultCharWidth
 	}
@@ -832,7 +833,7 @@ func (element *Element) forEachTextLine(rect Rect, style Style, fn func(x, y int
 			continue
 		}
 		x := textLineXForWidth(rect, style, leftPad, rightPad, availableW, line.width)
-		y := rect.Y + topPad + i*lineHeight
+		y := rect.Y + topPad + i*lineHeight + textTopInset
 		fn(x, y, line.text)
 	}
 }

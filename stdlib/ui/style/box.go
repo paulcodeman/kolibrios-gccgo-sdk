@@ -37,6 +37,13 @@ func lineHeightForStyle(style Style, fallback int) int {
 	return defaultFontHeight
 }
 
+func textLineTopInset(lineHeight int, textHeight int) int {
+	if lineHeight <= 0 || textHeight <= 0 || lineHeight <= textHeight {
+		return 0
+	}
+	return (lineHeight - textHeight) / 2
+}
+
 func textDecorationForStyle(style Style) TextDecoration {
 	if value, ok := resolveTextDecoration(style.textDecoration); ok {
 		return value
