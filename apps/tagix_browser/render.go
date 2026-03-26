@@ -59,6 +59,7 @@ type renderContext struct {
 	viewportHeight int
 	radioGroups    map[string][]*radioControlState
 	forms          map[*Node]*formState
+	anchorDepth    int
 }
 
 type shellRenderContext struct {
@@ -1191,9 +1192,22 @@ func buildFlowNodes(node *Node, ctx *renderContext) []*ui.DocumentNode {
 	if node == nil {
 		return nil
 	}
+	ctx = anchorChildRenderContext(ctx, node)
 	nodes := make([]*ui.DocumentNode, 0, len(node.Children))
 	appendFlowContentNodes(&nodes, node, ctx)
 	return nodes
+}
+
+func anchorChildRenderContext(ctx *renderContext, node *Node) *renderContext {
+	if node == nil || node.Tag != "a" {
+		return ctx
+	}
+	if ctx == nil {
+		return &renderContext{anchorDepth: 1}
+	}
+	next := *ctx
+	next.anchorDepth++
+	return &next
 }
 
 func appendFlowContentNodes(out *[]*ui.DocumentNode, node *Node, ctx *renderContext) {
@@ -1228,7 +1242,7 @@ func appendFlowContentNodes(out *[]*ui.DocumentNode, node *Node, ctx *renderCont
 			if pageNodeDisplayNone(child, ctx) {
 				continue
 			}
-			if nodeParticipatesInInlineFlow(child) {
+			if nodeParticipatesInInlineFlow(child, ctx) {
 				collectInlinePieces(&builder, child, ctx, inlineStyle)
 				continue
 			}
@@ -1248,7 +1262,16 @@ func isSkippableElementTag(tag string) bool {
 	}
 }
 
-func nodeParticipatesInInlineFlow(node *Node) bool {
+func resolvedNodeDisplay(node *Node, ctx *renderContext) (ui.DisplayMode, bool) {
+	if node == nil {
+		return 0, false
+	}
+	resolved := ui.Style{}
+	applyPageNodeStyles(&resolved, node, ctx)
+	return resolved.GetDisplay()
+}
+
+func nodeParticipatesInInlineFlow(node *Node, ctx *renderContext) bool {
 	if node == nil {
 		return false
 	}
@@ -1260,6 +1283,14 @@ func nodeParticipatesInInlineFlow(node *Node) bool {
 	case ElementNode:
 	default:
 		return false
+	}
+	if display, ok := resolvedNodeDisplay(node, ctx); ok {
+		switch display {
+		case ui.DisplayNone, ui.DisplayBlock, ui.DisplayFlex:
+			return false
+		case ui.DisplayInline, ui.DisplayInlineBlock:
+			return true
+		}
 	}
 	switch node.Tag {
 	case "script", "style", "head", "title", "meta", "link", "option", "source", "template":
@@ -1412,7 +1443,13 @@ func appendDocumentNodes(out *[]*ui.DocumentNode, node *Node, ctx *renderContext
 		}
 		return
 	case "a":
-		if anchorHasStructuredContent(node) {
+		if ctx != nil && ctx.anchorDepth > 0 {
+			if link := nestedAnchorDisplayNode(node, ctx); link != nil {
+				*out = append(*out, link)
+			}
+			return
+		}
+		if anchorHasStructuredContent(node, ctx) {
 			if link := structuredLinkContainerNode(node, ctx); link != nil {
 				*out = append(*out, link)
 			}
@@ -1746,6 +1783,15 @@ func collectNodeTextPreserve(node *Node, skipLinks bool) string {
 	return strings.TrimSpace(builder.String())
 }
 
+func collectNodeTextPreserveEdges(node *Node, skipLinks bool) string {
+	if node == nil {
+		return ""
+	}
+	var builder strings.Builder
+	collectNodeTextInto(&builder, node, skipLinks, true)
+	return builder.String()
+}
+
 func collectNodeTextInto(builder *strings.Builder, node *Node, skipLinks bool, preserve bool) {
 	if builder == nil || node == nil {
 		return
@@ -1878,6 +1924,10 @@ type inlineTextStyle struct {
 	hasTextDecoration bool
 	whiteSpace        ui.WhiteSpaceMode
 	hasWhiteSpace     bool
+	overflowWrap      ui.OverflowWrapMode
+	hasOverflowWrap   bool
+	wordBreak         ui.WordBreakMode
+	hasWordBreak      bool
 }
 
 func paragraphInlineStyle() ui.Style {
@@ -1937,6 +1987,7 @@ func headingBlockNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 		style.SetLineHeight(lineHeight)
 	})
 	copyPageTextProperties(&inlineStyle, resolved)
+	inlineStyle.SetFontPath(resolveSemanticFontPath(styleFontPath(inlineStyle), false, true, false))
 	children := buildInlineNodes(node, ctx, inlineStyle)
 	if len(children) == 0 {
 		return nil
@@ -1950,6 +2001,7 @@ func headingBlockNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 		style.SetContain(ui.ContainPaint)
 	})
 	copyPageTextProperties(&blockStyle, inlineStyle)
+	blockStyle.SetFontPath(resolveSemanticFontPath(styleFontPath(blockStyle), false, true, false))
 	applyPageNodeStyles(&blockStyle, node, ctx)
 	block := ui.NewDocumentElement("heading-"+node.Tag, blockStyle, children...)
 	applyPageInteractionStyles(block, node, ctx)
@@ -2289,6 +2341,20 @@ func listItemBlockNode(node *Node, ctx *renderContext, marker string) *ui.Docume
 }
 
 func standaloneLinkNode(node *Node, ctx *renderContext) *ui.DocumentNode {
+	if node == nil || node.Attrs == nil {
+		return nil
+	}
+	baseURL := ""
+	if ctx != nil {
+		baseURL = ctx.baseURL
+	}
+	href := resolveURL(baseURL, node.Attrs["href"])
+	if href == "" {
+		return nil
+	}
+	if display, ok := resolvedNodeDisplay(node, ctx); ok && display != ui.DisplayInline {
+		return blockStandaloneLinkNodeWithInteraction(node, href, ctx, true)
+	}
 	link := inlineLinkNodeFromAnchor(node, ctx)
 	if link == nil {
 		return nil
@@ -2303,7 +2369,151 @@ func standaloneLinkNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 	}), link)
 }
 
-func anchorHasStructuredContent(node *Node) bool {
+func blockStandaloneLinkNode(node *Node, href string, ctx *renderContext) *ui.DocumentNode {
+	return blockStandaloneLinkNodeWithInteraction(node, href, ctx, true)
+}
+
+func blockStandaloneLinkNodeWithInteraction(node *Node, href string, ctx *renderContext, interactive bool) *ui.DocumentNode {
+	if node == nil || strings.TrimSpace(href) == "" {
+		return nil
+	}
+	style := styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetMargin(0, 0, 16, 0)
+		style.SetForeground(ui.Blue)
+		style.SetTextDecoration(ui.TextDecorationUnderline)
+		style.SetFontSize(defaultPageFontSize)
+		style.SetLineHeight(defaultPageLineHeight)
+		style.SetContain(ui.ContainPaint)
+	})
+	applyStandaloneLinkStyle(&style, node, ctx)
+	applyPresentationalNodeAttrs(&style, node)
+
+	children := []*ui.DocumentNode(nil)
+	if standaloneLinkIsTextOnly(node) {
+		text := strings.TrimSpace(collectNodeTextPreserve(node, false))
+		if text != "" {
+			textStyle := inlineTextStyleFromStyle(style).uiStyle()
+			textStyle.SetDisplay(ui.DisplayBlock)
+			children = append(children, ui.NewDocumentText(text, textStyle))
+		}
+	}
+	if len(children) == 0 {
+		textStyle := style
+		textStyle.SetDisplay(ui.DisplayInline)
+		textStyle.SetForeground(ui.Blue)
+		textStyle.SetTextDecoration(ui.TextDecorationUnderline)
+		applyPageTextProperties(&textStyle, node, ctx)
+		children = buildInlineNodes(node, ctx, textStyle)
+	}
+	if len(children) == 0 {
+		label := strings.TrimSpace(collectNodeText(node, false))
+		if label == "" {
+			label = displayURL(href)
+		}
+		if label == "" {
+			return nil
+		}
+		textStyle := inlineTextStyleFromStyle(style).uiStyle()
+		textStyle.SetDisplay(ui.DisplayBlock)
+		children = append(children, ui.NewDocumentText(label, textStyle))
+	}
+	inheritTextPropertiesFromStyle(children, style)
+	link := ui.NewDocumentElement("standalone-link", style, children...)
+	if !interactive {
+		return link
+	}
+	link.Focusable = true
+	link.StyleHover = styled(func(style *ui.Style) {
+		style.SetForeground(ui.Teal)
+	})
+	link.StyleActive = styled(func(style *ui.Style) {
+		style.SetForeground(ui.Navy)
+	})
+	link.StyleFocus = styled(func(style *ui.Style) {
+		style.SetOutline(1, ui.Blue)
+		style.SetOutlineOffset(1)
+	})
+	applyPageInteractionStyles(link, node, ctx)
+	applyPageInteractionTextStyles(link)
+	if ctx != nil && ctx.openURL != nil {
+		link.OnClick = func() {
+			ctx.openURL(href)
+		}
+	}
+	bindLinkStatusHint(link, href, ctx)
+	return link
+}
+
+func nestedAnchorDisplayNode(node *Node, ctx *renderContext) *ui.DocumentNode {
+	if node == nil || node.Attrs == nil {
+		return nil
+	}
+	baseURL := ""
+	if ctx != nil {
+		baseURL = ctx.baseURL
+	}
+	href := resolveURL(baseURL, node.Attrs["href"])
+	if href == "" {
+		return genericBlockContainerNodeNoInteraction(node, ctx)
+	}
+	if display, ok := resolvedNodeDisplay(node, ctx); ok && display != ui.DisplayInline {
+		return blockStandaloneLinkNodeWithInteraction(node, href, ctx, false)
+	}
+	return genericBlockContainerNodeNoInteraction(node, ctx)
+}
+
+func applyStandaloneLinkStyle(style *ui.Style, node *Node, ctx *renderContext) {
+	if style == nil || node == nil {
+		return
+	}
+	resolved := ui.Style{}
+	applyPageNodeStyles(&resolved, node, ctx)
+	copyPageTextProperties(style, resolved)
+	if display, ok := resolved.GetDisplay(); ok {
+		style.SetDisplay(display)
+	}
+	if margin, ok := resolved.GetMargin(); ok {
+		style.SetMargin(margin.Top, margin.Right, margin.Bottom, margin.Left)
+	}
+	if overflowWrap, ok := resolved.GetOverflowWrap(); ok {
+		style.SetOverflowWrap(overflowWrap)
+	}
+	if wordBreak, ok := resolved.GetWordBreak(); ok {
+		style.SetWordBreak(wordBreak)
+	}
+	if align, ok := resolved.GetTextAlign(); ok {
+		style.SetTextAlign(align)
+	}
+	if whiteSpace, ok := resolved.GetWhiteSpace(); ok {
+		style.SetWhiteSpace(whiteSpace)
+	}
+}
+
+func standaloneLinkIsTextOnly(node *Node) bool {
+	if node == nil {
+		return false
+	}
+	hasText := false
+	for _, child := range node.Children {
+		if child == nil {
+			continue
+		}
+		switch child.Type {
+		case CommentNode:
+			continue
+		case TextNode:
+			if strings.TrimSpace(child.Text) != "" {
+				hasText = true
+			}
+		default:
+			return false
+		}
+	}
+	return hasText
+}
+
+func anchorHasStructuredContent(node *Node, ctx *renderContext) bool {
 	if node == nil {
 		return false
 	}
@@ -2311,7 +2521,7 @@ func anchorHasStructuredContent(node *Node) bool {
 		if child == nil {
 			continue
 		}
-		if child.Type == ElementNode && !nodeParticipatesInInlineFlow(child) {
+		if child.Type == ElementNode && !nodeParticipatesInInlineFlow(child, ctx) {
 			return true
 		}
 	}
@@ -2406,6 +2616,16 @@ func inheritDocumentNodeTextProperties(node *ui.DocumentNode, inherited ui.Style
 			node.Style.SetWhiteSpace(whiteSpace)
 		}
 	}
+	if overflowWrap, ok := inherited.GetOverflowWrap(); ok {
+		if _, set := node.Style.GetOverflowWrap(); !set {
+			node.Style.SetOverflowWrap(overflowWrap)
+		}
+	}
+	if wordBreak, ok := inherited.GetWordBreak(); ok {
+		if _, set := node.Style.GetWordBreak(); !set {
+			node.Style.SetWordBreak(wordBreak)
+		}
+	}
 	next := inherited
 	copyPageTextProperties(&next, node.Style)
 	for _, child := range node.Children {
@@ -2436,7 +2656,29 @@ func genericBlockContainerNode(node *Node, ctx *renderContext) *ui.DocumentNode 
 	return container
 }
 
+func genericBlockContainerNodeNoInteraction(node *Node, ctx *renderContext) *ui.DocumentNode {
+	if node == nil {
+		return nil
+	}
+	children := buildFlowNodes(node, ctx)
+	style := styled(func(style *ui.Style) {
+		style.SetDisplay(ui.DisplayBlock)
+		style.SetContain(ui.ContainPaint)
+		if node.Tag == "body" {
+			style.SetMargin(defaultBodyMargin)
+		}
+	})
+	if background := resolvedNodeBackgroundState(node, ctx); background.hasImage && (node.Tag == "html" || node.Tag == "body") {
+		applyPageNodeStylesExceptBackground(&style, node, ctx)
+	} else {
+		applyPageNodeStyles(&style, node, ctx)
+	}
+	inheritTextPropertiesFromStyle(children, style)
+	return ui.NewDocumentElement("container-"+node.Tag, style, children...)
+}
+
 func buildInlineNodes(node *Node, ctx *renderContext, baseStyle ui.Style) []*ui.DocumentNode {
+	ctx = anchorChildRenderContext(ctx, node)
 	builder := inlinePieceBuilder{}
 	inlineStyle := inlineTextStyleFromStyle(baseStyle)
 	for _, child := range node.Children {
@@ -2478,11 +2720,18 @@ func collectInlinePieces(builder *inlinePieceBuilder, node *Node, ctx *renderCon
 		builder.appendBreak(nextStyle)
 		return
 	case "a":
+		if ctx != nil && ctx.anchorDepth > 0 {
+			childCtx := anchorChildRenderContext(ctx, node)
+			for _, child := range node.Children {
+				collectInlinePieces(builder, child, childCtx, nextStyle)
+			}
+			return
+		}
 		baseURL := ""
 		if ctx != nil {
 			baseURL = ctx.baseURL
 		}
-		builder.appendLink(node, collectNodeText(node, false), resolveURL(baseURL, node.Attrs["href"]), nextStyle)
+		builder.appendLink(node, collectNodeTextPreserveEdges(node, false), resolveURL(baseURL, node.Attrs["href"]), nextStyle)
 		return
 	case "code":
 		builder.appendCode(collectNodeTextPreserve(node, false), inlineCodeTextStyle(nextStyle))
@@ -2543,6 +2792,8 @@ func (builder *inlinePieceBuilder) appendLink(node *Node, label string, href str
 	if builder == nil || strings.TrimSpace(href) == "" {
 		return
 	}
+	leadingSpace := len(label) > 0 && isSpaceByte(label[0])
+	trailingSpace := len(label) > 0 && isSpaceByte(label[len(label)-1])
 	label = normalizeBlockText(label)
 	if label == "" {
 		label = displayURL(href)
@@ -2550,11 +2801,14 @@ func (builder *inlinePieceBuilder) appendLink(node *Node, label string, href str
 	if label == "" {
 		return
 	}
-	if builder.needSpace && len(builder.pieces) > 0 {
+	if (builder.needSpace || leadingSpace) && len(builder.pieces) > 0 {
 		builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceText, text: " ", style: style})
 		builder.needSpace = false
 	}
 	builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceLink, text: label, href: href, node: node, style: style})
+	if trailingSpace {
+		builder.needSpace = true
+	}
 }
 
 func (builder *inlinePieceBuilder) appendCode(text string, style inlineTextStyle) {
@@ -2662,6 +2916,14 @@ func inlineTextStyleFromStyle(style ui.Style) inlineTextStyle {
 		value.whiteSpace = whiteSpace
 		value.hasWhiteSpace = true
 	}
+	if overflowWrap, ok := style.GetOverflowWrap(); ok {
+		value.overflowWrap = overflowWrap
+		value.hasOverflowWrap = true
+	}
+	if wordBreak, ok := style.GetWordBreak(); ok {
+		value.wordBreak = wordBreak
+		value.hasWordBreak = true
+	}
 	return value
 }
 
@@ -2685,6 +2947,12 @@ func (style inlineTextStyle) uiStyle() ui.Style {
 	}
 	if style.hasWhiteSpace {
 		value.SetWhiteSpace(style.whiteSpace)
+	}
+	if style.hasOverflowWrap {
+		value.SetOverflowWrap(style.overflowWrap)
+	}
+	if style.hasWordBreak {
+		value.SetWordBreak(style.wordBreak)
 	}
 	return value
 }
@@ -2713,6 +2981,14 @@ func copyPageTextPropertiesToInlineStyle(target *inlineTextStyle, source ui.Styl
 	if whiteSpace, ok := source.GetWhiteSpace(); ok {
 		target.whiteSpace = whiteSpace
 		target.hasWhiteSpace = true
+	}
+	if overflowWrap, ok := source.GetOverflowWrap(); ok {
+		target.overflowWrap = overflowWrap
+		target.hasOverflowWrap = true
+	}
+	if wordBreak, ok := source.GetWordBreak(); ok {
+		target.wordBreak = wordBreak
+		target.hasWordBreak = true
 	}
 }
 
@@ -2867,7 +3143,7 @@ func resolveSemanticFontPath(current string, preferMono bool, wantBold bool, wan
 			return current
 		}
 	}
-	if current != "" && !preferMono {
+	if current != "" && !preferMono && !wantBold && !wantItalic {
 		return current
 	}
 	return defaultSemanticFontVariantPath(preferMono, targetBold, targetItalic)
@@ -2940,6 +3216,9 @@ func inlineTextNode(text string, baseStyle ui.Style) *ui.DocumentNode {
 	}
 	style := baseStyle
 	style.SetDisplay(ui.DisplayInline)
+	if strings.TrimSpace(text) == "" {
+		style.SetWhiteSpace(ui.WhiteSpacePre)
+	}
 	return ui.NewDocumentText(text, style)
 }
 
@@ -2999,7 +3278,7 @@ func inlineLinkNode(label string, href string, node *Node, baseStyle ui.Style, c
 		return nil
 	}
 	style := baseStyle
-	style.SetDisplay(ui.DisplayInlineBlock)
+	style.SetDisplay(ui.DisplayInline)
 	style.SetForeground(ui.Blue)
 	style.SetTextDecoration(ui.TextDecorationUnderline)
 	if node != nil {
@@ -3012,7 +3291,14 @@ func inlineLinkNode(label string, href string, node *Node, baseStyle ui.Style, c
 	if node != nil {
 		applyPageTextProperties(&textStyle, node, ctx)
 	}
-	link := ui.NewDocumentElement("inline-link", style, inlineTextTokens(label, textStyle)...)
+	children := []*ui.DocumentNode(nil)
+	if node != nil {
+		children = buildInlineNodes(node, ctx, textStyle)
+	}
+	if len(children) == 0 {
+		children = inlineTextTokens(label, textStyle)
+	}
+	link := ui.NewDocumentElement("inline-link", style, children...)
 	link.Focusable = true
 	link.StyleHover = styled(func(style *ui.Style) {
 		style.SetForeground(ui.Teal)
@@ -3227,47 +3513,29 @@ func applySimpleTableRowLayout(row *ui.DocumentNode, source *Node, ctx *renderCo
 	if !leftOK || !rightOK || leftWidth <= 0 || rightWidth <= 0 {
 		return
 	}
-	leftNode := nthTableCellElement(source, 0)
-	centerNode := nthTableCellElement(source, 1)
-	rightNode := nthTableCellElement(source, 2)
-	leftHeight := estimateDocumentNodeOuterHeight(left)
-	centerHeight := estimateDocumentNodeOuterHeight(center)
-	rightHeight := estimateDocumentNodeOuterHeight(right)
-	rowHeight := leftHeight
-	if rowHeight < centerHeight {
-		rowHeight = centerHeight
-	}
-	if rowHeight < rightHeight {
-		rowHeight = rightHeight
-	}
-	row.Style.SetPosition(ui.PositionRelative)
-	if rowHeight <= 0 {
-		if leftWidth > rightWidth {
-			rowHeight = leftWidth
-		} else {
-			rowHeight = rightWidth
-		}
-	}
-	row.Style.SetMinHeight(rowHeight)
+	row.Style.SetDisplay(ui.DisplayFlex)
+	row.Style.SetAlignItems(ui.AlignItemsCenter)
+	row.Style.SetPosition(ui.PositionStatic)
 
-	left.Style.SetPosition(ui.PositionAbsolute)
-	left.Style.SetLeft(0)
-	left.Style.SetTop(tableCellVerticalOffset(resolvedNodeVerticalAlign(leftNode, ctx), leftHeight, rowHeight))
+	left.Style.SetDisplay(ui.DisplayBlock)
+	left.Style.SetPosition(ui.PositionStatic)
 	left.Style.SetMargin(0)
+	left.Style.SetFlexGrowFloat(0)
 
-	right.Style.SetPosition(ui.PositionAbsolute)
-	right.Style.SetRight(0)
-	right.Style.SetTop(tableCellVerticalOffset(resolvedNodeVerticalAlign(rightNode, ctx), rightHeight, rowHeight))
+	right.Style.SetDisplay(ui.DisplayBlock)
+	right.Style.SetPosition(ui.PositionStatic)
 	right.Style.SetMargin(0)
+	right.Style.SetFlexGrowFloat(0)
 
 	center.Style.SetDisplay(ui.DisplayBlock)
-	center.Style.SetMarginLeft(leftWidth)
-	center.Style.SetMarginRight(rightWidth)
-	if centerHeight > 0 {
-		center.Style.SetMinHeight(centerHeight)
-	}
-	if top := tableCellVerticalOffset(resolvedNodeVerticalAlign(centerNode, ctx), centerHeight, rowHeight); top > 0 {
-		center.Style.SetMarginTop(top)
+	center.Style.SetPosition(ui.PositionStatic)
+	center.Style.SetMargin(0)
+	center.Style.SetFlexGrowFloat(1)
+
+	if align := resolvedNodeVerticalAlign(nthTableCellElement(source, 1), ctx); align == "top" {
+		row.Style.SetAlignItems(ui.AlignItemsFlexStart)
+	} else if align == "bottom" {
+		row.Style.SetAlignItems(ui.AlignItemsFlexEnd)
 	}
 }
 
@@ -3341,20 +3609,6 @@ func nthTableCellElement(row *Node, index int) *Node {
 	return nil
 }
 
-func tableCellVerticalOffset(align string, cellHeight int, rowHeight int) int {
-	if cellHeight <= 0 || rowHeight <= cellHeight {
-		return 0
-	}
-	switch align {
-	case "bottom":
-		return rowHeight - cellHeight
-	case "middle":
-		return (rowHeight - cellHeight) / 2
-	default:
-		return 0
-	}
-}
-
 func estimateDocumentNodeOuterHeight(node *ui.DocumentNode) int {
 	if node == nil {
 		return 0
@@ -3374,7 +3628,7 @@ func estimateDocumentNodeOuterHeight(node *ui.DocumentNode) int {
 		}
 	} else if len(node.Children) > 0 {
 		display, _ := node.Style.GetDisplay()
-		if display == ui.DisplayBlock {
+		if display == ui.DisplayBlock || display == ui.DisplayFlex {
 			for _, child := range node.Children {
 				childHeight := estimateDocumentNodeOuterHeight(child)
 				if childHeight > 0 {

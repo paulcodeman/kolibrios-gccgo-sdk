@@ -421,10 +421,7 @@ func (document *Document) layoutElementNode(ctx LayoutContext, node *DocumentNod
 			if child == nil {
 				continue
 			}
-			right := child.Bounds.X + child.Bounds.Width
-			if !child.PaintBounds.Empty() {
-				right = child.PaintBounds.X + child.PaintBounds.Width
-			}
+			right := fragmentOuterRight(child)
 			if right > maxRight {
 				maxRight = right
 			}
@@ -432,17 +429,20 @@ func (document *Document) layoutElementNode(ctx LayoutContext, node *DocumentNod
 		autoWidth += maxRight - contentX
 		plan.width = clampWidthForStyle(style, autoWidth)
 	}
-	if display != DisplayFlex && (displayUsesBlockFlow(display) || plan.widthSet) {
-		finalContentWidth := plan.width - insets.Left - insets.Right
-		if finalContentWidth < 0 {
-			finalContentWidth = 0
+	if display != DisplayFlex {
+		if displayUsesBlockFlow(display) || plan.widthSet {
+			finalContentWidth := plan.width - insets.Left - insets.Right
+			if finalContentWidth < 0 {
+				finalContentWidth = 0
+			}
+			alignInlineChildFragments(style, Rect{
+				X:      contentX,
+				Y:      contentY,
+				Width:  finalContentWidth,
+				Height: container.Height,
+			}, children)
 		}
-		alignInlineChildFragments(style, Rect{
-			X:      contentX,
-			Y:      contentY,
-			Width:  finalContentWidth,
-			Height: container.Height,
-		}, children)
+		alignInlineChildBaselines(children)
 	}
 	if plan.position == PositionAbsolute && !plan.topSet && plan.bottomSet {
 		finalY := container.Y + container.Height - plan.bottom - plan.margin.Bottom - height
@@ -539,15 +539,146 @@ func alignInlineChildFragments(style Style, content Rect, children []*Fragment) 
 			lineStart = index
 			lineY = child.Bounds.Y
 		}
-		right := child.Bounds.X + child.Bounds.Width
-		if margin, ok := resolveSpacingNormalized(child.Style.margin); ok {
-			right += margin.Right
-		}
+		right := fragmentOuterRight(child)
 		if right > lineRight {
 			lineRight = right
 		}
 	}
 	flush(len(children))
+}
+
+func fragmentOuterRight(fragment *Fragment) int {
+	if fragment == nil {
+		return 0
+	}
+	right := fragment.Bounds.X + fragment.Bounds.Width
+	if !fragment.PaintBounds.Empty() {
+		paintRight := fragment.PaintBounds.X + fragment.PaintBounds.Width
+		if paintRight > right {
+			right = paintRight
+		}
+	}
+	if margin, ok := resolveSpacingNormalized(fragment.Style.margin); ok {
+		right += margin.Right
+	}
+	return right
+}
+
+func alignInlineChildBaselines(children []*Fragment) {
+	if len(children) == 0 {
+		return
+	}
+	lineStart := -1
+	lineY := 0
+	flush := func(end int) {
+		if lineStart < 0 || end <= lineStart {
+			lineStart = -1
+			return
+		}
+		lineBottom := lineY
+		lineBaseline := lineY
+		haveLine := false
+		for _, child := range children[lineStart:end] {
+			if child == nil {
+				continue
+			}
+			bottom := child.Bounds.Y + child.Bounds.Height
+			baseline := child.Bounds.Y + fragmentBaselineOffset(child)
+			if !haveLine {
+				lineBottom = bottom
+				lineBaseline = baseline
+				haveLine = true
+				continue
+			}
+			if bottom > lineBottom {
+				lineBottom = bottom
+			}
+			if baseline > lineBaseline {
+				lineBaseline = baseline
+			}
+		}
+		if !haveLine {
+			lineStart = -1
+			return
+		}
+		for _, child := range children[lineStart:end] {
+			if child == nil {
+				continue
+			}
+			targetY := lineBaseline - fragmentBaselineOffset(child)
+			maxY := lineBottom - child.Bounds.Height
+			if targetY > maxY {
+				targetY = maxY
+			}
+			if targetY <= child.Bounds.Y {
+				continue
+			}
+			shiftFragmentTree(child, 0, targetY-child.Bounds.Y)
+		}
+		lineStart = -1
+	}
+	for index, child := range children {
+		if child == nil {
+			continue
+		}
+		if effectivePosition(child.Style) == PositionAbsolute {
+			flush(index)
+			continue
+		}
+		childKind := DocumentNodeElement
+		if child.Node != nil {
+			childKind = child.Node.Kind
+		} else if child.Kind == FragmentKindText {
+			childKind = DocumentNodeText
+		}
+		childDisplay := documentDisplay(child.Style, childKind)
+		if displayUsesBlockFlow(childDisplay) {
+			flush(index)
+			continue
+		}
+		if lineStart >= 0 && child.Bounds.Y != lineY {
+			flush(index)
+		}
+		if lineStart < 0 {
+			lineStart = index
+			lineY = child.Bounds.Y
+		}
+	}
+	flush(len(children))
+}
+
+func fragmentBaselineOffset(fragment *Fragment) int {
+	if fragment == nil {
+		return 0
+	}
+	if fragment.Kind == FragmentKindText {
+		metrics := fragment.metrics
+		height := metrics.height
+		if height <= 0 {
+			metrics = defaultFontMetrics()
+			height = metrics.height
+		}
+		ascent := metrics.ascent
+		if ascent <= 0 || ascent > height {
+			ascent = height * 3 / 4
+		}
+		lineHeight := fragment.lineHeight
+		if lineHeight <= 0 {
+			lineHeight = lineHeightForStyle(fragment.Style, height)
+		}
+		return boxInsets(fragment.Style).Top + textLineTopInset(lineHeight, height) + ascent
+	}
+	for i := len(fragment.Children) - 1; i >= 0; i-- {
+		child := fragment.Children[i]
+		if child == nil || effectivePosition(child.Style) == PositionAbsolute {
+			continue
+		}
+		return child.Bounds.Y - fragment.Bounds.Y + fragmentBaselineOffset(child)
+	}
+	if fragment.Bounds.Height > 0 {
+		return fragment.Bounds.Height
+	}
+	return 0
 }
 
 func (document *Document) layoutTextInputNode(ctx LayoutContext, node *DocumentNode, style Style, display DisplayMode, container Rect, flowX int, flowY int) *Fragment {

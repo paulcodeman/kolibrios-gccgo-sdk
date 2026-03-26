@@ -1005,6 +1005,9 @@ func applyPageInteractionStyles(target *ui.DocumentNode, node *Node, ctx *render
 	if target == nil || node == nil || ctx == nil || ctx.stylesheet == nil {
 		return
 	}
+	if ctx.anchorDepth > 0 {
+		return
+	}
 	layout := ctx.cssLayoutContext()
 	hover, active, focus := ctx.stylesheet.interactionStyles(node, layout)
 	if !hover.IsZero() {

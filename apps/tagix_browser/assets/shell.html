@@ -8,8 +8,8 @@ body{background:#f1f3f4}
 #browser-controls{display:flex;align-items:center;margin:0}
 .browser-button{display:inline-block;width:30px;height:28px;margin:0 6px 0 0;padding:5px 0;border:1px solid #c3cad2;border-radius:8px;background:#e5e9ee;color:#202124;font-size:16px;line-height:18px;text-align:center;box-sizing:border-box}
 #browser-address{display:block;flex-grow:1;padding:7px 12px;border:1px solid #808a96;border-radius:10px;background:#fff;color:#202124;font-size:13px;line-height:18px;min-width:220px;box-sizing:border-box}
-#browser-page-frame{display:block;width:100%;margin:8px 0 0;border:1px solid #d7dee7;border-radius:16px;background:#fff;min-height:280px;overflow:auto;box-sizing:border-box}
-#browser-status-bar{display:block;margin:8px 0 0;padding:4px 10px;border:1px solid #d7dee7;background:#f8f9fa;color:#5f6368;box-sizing:border-box}
+#browser-page-frame{display:block;width:100%;margin:8px 0 0;border-top:1px solid #d7dee7;background:#fff;min-height:280px;overflow:auto;box-sizing:border-box}
+#browser-status-bar{display:block;padding:4px 10px;border-top:1px solid #d7dee7;background:#f8f9fa;color:#5f6368;box-sizing:border-box}
 #browser-status{display:block;margin:0;font-size:11px;line-height:14px;color:#5f6368}
 </style>
 </head>
@@ -24,8 +24,8 @@ body{background:#f1f3f4}
 <input id="browser-address" data-role="address" value="">
 </nav>
 </section>
+</header>
 <iframe id="browser-page-frame" data-role="page-frame" src="about:tagix"></iframe>
 <footer id="browser-status-bar" data-role="status-bar"><small id="browser-status" data-role="status">Ready</small></footer>
-</header>
 </body>
 </html>

@@ -141,6 +141,10 @@ func applyInlineStyleRule(style *ui.Style, name string, value string) {
 		style.SetTextDecorationString(value)
 	case "white-space":
 		style.SetWhiteSpaceString(value)
+	case "overflow-wrap", "word-wrap":
+		style.SetOverflowWrapString(value)
+	case "word-break":
+		style.SetWordBreakString(value)
 	case "overflow":
 		style.SetOverflowString(value)
 	case "overflow-x":
@@ -156,6 +160,9 @@ func applyInlineStyleRule(style *ui.Style, name string, value string) {
 			style.SetOpacityFloat(parsed)
 		}
 	case "box-shadow":
+		if applyHTMLInsetBorderShadow(style, value) {
+			return
+		}
 		if shadow, ok := parseHTMLBoxShadow(value); ok {
 			style.SetShadow(shadow)
 		}
@@ -296,6 +303,8 @@ func applyInlineStyleRule(style *ui.Style, name string, value string) {
 		if path := parseHTMLFontPath(value); path != "" {
 			style.SetFontPath(path)
 		}
+	case "font-weight":
+		applyHTMLFontWeight(style, value)
 	case "font-size":
 		if parsed, ok := parseHTMLLength(value); ok {
 			style.SetFontSize(parsed)
@@ -311,6 +320,87 @@ func applyInlineStyleRule(style *ui.Style, name string, value string) {
 	case "outline-offset":
 		if parsed, ok := parseHTMLLength(value); ok {
 			style.SetOutlineOffset(parsed)
+		}
+	}
+}
+
+func applyHTMLInsetBorderShadow(style *ui.Style, value string) bool {
+	if style == nil {
+		return false
+	}
+	tokens := splitStyleValueTokens(value)
+	if len(tokens) == 0 {
+		return false
+	}
+	hasInset := false
+	lengths := make([]int, 0, 4)
+	colorSet := false
+	color := kos.Color(0)
+	for _, token := range tokens {
+		lower := strings.ToLower(strings.TrimSpace(token))
+		switch {
+		case lower == "":
+			continue
+		case lower == "inset":
+			hasInset = true
+		default:
+			if parsed, ok := parseHTMLColor(lower); ok {
+				color = parsed
+				colorSet = true
+				continue
+			}
+			if length, ok := parseHTMLLength(lower); ok {
+				lengths = append(lengths, length)
+				continue
+			}
+		}
+	}
+	if !hasInset || len(lengths) < 4 {
+		return false
+	}
+	if lengths[0] != 0 || lengths[1] != 0 || lengths[2] != 0 || lengths[3] <= 0 {
+		return false
+	}
+	if !colorSet {
+		color = 0xBFBFBF
+	}
+	if _, ok := style.GetOutlineWidth(); !ok {
+		style.SetOutline(lengths[3], color)
+		style.SetOutlineOffset(-lengths[3])
+		return true
+	}
+	if _, ok := style.GetOutlineColor(); !ok {
+		style.SetOutlineColor(color)
+		if _, offsetSet := style.GetOutlineOffset(); !offsetSet {
+			style.SetOutlineOffset(-lengths[3])
+		}
+		return true
+	}
+	if _, offsetSet := style.GetOutlineOffset(); !offsetSet {
+		style.SetOutlineOffset(-lengths[3])
+		return true
+	}
+	return false
+}
+
+func applyHTMLFontWeight(style *ui.Style, value string) {
+	if style == nil {
+		return
+	}
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "bold", "bolder", "600", "700", "800", "900":
+		style.SetFontPath(resolveSemanticFontPath(styleFontPath(*style), false, true, false))
+	case "normal", "lighter", "100", "200", "300", "400", "500":
+		current := styleFontPath(*style)
+		family, _, italic, bundled := bundledFontVariantInfo(current)
+		if bundled {
+			if path := lookupBundledFontVariantPath(family, false, italic); path != "" {
+				style.SetFontPath(path)
+				return
+			}
+		}
+		if current == "" {
+			style.SetFontPath(defaultSemanticFontVariantPath(false, false, italic))
 		}
 	}
 }

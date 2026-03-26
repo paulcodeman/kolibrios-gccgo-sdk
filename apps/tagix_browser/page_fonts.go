@@ -54,21 +54,7 @@ func indexFontDirectory(registry []fontFamilyEntry, dir string) []fontFamilyEntr
 		registry = []fontFamilyEntry{}
 	}
 	register := func(key string, path string) {
-		key = strings.TrimSpace(key)
-		path = strings.TrimSpace(path)
-		if key == "" || path == "" {
-			return
-		}
-		for index := range registry {
-			if registry[index].key != key {
-				continue
-			}
-			if registry[index].path == "" {
-				registry[index].path = path
-			}
-			return
-		}
-		registry = append(registry, fontFamilyEntry{key: key, path: path})
+		registry = registerFontFamilyPath(registry, key, path)
 	}
 	start := uint32(0)
 	for {
@@ -157,10 +143,43 @@ func registerFontFamilyPath(registry []fontFamilyEntry, key string, path string)
 		if registry[index].key != key {
 			continue
 		}
-		registry[index].path = path
+		if preferFontFamilyPath(key, registry[index].path, path) {
+			registry[index].path = path
+		}
 		return registry
 	}
 	return append(registry, fontFamilyEntry{key: key, path: path})
+}
+
+func preferFontFamilyPath(key string, current string, candidate string) bool {
+	current = strings.TrimSpace(current)
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		return false
+	}
+	if current == "" {
+		return true
+	}
+	return fontFamilyPathRank(key, candidate) > fontFamilyPathRank(key, current)
+}
+
+func fontFamilyPathRank(key string, path string) int {
+	key = strings.TrimSpace(key)
+	path = strings.TrimSpace(path)
+	if key == "" || path == "" {
+		return 0
+	}
+	stem := normalizeCSSFontFamilyName(strings.TrimSuffix(filepathpkg.Base(path), filepathpkg.Ext(path)))
+	switch stem {
+	case key:
+		return 4
+	case key + "regular":
+		return 3
+	case key + "roman", key + "book", key + "normal", key + "medium":
+		return 2
+	default:
+		return 1
+	}
 }
 
 func (app *App) collectDocumentFontFaces(registry []fontFamilyEntry, source string, baseURL string) []fontFamilyEntry {
