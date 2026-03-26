@@ -458,7 +458,7 @@ func (c *Conn) pushFramesLoop() {
 		}
 	}()
 
-	var pending bool
+	var pendingForceFull bool
 	var havePending bool
 	var lastSentVersion uint32
 	for {
@@ -469,18 +469,25 @@ func (c *Conn) pushFramesLoop() {
 			}
 			update, version := c.currentPublished()
 			if update == nil || update.Frame == nil {
-				_ = req
-				pending = true
+				pendingForceFull = pendingForceFull || !req.incremental()
 				havePending = true
 				continue
 			}
-			if req.incremental() && version == lastSentVersion {
-				c.pushEmptyUpdate()
-			} else {
-				c.pushFrameUpdate(update, c.currentFormat(), !req.incremental())
+			if req.incremental() {
+				if version == lastSentVersion {
+					havePending = true
+					continue
+				}
+				c.pushFrameUpdate(update, c.currentFormat(), false)
 				lastSentVersion = version
+				havePending = false
+				pendingForceFull = false
+				continue
 			}
+			c.pushFrameUpdate(update, c.currentFormat(), true)
+			lastSentVersion = version
 			havePending = false
+			pendingForceFull = false
 		case update, ok := <-c.feed:
 			if !ok {
 				return
@@ -488,19 +495,18 @@ func (c *Conn) pushFramesLoop() {
 			if update == nil || update.Frame == nil {
 				continue
 			}
-			if havePending && pending {
+			if havePending {
 				current, version := c.currentPublished()
 				if current == nil || current.Frame == nil {
 					continue
 				}
 				if version == lastSentVersion {
-					c.pushEmptyUpdate()
-				} else {
-					c.pushFrameUpdate(current, c.currentFormat(), false)
-					lastSentVersion = version
+					continue
 				}
-				pending = false
+				c.pushFrameUpdate(current, c.currentFormat(), pendingForceFull)
+				lastSentVersion = version
 				havePending = false
+				pendingForceFull = false
 			}
 		}
 	}
@@ -532,7 +538,7 @@ func (c *Conn) pushFrameUpdate(update *FrameUpdate, format PixelFormat, forceFul
 		panic("this code is lazy and assumes images with Min bounds at 0,0")
 	}
 	rect := update.Rect
-	if forceFull || rect.Empty() {
+	if forceFull {
 		rect = b
 	} else {
 		rect = rect.Intersect(b)

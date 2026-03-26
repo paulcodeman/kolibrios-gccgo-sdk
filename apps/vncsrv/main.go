@@ -582,7 +582,7 @@ func convertRaw32ToRGBA(dst []byte, src []byte, width int, height int, pitch int
 }
 
 func feedFrame(conn *rfb.Conn, update *rfb.FrameUpdate) {
-	if conn == nil || update == nil || update.Frame == nil {
+	if conn == nil || update == nil || update.Frame == nil || update.Rect.Empty() {
 		return
 	}
 	conn.PublishFrame(update)
