@@ -143,7 +143,8 @@ func (c *TCPConn) Write(b []byte) (int, error) {
 			return written, err
 		}
 		if n == 0 {
-			return written, io.ErrShortWrite
+			spins = yieldSocketWait(spins)
+			continue
 		}
 		spins = 0
 		written += n

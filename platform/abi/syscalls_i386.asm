@@ -80,6 +80,10 @@ global go_0kos.SetCursorRaw
 global go_0kos.DeleteCursorRaw
 global go_0kos.GetMouseScrollData
 global go_0kos.GetPixelColorFromScreenRaw
+global go_0kos.ReadScreenAreaRaw
+global go_0kos.GetGraphicsBitsPerPixelRaw
+global go_0kos.GetGraphicsBytesPerLineRaw
+global go_0kos.CopyGraphicsBufferRaw
 global go_0kos.LoadCursorWithEncoding
 global go_0kos.SetWindowLayerBehaviourRaw
 global go_0kos.ClipboardSlotCountRaw
@@ -179,6 +183,10 @@ KOS_ALIAS SetCursorRaw
 KOS_ALIAS DeleteCursorRaw
 KOS_ALIAS GetMouseScrollData
 KOS_ALIAS GetPixelColorFromScreenRaw
+KOS_ALIAS ReadScreenAreaRaw
+KOS_ALIAS GetGraphicsBitsPerPixelRaw
+KOS_ALIAS GetGraphicsBytesPerLineRaw
+KOS_ALIAS CopyGraphicsBufferRaw
 KOS_ALIAS LoadCursorWithEncoding
 KOS_ALIAS ClipboardSlotCountRaw
 KOS_ALIAS ClipboardSlotDataRaw
@@ -1197,6 +1205,73 @@ go_0kos.GetPixelColorFromScreenRaw:
     mov ebx, [ebp+8]
     int 0x40
     pop ebx
+    pop ebp
+    ret
+
+go_0kos.ReadScreenAreaRaw:
+    push ebp
+    mov ebp, esp
+    push ebx
+    mov eax, 36
+    mov ebx, [ebp+8]
+    mov ecx, [ebp+12]
+    shl ecx, 16
+    mov cx, [ebp+16]
+    mov edx, [ebp+20]
+    shl edx, 16
+    mov dx, [ebp+24]
+    int 0x40
+    pop ebx
+    pop ebp
+    ret
+
+go_0kos.GetGraphicsBitsPerPixelRaw:
+    push ebx
+    mov eax, 61
+    mov ebx, 2
+    int 0x40
+    pop ebx
+    ret
+
+go_0kos.GetGraphicsBytesPerLineRaw:
+    push ebx
+    mov eax, 61
+    mov ebx, 3
+    int 0x40
+    pop ebx
+    ret
+
+go_0kos.CopyGraphicsBufferRaw:
+    push ebp
+    mov ebp, esp
+    push esi
+    push edi
+    mov edi, [ebp+8]
+    mov esi, [ebp+12]
+    mov edx, [ebp+16]
+    mov ecx, edx
+    shr ecx, 2
+    jz .copy_graphics_tail
+.copy_graphics_dword:
+    mov eax, [gs:esi]
+    mov [edi], eax
+    add esi, 4
+    add edi, 4
+    dec ecx
+    jnz .copy_graphics_dword
+.copy_graphics_tail:
+    and edx, 3
+    jz .copy_graphics_done
+.copy_graphics_byte:
+    mov al, [gs:esi]
+    mov [edi], al
+    inc esi
+    inc edi
+    dec edx
+    jnz .copy_graphics_byte
+.copy_graphics_done:
+    pop edi
+    pop esi
     pop ebp
     ret
 

@@ -82,6 +82,10 @@ KOS_ALIAS SetCursorRaw
 KOS_ALIAS DeleteCursorRaw
 KOS_ALIAS GetMouseScrollData
 KOS_ALIAS GetPixelColorFromScreenRaw
+KOS_ALIAS ReadScreenAreaRaw
+KOS_ALIAS GetGraphicsBitsPerPixelRaw
+KOS_ALIAS GetGraphicsBytesPerLineRaw
+KOS_ALIAS CopyGraphicsBufferRaw
 KOS_ALIAS LoadCursorWithEncoding
 KOS_ALIAS WriteText
 KOS_ALIAS WriteTextEx

@@ -351,6 +351,18 @@ func GetMouseScrollData() uint32
 // offset = y*screen_width + x
 func GetPixelColorFromScreenRaw(offset int) uint32
 
+// Function 36 - read a screen area into a packed BGR byte buffer.
+func ReadScreenAreaRaw(buffer *byte, width int, height int, x int, y int)
+
+// Function 61, subfunction 2 - get graphics mode bits per pixel.
+func GetGraphicsBitsPerPixelRaw() uint32
+
+// Function 61, subfunction 3 - get graphics mode bytes per scanline.
+func GetGraphicsBytesPerLineRaw() uint32
+
+// Runtime helper - copy bytes from the graphics screen buffer via gs.
+func CopyGraphicsBufferRaw(dst *byte, screenOffset uint32, size uint32)
+
 // Function 37, subfunction 8 - load a cursor from a path with explicit string encoding.
 func LoadCursorWithEncoding(encoding StringEncoding, path string) uint32
 

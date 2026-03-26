@@ -150,6 +150,10 @@ func SetCursorRaw(handle uint32) uint32                                  { retur
 func DeleteCursorRaw(handle uint32)                                      {}
 func GetMouseScrollData() uint32                                         { return 0 }
 func GetPixelColorFromScreenRaw(offset int) uint32                       { return 0 }
+func ReadScreenAreaRaw(buffer *byte, width int, height int, x int, y int) {}
+func GetGraphicsBitsPerPixelRaw() uint32                                 { return 0 }
+func GetGraphicsBytesPerLineRaw() uint32                                 { return 0 }
+func CopyGraphicsBufferRaw(dst *byte, screenOffset uint32, size uint32)  {}
 func LoadCursorWithEncoding(encoding StringEncoding, path string) uint32 { return 0 }
 func writeTextRaw(x int, y int, color uint32, text *byte, textLen int)
 
