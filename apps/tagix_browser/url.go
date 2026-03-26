@@ -11,17 +11,10 @@ func normalizeURL(value string) string {
 	if value == "" {
 		return value
 	}
-	lower := strings.ToLower(value)
-	if strings.HasPrefix(lower, "about:") {
-		end := len(value)
-		if pos := indexByte(value, '?'); pos >= 0 && pos < end {
-			end = pos
-		}
-		if pos := indexByte(value, '#'); pos >= 0 && pos < end {
-			end = pos
-		}
-		return strings.ToLower(value[:end]) + value[end:]
+	if normalized, ok := normalizeBuiltinURL(value); ok {
+		return normalized
 	}
+	lower := strings.ToLower(value)
 	if strings.HasPrefix(lower, "file://") {
 		if path, ok := fileURLPath(value); ok {
 			return fileURLFromPath(path)
@@ -45,6 +38,9 @@ func resolveURL(baseURL string, href string) string {
 	lower := toLowerASCII(href)
 	if strings.HasPrefix(lower, "javascript:") || strings.HasPrefix(lower, "mailto:") {
 		return ""
+	}
+	if normalized, ok := normalizeBuiltinURL(href); ok {
+		return normalized
 	}
 	if strings.Contains(href, "://") {
 		return href
@@ -177,6 +173,39 @@ func cleanRelative(path string) string {
 	return path
 }
 
+func normalizeBuiltinURL(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", false
+	}
+	end := len(value)
+	if pos := indexByte(value, '?'); pos >= 0 && pos < end {
+		end = pos
+	}
+	if pos := indexByte(value, '#'); pos >= 0 && pos < end {
+		end = pos
+	}
+	base := strings.ToLower(value[:end])
+	switch base {
+	case legacyHomeURL:
+		base = defaultURL
+	case legacyFormsURL:
+		base = tagixFormsURL
+	}
+	if !strings.HasPrefix(base, "tagix://") {
+		return "", false
+	}
+	return base + value[end:], true
+}
+
+func builtinPageKey(value string) string {
+	normalized, ok := normalizeBuiltinURL(value)
+	if !ok {
+		return ""
+	}
+	return stripFragment(stripQuery(normalized))
+}
+
 func resolveStartupTarget(args []string) (string, string, bool) {
 	for _, raw := range args {
 		value := strings.TrimSpace(raw)
@@ -184,11 +213,11 @@ func resolveStartupTarget(args []string) (string, string, bool) {
 			continue
 		}
 		if path, ok := localHTMLPathFromArg(value); ok {
-			return defaultURL, path, false
+			return browserHomeURL, path, false
 		}
 		return normalizeURL(value), "", false
 	}
-	return defaultURL, "", false
+	return browserHomeURL, "", false
 }
 
 func localHTMLPathFromArg(value string) (string, bool) {

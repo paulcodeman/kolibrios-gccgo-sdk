@@ -91,7 +91,7 @@ func TestInlineLinkNodePreservesInlineImageChildren(t *testing.T) {
 	image.Parent = anchor
 	text.Parent = anchor
 
-	link := inlineLinkNode("Telegram", "https://example.com/social", anchor, ui.Style{}, nil)
+	link := inlineLinkNode("Telegram", "https://example.com/social", anchor, ui.Style{}, ui.Style{}, nil)
 	if link == nil {
 		t.Fatalf("expected inline link")
 	}
@@ -100,6 +100,47 @@ func TestInlineLinkNodePreservesInlineImageChildren(t *testing.T) {
 	}
 	if got := link.Children[0].Name; got != "inline-image" {
 		t.Fatalf("first child mismatch: got %q want %q", got, "inline-image")
+	}
+}
+
+func TestBuildInlineNodesPromotesMarginedInlineAnchorsToInlineBlock(t *testing.T) {
+	doc := Parse(`<!doctype html><html><head><style>
+.p-socials a{margin:1em 1em;text-decoration:none}
+.p-socials br{display:none}
+.p-socials img{height:1em;margin-right:.5em;margin-bottom:-0.15em}
+</style></head><body><p class="p-socials"><a href="https://t.me/kolibrios_news"><img src="https://example.com/i_telegram.png" alt="Telegram">Telegram </a><br><a href="https://discord.com/invite/demo">Discord </a></p></body></html>`)
+	ctx := &renderContext{
+		stylesheet:     parseDocumentStylesheet(doc),
+		viewportWidth:  910,
+		viewportHeight: 600,
+	}
+	paragraph := findFirstNodeByTag(doc, "p")
+	if paragraph == nil {
+		t.Fatalf("expected paragraph node")
+	}
+
+	nodes := buildInlineNodes(paragraph, ctx, paragraphInlineStyle())
+	if len(nodes) != 2 {
+		t.Fatalf("inline node count mismatch: got %d want 2", len(nodes))
+	}
+	for index, node := range nodes {
+		if node == nil || node.Name != "inline-link" {
+			t.Fatalf("node %d mismatch: got %#v", index, node)
+		}
+		if display, ok := node.Style.GetDisplay(); !ok || display != ui.DisplayInlineBlock {
+			t.Fatalf("node %d display mismatch: got %v set=%v", index, display, ok)
+		}
+		margin, ok := node.Style.GetMargin()
+		if !ok || margin.Left != 16 || margin.Right != 16 {
+			t.Fatalf("node %d margin mismatch: got %+v set=%v", index, margin, ok)
+		}
+	}
+	image := nodes[0].Children[0]
+	if image == nil || image.Name != "inline-image" {
+		t.Fatalf("first link image mismatch: got %#v", image)
+	}
+	if margin, ok := image.Style.GetMargin(); !ok || margin.Right != 8 {
+		t.Fatalf("first link image margin mismatch: got %+v set=%v", margin, ok)
 	}
 }
 

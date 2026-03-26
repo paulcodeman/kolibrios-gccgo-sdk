@@ -11,19 +11,7 @@ import (
 	"unicode/utf8"
 )
 
-const (
-	webSansFontPath              = "assets/fonts/Go.ttf"
-	webSansBoldFontPath          = "assets/fonts/GoBold.ttf"
-	webSansItalicFontPath        = "assets/fonts/GoItalic.ttf"
-	webSansBoldItalicFontPath    = "assets/fonts/GoBoldItalic.ttf"
-	webMonoFontPath              = "assets/fonts/GoMono.ttf"
-	webMonoBoldFontPath          = "assets/fonts/GoMonoBold.ttf"
-	webMonoItalicFontPath        = "assets/fonts/GoMonoItalic.ttf"
-	webMonoBoldItalicFontPath    = "assets/fonts/GoMonoBoldItalic.ttf"
-	webIconFontPath              = "assets/fonts/MaterialDesignIconsDesktop.ttf"
-	webShellHTML                 = "assets/shell.html"
-	pageBackgroundMinTiledHeight = 8192
-)
+const pageBackgroundMinTiledHeight = 8192
 
 const (
 	mdiIconChevronLeft          = 0xF0141
@@ -583,7 +571,7 @@ func shellContainerNode(app *App, node *Node, name string, baseStyle ui.Style, c
 }
 
 func buildShellDocument(app *App) *ui.DocumentNode {
-	currentURL := defaultURL
+	currentURL := browserHomeURL
 	canBack := false
 	canForward := false
 	if app != nil {
@@ -975,7 +963,7 @@ func syncShellDocument(app *App, title string, status string) {
 
 	address := strings.TrimSpace(app.addressText)
 	if address == "" {
-		address = defaultURL
+		address = browserHomeURL
 	}
 	if app.setShellValueByID("browser-address", address) {
 		paintDirty = true
@@ -1022,7 +1010,7 @@ body{background:#f1f3f4}
 <input id="browser-address" data-role="address" value="">
 </nav>
 </section>
-<iframe id="browser-page-frame" data-role="page-frame" src="about:tagix"></iframe>
+<iframe id="browser-page-frame" data-role="page-frame" src="tagix://welcome"></iframe>
 <footer id="browser-status-bar" data-role="status-bar"><small id="browser-status" data-role="status">Ready</small></footer>
 </header>
 </body>
@@ -1934,11 +1922,12 @@ const (
 )
 
 type inlinePiece struct {
-	kind  inlinePieceKind
-	text  string
-	href  string
-	node  *Node
-	style inlineTextStyle
+	kind          inlinePieceKind
+	text          string
+	href          string
+	node          *Node
+	style         inlineTextStyle
+	resolvedStyle ui.Style
 }
 
 type inlinePieceBuilder struct {
@@ -2783,7 +2772,9 @@ func collectInlinePieces(builder *inlinePieceBuilder, node *Node, ctx *renderCon
 		if ctx != nil {
 			baseURL = ctx.baseURL
 		}
-		builder.appendLink(node, collectNodeTextPreserveEdges(node, false), resolveURL(baseURL, node.Attrs["href"]), nextStyle)
+		resolvedStyle := ui.Style{}
+		applyPageNodeStyles(&resolvedStyle, node, ctx)
+		builder.appendLink(node, collectNodeTextPreserveEdges(node, false), resolveURL(baseURL, node.Attrs["href"]), nextStyle, resolvedStyle)
 		return
 	case "code":
 		builder.appendCode(collectNodeTextPreserve(node, false), inlineCodeTextStyle(nextStyle))
@@ -2796,7 +2787,9 @@ func collectInlinePieces(builder *inlinePieceBuilder, node *Node, ctx *renderCon
 		if label == "" {
 			label = displayURL(strings.TrimSpace(node.Attrs["src"]))
 		}
-		builder.appendImage(node, label, nextStyle)
+		resolvedStyle := ui.Style{}
+		applyPageNodeStyles(&resolvedStyle, node, ctx)
+		builder.appendImage(node, label, nextStyle, resolvedStyle)
 		return
 	case "button", "textarea", "select", "progress":
 		builder.appendControl(node, nextStyle)
@@ -2840,7 +2833,7 @@ func (builder *inlinePieceBuilder) appendText(raw string, style inlineTextStyle)
 	}
 }
 
-func (builder *inlinePieceBuilder) appendLink(node *Node, label string, href string, style inlineTextStyle) {
+func (builder *inlinePieceBuilder) appendLink(node *Node, label string, href string, style inlineTextStyle, resolvedStyle ui.Style) {
 	if builder == nil || strings.TrimSpace(href) == "" {
 		return
 	}
@@ -2857,7 +2850,14 @@ func (builder *inlinePieceBuilder) appendLink(node *Node, label string, href str
 		builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceText, text: " ", style: style})
 		builder.needSpace = false
 	}
-	builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceLink, text: label, href: href, node: node, style: style})
+	builder.pieces = append(builder.pieces, inlinePiece{
+		kind:          inlinePieceLink,
+		text:          label,
+		href:          href,
+		node:          node,
+		style:         style,
+		resolvedStyle: resolvedStyle,
+	})
 	if trailingSpace {
 		builder.needSpace = true
 	}
@@ -2878,7 +2878,7 @@ func (builder *inlinePieceBuilder) appendCode(text string, style inlineTextStyle
 	builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceCode, text: text, style: style})
 }
 
-func (builder *inlinePieceBuilder) appendImage(node *Node, label string, style inlineTextStyle) {
+func (builder *inlinePieceBuilder) appendImage(node *Node, label string, style inlineTextStyle, resolvedStyle ui.Style) {
 	if builder == nil {
 		return
 	}
@@ -2887,7 +2887,13 @@ func (builder *inlinePieceBuilder) appendImage(node *Node, label string, style i
 		builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceText, text: " ", style: style})
 		builder.needSpace = false
 	}
-	builder.pieces = append(builder.pieces, inlinePiece{kind: inlinePieceImage, text: label, node: node, style: style})
+	builder.pieces = append(builder.pieces, inlinePiece{
+		kind:          inlinePieceImage,
+		text:          label,
+		node:          node,
+		style:         style,
+		resolvedStyle: resolvedStyle,
+	})
 }
 
 func (builder *inlinePieceBuilder) appendBreak(style inlineTextStyle) {
@@ -2923,7 +2929,7 @@ func inlineNodesFromPieces(pieces []inlinePiece, ctx *renderContext) []*ui.Docum
 		case inlinePieceText:
 			nodes = append(nodes, inlineTextNode(piece.text, baseStyle))
 		case inlinePieceLink:
-			if link := inlineLinkNode(piece.text, piece.href, piece.node, baseStyle, ctx); link != nil {
+			if link := inlineLinkNode(piece.text, piece.href, piece.node, baseStyle, piece.resolvedStyle, ctx); link != nil {
 				nodes = append(nodes, link)
 			}
 		case inlinePieceCode:
@@ -2931,7 +2937,7 @@ func inlineNodesFromPieces(pieces []inlinePiece, ctx *renderContext) []*ui.Docum
 				nodes = append(nodes, code)
 			}
 		case inlinePieceImage:
-			if image := inlineImageNode(piece.node, piece.text, baseStyle, ctx); image != nil {
+			if image := inlineImageNode(piece.node, piece.text, baseStyle, piece.resolvedStyle, ctx); image != nil {
 				nodes = append(nodes, image)
 			}
 		case inlinePieceBreak:
@@ -3069,7 +3075,8 @@ func inlineStyleFontSize(style inlineTextStyle) int {
 
 func bundledFontVariantInfo(path string) (string, bool, bool, bool) {
 	path = strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
-	if path == "" || !strings.HasPrefix(path, bundledFontDir+"/") {
+	fontDir := strings.TrimSpace(strings.ReplaceAll(bundledFontDir, "\\", "/"))
+	if path == "" || fontDir == "" || !strings.HasPrefix(path, fontDir+"/") {
 		return "", false, false, false
 	}
 	key := normalizeCSSFontFamilyName(strings.TrimSuffix(pathpkg.Base(path), pathpkg.Ext(path)))
@@ -3318,10 +3325,10 @@ func inlineLinkNodeFromAnchor(node *Node, ctx *renderContext) *ui.DocumentNode {
 		style.SetForeground(0x333333)
 		style.SetFontSize(defaultPageFontSize)
 		style.SetLineHeight(defaultPageLineHeight)
-	}), ctx)
+	}), ui.Style{}, ctx)
 }
 
-func inlineLinkNode(label string, href string, node *Node, baseStyle ui.Style, ctx *renderContext) *ui.DocumentNode {
+func inlineLinkNode(label string, href string, node *Node, baseStyle ui.Style, resolvedStyle ui.Style, ctx *renderContext) *ui.DocumentNode {
 	label = normalizeBlockText(label)
 	if label == "" {
 		label = displayURL(href)
@@ -3333,14 +3340,19 @@ func inlineLinkNode(label string, href string, node *Node, baseStyle ui.Style, c
 	style.SetDisplay(ui.DisplayInline)
 	style.SetForeground(ui.Blue)
 	style.SetTextDecoration(ui.TextDecorationUnderline)
-	if node != nil {
+	if !resolvedStyle.IsZero() {
+		applyResolvedStyle(&style, resolvedStyle)
+	} else if node != nil {
 		applyPageNodeStyles(&style, node, ctx)
 	}
+	promoteInlineElementDisplay(&style)
 	textStyle := baseStyle
 	textStyle.SetDisplay(ui.DisplayInline)
 	textStyle.SetForeground(ui.Blue)
 	textStyle.SetTextDecoration(ui.TextDecorationUnderline)
-	if node != nil {
+	if !resolvedStyle.IsZero() {
+		copyPageTextProperties(&textStyle, resolvedStyle)
+	} else if node != nil {
 		applyPageTextProperties(&textStyle, node, ctx)
 	}
 	children := []*ui.DocumentNode(nil)
@@ -3373,6 +3385,65 @@ func inlineLinkNode(label string, href string, node *Node, baseStyle ui.Style, c
 	return link
 }
 
+func promoteInlineElementDisplay(style *ui.Style) {
+	if style == nil {
+		return
+	}
+	display, ok := style.GetDisplay()
+	if ok && display != ui.DisplayInline {
+		return
+	}
+	if inlineElementNeedsInlineBlock(*style) {
+		style.SetDisplay(ui.DisplayInlineBlock)
+	}
+}
+
+func inlineElementNeedsInlineBlock(style ui.Style) bool {
+	if margin, ok := style.GetMargin(); ok && (margin.Top != 0 || margin.Right != 0 || margin.Bottom != 0 || margin.Left != 0) {
+		return true
+	}
+	if padding, ok := style.GetPadding(); ok && (padding.Top != 0 || padding.Right != 0 || padding.Bottom != 0 || padding.Left != 0) {
+		return true
+	}
+	if width, ok := style.GetWidth(); ok && width != 0 {
+		return true
+	}
+	if height, ok := style.GetHeight(); ok && height != 0 {
+		return true
+	}
+	if minWidth, ok := style.GetMinWidth(); ok && minWidth != 0 {
+		return true
+	}
+	if minHeight, ok := style.GetMinHeight(); ok && minHeight != 0 {
+		return true
+	}
+	if maxWidth, ok := style.GetMaxWidth(); ok && maxWidth != 0 {
+		return true
+	}
+	if maxHeight, ok := style.GetMaxHeight(); ok && maxHeight != 0 {
+		return true
+	}
+	if border, ok := style.GetBorderTopWidth(); ok && border != 0 {
+		return true
+	}
+	if border, ok := style.GetBorderRightWidth(); ok && border != 0 {
+		return true
+	}
+	if border, ok := style.GetBorderBottomWidth(); ok && border != 0 {
+		return true
+	}
+	if border, ok := style.GetBorderLeftWidth(); ok && border != 0 {
+		return true
+	}
+	if radius, ok := style.GetBorderRadius(); ok && radius.Active() {
+		return true
+	}
+	if _, ok := style.GetBackground(); ok {
+		return true
+	}
+	return false
+}
+
 func inlineCodeNode(text string, baseStyle ui.Style) *ui.DocumentNode {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -3384,7 +3455,7 @@ func inlineCodeNode(text string, baseStyle ui.Style) *ui.DocumentNode {
 	return ui.NewDocumentText(text, style)
 }
 
-func inlineImageNode(node *Node, label string, baseStyle ui.Style, ctx *renderContext) *ui.DocumentNode {
+func inlineImageNode(node *Node, label string, baseStyle ui.Style, resolvedStyle ui.Style, ctx *renderContext) *ui.DocumentNode {
 	label = normalizeBlockText(label)
 	image := resolveRenderedImage(node, ctx)
 	reason := resolveRenderedImageError(node, ctx)
@@ -3392,8 +3463,13 @@ func inlineImageNode(node *Node, label string, baseStyle ui.Style, ctx *renderCo
 	style.SetDisplay(ui.DisplayInlineBlock)
 	style.SetMargin(0, 1)
 	style.SetContain(ui.ContainPaint)
+	if !resolvedStyle.IsZero() {
+		applyResolvedStyle(&style, resolvedStyle)
+	}
 	if node != nil {
-		applyPageNodeStyles(&style, node, ctx)
+		if resolvedStyle.IsZero() {
+			applyPageNodeStyles(&style, node, ctx)
+		}
 		applyPresentationalNodeAttrs(&style, node)
 	}
 	width, height := resolveImageBoxSize(style, node, image, 16, 0)

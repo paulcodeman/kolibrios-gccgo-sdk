@@ -5,10 +5,10 @@
 <body>
 <h1>Tagix Forms</h1>
 <p>This page exists to test browser-side HTML controls that are currently mapped onto the shared UI pipeline.</p>
-<p><a href="about:tagix">Back to the built-in home page</a></p>
-<p>Submit keeps you on built-in pages by targeting <code>about:tagix</code>; after submit, the address bar should include the serialized query string.</p>
-<form action="about:tagix" method="get">
-<input type="hidden" name="source" value="about:forms">
+<p><a href="tagix://welcome">Back to the built-in home page</a></p>
+<p>Submit keeps you on built-in pages by targeting <code>tagix://welcome</code>; after submit, the address bar should include the serialized query string.</p>
+<form action="tagix://welcome" method="get">
+<input type="hidden" name="source" value="tagix://forms">
 <h2>Text controls</h2>
 <p><input type="text" name="url" value="https://kolibrios.org" placeholder="Type a URL"></p>
 <p><input type="search" name="query" placeholder="Search demo"></p>

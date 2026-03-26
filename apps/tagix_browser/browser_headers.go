@@ -31,9 +31,17 @@ func newBrowserRequestProfile() browserRequestProfile {
 	if screenHeight <= 0 {
 		screenHeight = defaultWindowHeight
 	}
+	userAgent := buildBrowserUserAgent()
+	if value := strings.TrimSpace(browserConfiguredUserAgent); value != "" {
+		userAgent = value
+	}
+	acceptLanguage := detectBrowserAcceptLanguage()
+	if value := strings.TrimSpace(browserConfiguredAcceptLanguage); value != "" {
+		acceptLanguage = value
+	}
 	return browserRequestProfile{
-		userAgent:      buildBrowserUserAgent(),
-		acceptLanguage: detectBrowserAcceptLanguage(),
+		userAgent:      userAgent,
+		acceptLanguage: acceptLanguage,
 		platform:       "KolibriOS",
 		secCHUA:        buildBrowserSecCHUA(),
 		screenWidth:    screenWidth,

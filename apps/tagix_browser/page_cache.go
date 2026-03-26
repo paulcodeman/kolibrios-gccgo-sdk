@@ -8,15 +8,27 @@ import (
 	"strings"
 )
 
-const resourceCacheDirName = "tagix_browser.cache"
-
 func initResourceCacheDir() string {
-	for _, root := range []string{"/tmp0/1", "/tmp1/1"} {
+	if dir := strings.TrimSpace(resourceCacheDirOverride); dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err == nil {
+			return dir
+		}
+		return ""
+	}
+	cacheName := strings.TrimSpace(resourceCacheDirName)
+	if cacheName == "" {
+		return ""
+	}
+	for _, root := range resourceCacheRootCandidates {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			continue
+		}
 		info, err := os.Stat(root)
 		if err != nil || info == nil || !info.IsDir() {
 			continue
 		}
-		dir := filepath.Join(root, resourceCacheDirName)
+		dir := filepath.Join(root, cacheName)
 		if err := os.MkdirAll(dir, 0o755); err == nil {
 			return dir
 		}

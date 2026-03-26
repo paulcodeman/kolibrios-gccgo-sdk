@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scene title="XML 3D Demo" background="#0b1320" move_speed="0.45" turn_speed="8">
+  <camera fov="60" near="0.2" far="96" height="1.2" />
+  <player x="0" y="0" z="6.4" yaw="0" radius="0.35" height="1.8" hp="100" />
+
+  <grid size="14" step="1" color="#28435c" />
+
+  <group id="arena">
+    <cube id="floor" x="0" y="-0.75" z="0" width="18" height="0.5" depth="18" color="#35516b" solid="true" static="true" />
+    <cube id="north_wall" x="0" y="1.25" z="-9.2" width="18" height="4" depth="0.6" color="#58748f" solid="true" static="true" />
+    <cube id="south_wall" x="0" y="1.25" z="9.2" width="18" height="4" depth="0.6" color="#58748f" solid="true" static="true" />
+    <cube id="west_wall" x="-9.2" y="1.25" z="0" width="0.6" height="4" depth="18" color="#58748f" solid="true" static="true" />
+    <cube id="east_wall" x="9.2" y="1.25" z="0" width="0.6" height="4" depth="18" color="#58748f" solid="true" static="true" />
+  </group>
+
+  <group id="props">
+    <cube id="crate_01" x="-2.2" y="0.0" z="-2.0" size="1.2" color="#f4a261" solid="true" mass="12" friction="0.8" />
+    <cube id="crate_02" x="2.6" y="0.0" z="-1.5" size="1.4" color="#e76f51" solid="true" mass="16" friction="0.7" />
+    <cube id="crate_03" x="-0.4" y="0.8" z="1.5" width="2.2" height="0.4" depth="1.1" color="#f6bd60" solid="true" static="true" />
+    <cube id="pillar_01" x="-4.7" y="1.0" z="4.0" width="0.9" height="2.5" depth="0.9" color="#84a59d" solid="true" />
+    <cube id="pillar_02" x="4.6" y="1.0" z="3.2" width="0.9" height="2.5" depth="0.9" color="#84a59d" solid="true" />
+  </group>
+</scene>

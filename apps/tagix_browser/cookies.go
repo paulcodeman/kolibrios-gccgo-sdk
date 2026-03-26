@@ -14,8 +14,6 @@ import (
 	"golang.org/x/net/publicsuffix"
 )
 
-const cookieStoreFileName = "cookies.tsv"
-
 type persistentCookieJar struct {
 	base    *netcookiejar.Jar
 	path    string

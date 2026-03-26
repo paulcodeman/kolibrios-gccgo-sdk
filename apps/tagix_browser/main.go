@@ -20,17 +20,11 @@ const (
 	rootInset           = 0
 	shellGap            = 0
 	minPageHeight       = 180
-	maxContent          = 512 * 1024
-	defaultURL          = "about:tagix"
-	aboutFormsURL       = "about:forms"
-	aboutHomeAsset      = "assets/about_tagix.html"
-	aboutFormsAsset     = "assets/about_forms.html"
-	localCABundleAsset  = "assets/ca-bundle.pem"
+	defaultURL          = "tagix://welcome"
+	tagixFormsURL       = "tagix://forms"
+	legacyHomeURL       = "about:tagix"
+	legacyFormsURL      = "about:forms"
 )
-
-const defaultAboutFormsHTML = `<html><head><title>Tagix Forms</title></head><body><h1>Tagix Forms</h1><p>This page exists to test browser-side HTML controls that are currently mapped onto the shared UI pipeline.</p><p><a href="about:tagix">Back to the built-in home page</a></p><p>Submit keeps you on built-in pages by targeting <code>about:tagix</code>; after submit, the address bar should include the serialized query string.</p><form action="about:tagix" method="get"><input type="hidden" name="source" value="about:forms"><h2>Text controls</h2><p><input type="text" name="url" value="https://kolibrios.org" placeholder="Type a URL"></p><p><input type="search" name="query" placeholder="Search demo"></p><p>Textarea currently submits its initial content; multiline editing is still pending in the shared DocumentView host.</p><textarea name="notes" rows="4">Textarea fallback content.
-Second line.
-Third line.</textarea><h2>Choice controls</h2><p><input type="checkbox" name="remember" checked value="1"></p><p><input type="checkbox" name="compact" value="1"></p><p><input type="radio" name="theme" checked value="ocean"></p><p><input type="radio" name="theme" value="sunset"></p><p><select name="mode"><option selected value="first">First option</option><option value="second">Second option</option><option value="third">Third option</option></select></p><h2>Range and progress</h2><p><input type="range" name="level" min="0" max="10" step="2" value="4"></p><p><progress value="42" max="100"></progress></p><h2>Buttons</h2><p><button type="submit" name="submitter" value="button">Submit form</button></p><p><input type="reset" value="Reset form"></p></form></body></html>`
 
 type App struct {
 	window *ui.Window
@@ -41,10 +35,10 @@ type App struct {
 	caBundlePath   string
 	caBundleError  string
 
-	stylesheetCache  map[string]string
-	imageCache       map[string]*ui.DocumentImage
-	imageErrors      map[string]string
-	resourceCacheDir string
+	stylesheetCache   map[string]string
+	imageCache        map[string]*ui.DocumentImage
+	imageErrors       map[string]string
+	resourceCacheDir  string
 	shellTemplatePath string
 
 	shellDocument *ui.Document
@@ -90,22 +84,22 @@ func NewApp() *App {
 	resourceCacheDir := initResourceCacheDir()
 	httpClient, cookieJar, caBundlePath, caBundleError := newBrowserHTTPClient(resourceCacheDir)
 	app := &App{
-		httpClient:       httpClient,
-		cookieJar:        cookieJar,
-		browserProfile:   newBrowserRequestProfile(),
-		caBundlePath:     caBundlePath,
-		caBundleError:    caBundleError,
-		stylesheetCache:  map[string]string{},
-		imageCache:       map[string]*ui.DocumentImage{},
-		imageErrors:      map[string]string{},
-		resourceCacheDir: resourceCacheDir,
+		httpClient:        httpClient,
+		cookieJar:         cookieJar,
+		browserProfile:    newBrowserRequestProfile(),
+		caBundlePath:      caBundlePath,
+		caBundleError:     caBundleError,
+		stylesheetCache:   map[string]string{},
+		imageCache:        map[string]*ui.DocumentImage{},
+		imageErrors:       map[string]string{},
+		resourceCacheDir:  resourceCacheDir,
 		shellTemplatePath: shellTemplatePath,
-		statusBase:       "Ready",
-		historyIndex:     -1,
-		addressText:      defaultURL,
-		startupURL:       startupURL,
-		pageMinHeight:    minPageHeight,
-		webViewMode:      webViewMode,
+		statusBase:        "Ready",
+		historyIndex:      -1,
+		addressText:       browserHomeURL,
+		startupURL:        startupURL,
+		pageMinHeight:     minPageHeight,
+		webViewMode:       webViewMode,
 	}
 	if strings.TrimSpace(caBundleError) != "" {
 		app.debugf("tls root bundle: %s (path=%s)", strings.TrimSpace(caBundleError), strings.TrimSpace(caBundlePath))
@@ -252,7 +246,7 @@ func (app *App) buildUI() {
 func (app *App) Run() {
 	startURL := strings.TrimSpace(app.startupURL)
 	if startURL == "" {
-		startURL = defaultURL
+		startURL = browserHomeURL
 	}
 	app.openURLWithReferrer(startURL, true, "")
 	app.window.Start()
@@ -264,7 +258,7 @@ func (app *App) submitAddress() {
 	}
 	value := strings.TrimSpace(app.addressText)
 	if value == "" {
-		value = defaultURL
+		value = browserHomeURL
 	}
 	app.openURLWithReferrer(value, true, "")
 }
@@ -275,7 +269,7 @@ func (app *App) reloadCurrent() {
 	}
 	url := strings.TrimSpace(app.currentURL)
 	if url == "" {
-		url = defaultURL
+		url = browserHomeURL
 	}
 	app.openURLWithReferrer(url, false, app.currentURL)
 }
@@ -284,7 +278,7 @@ func (app *App) goHome() {
 	if app == nil {
 		return
 	}
-	app.openURLWithReferrer(defaultURL, true, "")
+	app.openURLWithReferrer(browserHomeURL, true, "")
 }
 
 func (app *App) openURL(url string, push bool) {
@@ -511,7 +505,7 @@ func (app *App) handleHTTPResponse(response *nethttp.Response, requestedURL stri
 		app.showMessageDocument("HTTP error", app.httpErrorDetail(response.Status, finalURL, redirected))
 		return
 	}
-	body, err := readDecodedHTTPResponseBody(response, maxContent)
+	body, err := readDecodedHTTPResponseBody(response, int64(maxContent))
 	if err != nil {
 		app.debugError("http read body "+displayURL(finalURL), err)
 		app.pageTitle = "Load failed"
@@ -647,21 +641,30 @@ func (app *App) loadLocalPage(url string) bool {
 }
 
 func builtinPageSource(url string) (string, string, string, bool) {
-	switch strings.ToLower(strings.TrimSpace(stripFragment(stripQuery(url)))) {
-	case "about:tagix":
-		if body, ok := loadBuiltinAsset(aboutHomeAsset); ok {
+	key := builtinPageKey(url)
+	if key == "" {
+		return "", "", "", false
+	}
+	normalized, ok := normalizeBuiltinURL(url)
+	if !ok {
+		return "", "", "", false
+	}
+	switch key {
+	case defaultURL:
+		if body, ok := loadBuiltinAsset(welcomePageAsset); ok {
 			return "Tagix Browser", "Built-in page", body, true
 		}
-		title, status, html := missingBuiltinAssetPage(aboutHomeAsset)
+		title, status, html := missingBuiltinAssetPage(welcomePageAsset)
 		return title, status, html, true
-	case strings.ToLower(aboutFormsURL):
-		if body, ok := loadBuiltinAsset(aboutFormsAsset); ok {
+	case tagixFormsURL:
+		if body, ok := loadBuiltinAsset(formsPageAsset); ok {
 			return "Tagix Forms", "Built-in page", body, true
 		}
-		title, status, html := missingBuiltinAssetPage(aboutFormsAsset)
+		title, status, html := missingBuiltinAssetPage(formsPageAsset)
 		return title, status, html, true
 	default:
-		return "", "", "", false
+		title, status, html := missingBuiltinPage(normalized)
+		return title, status, html, true
 	}
 }
 
@@ -687,6 +690,10 @@ func missingBuiltinAssetPage(path string) (string, string, string) {
 	return "404 Not Found", "404 Not Found", missingBuiltinAssetHTML(path)
 }
 
+func missingBuiltinPage(url string) (string, string, string) {
+	return "404 Not Found", "404 Not Found", missingBuiltinPageHTML(url)
+}
+
 func missingBuiltinAssetHTML(path string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -697,6 +704,19 @@ func missingBuiltinAssetHTML(path string) string {
 		"<p><strong>Built-in page asset was not found.</strong></p>" +
 		"<p>Expected file: <code>" + escapeBuiltinHTMLText(path) + "</code></p>" +
 		"<p>Restore the HTML asset in the Tagix Browser bundle and reload the page.</p>" +
+		"</body></html>"
+}
+
+func missingBuiltinPageHTML(url string) string {
+	url = strings.TrimSpace(url)
+	if url == "" {
+		url = "(unknown page)"
+	}
+	return "<html><head><title>404 Not Found</title></head><body>" +
+		"<h1>404 Not Found</h1>" +
+		"<p><strong>Built-in page was not found.</strong></p>" +
+		"<p>Requested page: <code>" + escapeBuiltinHTMLText(url) + "</code></p>" +
+		"<p>Try <a href=\"" + browserHomeURL + "\">" + escapeBuiltinHTMLText(browserHomeURL) + "</a> instead.</p>" +
 		"</body></html>"
 }
 

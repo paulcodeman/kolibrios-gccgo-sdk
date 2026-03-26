@@ -9,11 +9,6 @@ import (
 	"strings"
 )
 
-const (
-	maxFontContent = 4 * 1024 * 1024
-	bundledFontDir = "assets/fonts"
-)
-
 type fontFamilyEntry struct {
 	key  string
 	path string
@@ -400,7 +395,7 @@ func (app *App) loadFontFaceResource(rawURL string, referrer string) (string, bo
 		app.debugf("font status %s for %s", response.Status, rawURL)
 		return "", false
 	}
-	body, err := readDecodedHTTPResponseBody(response, maxFontContent)
+	body, err := readDecodedHTTPResponseBody(response, int64(maxFontContent))
 	if err != nil || len(body) == 0 {
 		if err != nil {
 			app.debugError("font read body "+rawURL, err)
