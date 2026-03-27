@@ -1287,7 +1287,7 @@ func registerDirectionalAnimations(sprite *surface.AnimatedSprite, walk *zombieF
 }
 
 func mustSprite(relative string) *surface.Image {
-	return mustImageCandidate("assets/sprites/"+relative, "apps/zombic/assets/sprites/"+relative)
+	return mustImageCandidate("assets/sprites/"+relative, "apps/ebitengine/zombic/assets/sprites/"+relative)
 }
 
 func mustImageCandidate(paths ...string) *surface.Image {
