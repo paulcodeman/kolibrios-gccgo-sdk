@@ -64,23 +64,28 @@ type benchCase struct {
 }
 
 type stressApp struct {
-	presenter  surface.Presenter
-	canvas     *surface.Buffer
-	work       *surface.Buffer
-	alphaWork  *surface.Buffer
-	sample     *surface.Buffer
-	alphaStamp *surface.Buffer
-	image      *surface.Image
-	font       *surface.Font
-	fontLabel  string
-	console    kos.Console
-	consoleOK  bool
-	scale      int
-	runID      int
-	status     string
-	micro      []benchResult
-	cpuStages  []stageResult
-	present    stageResult
+	presenter   surface.Presenter
+	canvas      *surface.Buffer
+	work        *surface.Buffer
+	alphaWork   *surface.Buffer
+	sample      *surface.Buffer
+	alphaStamp  *surface.Buffer
+	image       *surface.Image
+	imageMirror *surface.Image
+	imageScaled *surface.Image
+	imageFile   *surface.Image
+	imagePath   string
+	sprite      *surface.AnimatedSprite
+	font        *surface.Font
+	fontLabel   string
+	console     kos.Console
+	consoleOK   bool
+	scale       int
+	runID       int
+	status      string
+	micro       []benchResult
+	cpuStages   []stageResult
+	present     stageResult
 }
 
 func alphaColor(color kos.Color, alpha uint8) kos.Color {
@@ -141,6 +146,37 @@ func stressImage() *surface.Image {
 		Height: height,
 		Pixels: pixels,
 	}
+}
+
+func loadStressImageAsset() (*surface.Image, string) {
+	candidates := []string{
+		"assets/stress_car.png",
+		"apps/stresstest/surfacestress/assets/stress_car.png",
+	}
+	for _, path := range candidates {
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		if image := surface.GetImage(path); image != nil {
+			return image, path
+		}
+	}
+	return nil, ""
+}
+
+func newStressSprite(images ...*surface.Image) *surface.AnimatedSprite {
+	frames := make([]*surface.Image, 0, len(images))
+	for _, image := range images {
+		if image != nil {
+			frames = append(frames, image)
+		}
+	}
+	if len(frames) == 0 {
+		return nil
+	}
+	sprite := surface.NewAnimatedSprite()
+	sprite.RegisterAnimation("stress", frames, 2)
+	return sprite
 }
 
 func insetRect(rect surface.Rect, left int, top int, right int, bottom int) surface.Rect {
@@ -207,19 +243,28 @@ func newStressApp(scale int) *stressApp {
 	client := presenter.Client
 	console, consoleOK := kos.OpenConsole("Surface Stress")
 	font, fontLabel := loadStressFont()
+	baseImage := stressImage()
+	fileImage, filePath := loadStressImageAsset()
+	mirrorImage := surface.MirrorImage(baseImage)
+	scaledImage := surface.ScaleImageNearest(baseImage, 96, 72)
 	app := &stressApp{
-		presenter:  presenter,
-		canvas:     surface.NewBuffer(client.Width, client.Height),
-		work:       surface.NewBuffer(640, 320),
-		alphaWork:  surface.NewBufferAlpha(640, 320),
-		sample:     surface.NewBuffer(240, 128),
-		alphaStamp: surface.NewBufferAlpha(240, 128),
-		image:      stressImage(),
-		font:       font,
-		fontLabel:  fontLabel,
-		console:    console,
-		consoleOK:  consoleOK,
-		scale:      scale,
+		presenter:   presenter,
+		canvas:      surface.NewBuffer(client.Width, client.Height),
+		work:        surface.NewBuffer(640, 320),
+		alphaWork:   surface.NewBufferAlpha(640, 320),
+		sample:      surface.NewBuffer(240, 128),
+		alphaStamp:  surface.NewBufferAlpha(240, 128),
+		image:       baseImage,
+		imageMirror: mirrorImage,
+		imageScaled: scaledImage,
+		imageFile:   fileImage,
+		imagePath:   filePath,
+		sprite:      newStressSprite(baseImage, mirrorImage, fileImage),
+		font:        font,
+		fontLabel:   fontLabel,
+		console:     console,
+		consoleOK:   consoleOK,
+		scale:       scale,
 	}
 	if app.consoleOK && app.console.SupportsTitle() {
 		app.console.SetTitle("Surface Stress / ready")
@@ -549,6 +594,67 @@ func (app *stressApp) runMicroBenchmarks() []benchResult {
 			},
 		},
 		{
+			name:       "image/rotated",
+			group:      "transform",
+			iterations: 140 * app.scale,
+			setup:      app.prepareWorkPattern,
+			fn: func(iter int) {
+				if app.image == nil {
+					return
+				}
+				x := 110.0 + float64((iter*17)%(app.work.Width()-220))
+				y := 88.0 + float64((iter*11)%(app.work.Height()-176))
+				angle := float64((iter%24)-12) * 0.11
+				app.work.DrawImageRotatedScaled(x, y, app.image, angle, 1.15, 1.15, float64(app.image.Width)/2, float64(app.image.Height)/2)
+			},
+		},
+		{
+			name:       "image/mirror",
+			group:      "transform",
+			iterations: 200 * app.scale,
+			setup:      app.prepareWorkPattern,
+			fn: func(iter int) {
+				if app.imageMirror == nil {
+					return
+				}
+				x := 18 + (iter*23)%(app.work.Width()-app.imageMirror.Width-18)
+				y := 22 + (iter*9)%(app.work.Height()-app.imageMirror.Height-22)
+				app.work.DrawImage(x, y, app.imageMirror)
+			},
+		},
+		{
+			name:       "scale/nearest",
+			group:      "transform",
+			iterations: 34 * app.scale,
+			fn: func(iter int) {
+				if app.image == nil {
+					return
+				}
+				width := 96 + ((iter * 13) % 80)
+				height := 72 + ((iter * 7) % 64)
+				_ = surface.ScaleImageNearest(app.image, width, height)
+			},
+		},
+		{
+			name:       "anim/play+draw",
+			group:      "anim",
+			iterations: 180 * app.scale,
+			setup:      app.prepareWorkPattern,
+			fn: func(iter int) {
+				if app.sprite == nil {
+					return
+				}
+				app.sprite.Play("stress")
+				frame := app.sprite.Current()
+				if frame == nil {
+					return
+				}
+				x := 20 + (iter*15)%(app.work.Width()-frame.Width-20)
+				y := 28 + (iter*10)%(app.work.Height()-frame.Height-28)
+				app.work.DrawImage(x, y, frame)
+			},
+		},
+		{
 			name:       "blit/self",
 			group:      "blit",
 			iterations: 190 * app.scale,
@@ -573,6 +679,16 @@ func (app *stressApp) runMicroBenchmarks() []benchResult {
 				app.work.FillRect(8, app.work.Height()-16, app.work.Width()-16, 8, colorGold)
 			},
 		},
+	}
+	if app.imageFile != nil && app.imagePath != "" {
+		cases = append(cases, benchCase{
+			name:       "image/load-cache",
+			group:      "image",
+			iterations: 320 * app.scale,
+			fn: func(iter int) {
+				_ = surface.GetImage(app.imagePath)
+			},
+		})
 	}
 	if app.font != nil {
 		cases = append(cases, benchCase{
@@ -645,7 +761,7 @@ func (app *stressApp) drawStageHeader(frame int) {
 		Direction: surface.GradientHorizontal,
 	})
 	app.canvas.DrawText(18, 16, colorWhite, "surface frame-stage profile")
-	app.canvas.DrawText(18, 34, colorMuted, "clear / header / rounded / shadow-fill / shadow-mask / vectors / text / image / blit / present")
+	app.canvas.DrawText(18, 34, colorMuted, "clear / header / rounded / shadow-fill / shadow-mask / vectors / text / image / transform / anim / blit / present")
 }
 
 func (app *stressApp) drawStagePanelsFill(frame int) {
@@ -740,7 +856,41 @@ func (app *stressApp) drawStageImage(frame int) {
 	base := surface.Rect{X: app.canvas.Width() - 218, Y: 82, Width: 180, Height: 132}
 	app.canvas.FillRoundedRect(base.X-8, base.Y-8, base.Width+16, base.Height+16, uniformRadii(16), colorPanel2)
 	app.canvas.DrawImageRect(base, app.image)
+	if app.imageFile != nil {
+		app.canvas.DrawImage(base.X-2, base.Y+96, app.imageFile)
+	}
 	app.canvas.StrokeRoundedRectWidth(base.X-8, base.Y-8, base.Width+16, base.Height+16, uniformRadii(16), 1, alphaColor(colorWhite, 42))
+}
+
+func (app *stressApp) drawStageTransforms(frame int) {
+	if app.image == nil {
+		return
+	}
+	anchorX := float64(app.canvas.Width() - 128)
+	anchorY := 292.0
+	app.canvas.FillRoundedRect(int(anchorX)-82, int(anchorY)-82, 164, 164, uniformRadii(16), colorPanel2)
+	app.canvas.DrawImageRotatedScaled(anchorX, anchorY, app.image, float64(frame%36)*0.09, 1.0, 1.0, float64(app.image.Width)/2, float64(app.image.Height)/2)
+	if app.imageMirror != nil {
+		app.canvas.DrawImage(int(anchorX)-68, int(anchorY)+18, app.imageMirror)
+	}
+	if app.imageScaled != nil {
+		app.canvas.DrawImage(int(anchorX)+12, int(anchorY)+26, app.imageScaled)
+	}
+}
+
+func (app *stressApp) drawStageAnimation(frame int) {
+	if app.sprite == nil {
+		return
+	}
+	app.sprite.Play("stress")
+	current := app.sprite.Current()
+	if current == nil {
+		return
+	}
+	panel := surface.Rect{X: 24, Y: 488, Width: 220, Height: 54}
+	app.canvas.FillRoundedRect(panel.X, panel.Y, panel.Width, panel.Height, uniformRadii(14), colorPanel2)
+	app.canvas.DrawText(panel.X+12, panel.Y+8, colorMuted, "animation sanity")
+	app.canvas.DrawImage(panel.X+124, panel.Y+10, current)
 }
 
 func (app *stressApp) drawStageBlits(frame int) {
@@ -761,8 +911,10 @@ func (app *stressApp) warmStageCaches() {
 	app.drawStageShadowMask(0)
 	app.drawStageText(0)
 	app.drawStageImage(0)
+	app.drawStageTransforms(0)
 	app.prepareSample()
 	app.drawStageBlits(0)
+	app.drawStageAnimation(0)
 	app.drawStageClear(0)
 }
 
@@ -786,6 +938,8 @@ func (app *stressApp) runStageProfile() ([]stageResult, stageResult) {
 		{name: "vector-lines", fn: app.drawStageVectorLines},
 		{name: "text-blocks", fn: app.drawStageText},
 		{name: "image-scale", fn: app.drawStageImage},
+		{name: "image-transform", fn: app.drawStageTransforms},
+		{name: "anim-sprite", fn: app.drawStageAnimation},
 		{name: "blit+scroll", fn: app.drawStageBlits},
 	}
 	totals := make(map[string]uint64, len(specs)+1)
@@ -997,7 +1151,11 @@ func (app *stressApp) renderDashboard() {
 		"CPU stage profile excludes PresentFull.",
 		"CPU stage profile is measured after cache warmup.",
 		"present/full uses the real window blit path.",
+		"transform benches cover rotate/mirror/scale helpers.",
 		"text/ttf-warm excludes font file load and first glyph rasterization.",
+	}
+	if app.imagePath != "" {
+		notes = append(notes, "image/load-cache uses "+app.imagePath)
 	}
 	for _, note := range notes {
 		app.canvas.DrawText(rightBottom.X+16, noteY, colorSilver, note)

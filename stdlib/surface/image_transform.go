@@ -12,9 +12,10 @@ func MirrorImage(image *Image) *Image {
 		}
 	}
 	return &Image{
-		Width:  image.Width,
-		Height: image.Height,
-		Pixels: pixels,
+		Width:       image.Width,
+		Height:      image.Height,
+		Pixels:      pixels,
+		opaqueState: image.opaqueState,
 	}
 }
 
@@ -23,23 +24,34 @@ func ScaleImageNearest(image *Image, width int, height int) *Image {
 		return nil
 	}
 	pixels := make([]uint32, width*height)
+	stepX := (int64(image.Width) << 16) / int64(width)
+	xFixed := int64(0)
+	xMap := make([]int, width)
+	for dstX := 0; dstX < width; dstX++ {
+		srcX := int(xFixed >> 16)
+		if srcX >= image.Width {
+			srcX = image.Width - 1
+		}
+		xMap[dstX] = srcX
+		xFixed += stepX
+	}
+	stepY := (int64(image.Height) << 16) / int64(height)
+	yFixed := int64(0)
 	for dstY := 0; dstY < height; dstY++ {
-		srcY := (dstY * image.Height) / height
+		srcY := int(yFixed >> 16)
 		if srcY >= image.Height {
 			srcY = image.Height - 1
 		}
 		row := srcY * image.Width
 		for dstX := 0; dstX < width; dstX++ {
-			srcX := (dstX * image.Width) / width
-			if srcX >= image.Width {
-				srcX = image.Width - 1
-			}
-			pixels[dstY*width+dstX] = image.Pixels[row+srcX]
+			pixels[dstY*width+dstX] = image.Pixels[row+xMap[dstX]]
 		}
+		yFixed += stepY
 	}
 	return &Image{
-		Width:  width,
-		Height: height,
-		Pixels: pixels,
+		Width:       width,
+		Height:      height,
+		Pixels:      pixels,
+		opaqueState: image.opaqueState,
 	}
 }
