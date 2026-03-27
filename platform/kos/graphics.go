@@ -10,6 +10,11 @@ const (
 	textFlagToBuffer = 0x08
 )
 
+const (
+	WindowStyleSkinnedFixed uint32 = 0x14FFFFFF
+	WindowStyleBorderless   uint32 = 0x01000000
+)
+
 func BeginRedraw() {
 	Redraw(redrawBegin)
 }
@@ -19,7 +24,11 @@ func EndRedraw() {
 }
 
 func OpenWindow(x int, y int, width int, height int, title string) {
-	Window(x, y, width, height, title)
+	OpenWindowStyle(x, y, width, height, WindowStyleSkinnedFixed, title)
+}
+
+func OpenWindowStyle(x int, y int, width int, height int, style uint32, title string) {
+	WindowWithStyle(x, y, width, height, style, title)
 }
 
 func SetWindowTitle(title string) {

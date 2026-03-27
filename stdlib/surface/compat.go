@@ -43,6 +43,14 @@ func NewPresenter(x int, y int, width int, height int, title string) Presenter {
 	return Presenter{Presenter: core.NewPresenter(x, y, width, height, title)}
 }
 
+func NewPresenterClient(x int, y int, clientWidth int, clientHeight int, title string) Presenter {
+	return Presenter{Presenter: core.NewPresenterClient(x, y, clientWidth, clientHeight, title)}
+}
+
+func NewPresenterBorderless(x int, y int, width int, height int, title string) Presenter {
+	return Presenter{Presenter: core.NewPresenterBorderless(x, y, width, height, title)}
+}
+
 func (presenter Presenter) PresentFull(buffer *Buffer) {
 	presenter.Presenter.PresentFull(rawBuffer(buffer))
 }
@@ -57,6 +65,10 @@ func (presenter Presenter) PresentRect(buffer *Buffer, rect Rect) {
 
 func WindowClientRect(width int, height int) Rect {
 	return core.WindowClientRect(width, height)
+}
+
+func WindowSizeForClient(clientWidth int, clientHeight int) (int, int) {
+	return core.WindowSizeForClient(clientWidth, clientHeight)
 }
 
 func UnionRect(a Rect, b Rect) Rect {

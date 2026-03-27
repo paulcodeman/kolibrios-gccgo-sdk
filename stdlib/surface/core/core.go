@@ -446,6 +446,7 @@ type Presenter struct {
 	Height int
 	Title  string
 	Client Rect
+	Style  uint32
 }
 
 func NewPresenter(x int, y int, width int, height int, title string) Presenter {
@@ -456,6 +457,32 @@ func NewPresenter(x int, y int, width int, height int, title string) Presenter {
 		Height: height,
 		Title:  title,
 		Client: WindowClientRect(width, height),
+		Style:  kos.WindowStyleSkinnedFixed,
+	}
+}
+
+func NewPresenterClient(x int, y int, clientWidth int, clientHeight int, title string) Presenter {
+	width, height := WindowSizeForClient(clientWidth, clientHeight)
+	return Presenter{
+		X:      x,
+		Y:      y,
+		Width:  width,
+		Height: height,
+		Title:  title,
+		Client: WindowClientRect(width, height),
+		Style:  kos.WindowStyleSkinnedFixed,
+	}
+}
+
+func NewPresenterBorderless(x int, y int, width int, height int, title string) Presenter {
+	return Presenter{
+		X:      x,
+		Y:      y,
+		Width:  width,
+		Height: height,
+		Title:  title,
+		Client: Rect{Width: width, Height: height},
+		Style:  kos.WindowStyleBorderless,
 	}
 }
 
@@ -472,6 +499,10 @@ func (presenter *Presenter) SetSize(width int, height int) {
 	}
 	presenter.Width = width
 	presenter.Height = height
+	if presenter.windowStyle() == kos.WindowStyleBorderless {
+		presenter.Client = Rect{Width: width, Height: height}
+		return
+	}
 	presenter.Client = WindowClientRect(width, height)
 }
 
@@ -490,7 +521,7 @@ func (presenter *Presenter) SetClientRect(rect Rect) {
 
 func (presenter Presenter) PresentFull(buffer *Buffer) {
 	kos.BeginRedraw()
-	kos.OpenWindow(presenter.X, presenter.Y, presenter.Width, presenter.Height, presenter.Title)
+	kos.OpenWindowStyle(presenter.X, presenter.Y, presenter.Width, presenter.Height, presenter.windowStyle(), presenter.Title)
 	if buffer != nil {
 		buffer.BlitToWindow(presenter.Client.X, presenter.Client.Y)
 	}
@@ -527,6 +558,27 @@ func WindowClientRect(width int, height int) Rect {
 		h = 0
 	}
 	return Rect{X: x, Y: y, Width: w, Height: h}
+}
+
+func WindowSizeForClient(clientWidth int, clientHeight int) (int, int) {
+	if clientWidth < 0 {
+		clientWidth = 0
+	}
+	if clientHeight < 0 {
+		clientHeight = 0
+	}
+	skin := kos.SkinHeight()
+	if skin < 0 {
+		skin = 0
+	}
+	return clientWidth + windowClientLeft + windowClientRight, clientHeight + skin + windowClientBottom
+}
+
+func (presenter Presenter) windowStyle() uint32 {
+	if presenter.Style != 0 {
+		return presenter.Style
+	}
+	return kos.WindowStyleSkinnedFixed
 }
 
 func fill32(slice []uint32, value uint32) {

@@ -7,6 +7,8 @@ extern kos.ThreadBootstrap
 global go_0kos.Sleep
 global go_0kos.GetKey
 global go_0kos.GetControlKeysRaw
+global go_0kos.SetKeyboardHotkeyRaw
+global go_0kos.DeleteKeyboardHotkeyRaw
 global go_0kos.SetKeyboardLayoutRaw
 global go_0kos.SetKeyboardLanguageRaw
 global go_0kos.SetSystemLanguageRaw
@@ -26,6 +28,7 @@ global go_0kos.CreateButton
 global go_0kos.ExitRaw
 global go_0kos.Redraw
 global go_0kos.Window
+global go_0kos.WindowWithStyle
 global go_0kos.WriteText
 global go_0kos.WriteTextEx
 global go_0kos.GetTime
@@ -115,6 +118,8 @@ kos.%1 equ go_0kos.%1
 KOS_ALIAS Sleep
 KOS_ALIAS GetKey
 KOS_ALIAS GetControlKeysRaw
+KOS_ALIAS SetKeyboardHotkeyRaw
+KOS_ALIAS DeleteKeyboardHotkeyRaw
 KOS_ALIAS SetKeyboardLayoutRaw
 KOS_ALIAS SetKeyboardLanguageRaw
 KOS_ALIAS SetSystemLanguageRaw
@@ -133,6 +138,7 @@ KOS_ALIAS CreateButton
 KOS_ALIAS ExitRaw
 KOS_ALIAS Redraw
 KOS_ALIAS Window
+KOS_ALIAS WindowWithStyle
 KOS_ALIAS WriteText
 KOS_ALIAS WriteTextEx
 KOS_ALIAS GetTime
@@ -236,6 +242,34 @@ go_0kos.GetControlKeysRaw:
     mov ebx, 3
     int 0x40
     pop ebx
+    ret
+
+go_0kos.SetKeyboardHotkeyRaw:
+    push ebp
+    mov ebp, esp
+    push ebx
+    mov eax, 66
+    mov ebx, 4
+    mov ecx, [ebp+8]
+    and ecx, 0xFF
+    mov edx, [ebp+12]
+    int 0x40
+    pop ebx
+    pop ebp
+    ret
+
+go_0kos.DeleteKeyboardHotkeyRaw:
+    push ebp
+    mov ebp, esp
+    push ebx
+    mov eax, 66
+    mov ebx, 5
+    mov ecx, [ebp+8]
+    and ecx, 0xFF
+    mov edx, [ebp+12]
+    int 0x40
+    pop ebx
+    pop ebp
     ret
 
 go_0kos.SetKeyboardLayoutRaw:
@@ -437,6 +471,33 @@ go_0kos.Window:
     mov edx, 0x13
     shl edx, 24
     or edx, 0xFFFFFF
+    mov esi, 0x808899FF
+    xor eax, eax
+    int 0x40
+    pop edi
+    pop esi
+    pop ebx
+    pop ebp
+    ret
+
+go_0kos.WindowWithStyle:
+    push ebp
+    mov ebp, esp
+    push ebx
+    push esi
+    push edi
+    push dword [ebp+32]
+    push dword [ebp+28]
+    call runtime_prepare_window_title
+    add esp, 8
+    mov edi, eax
+    mov ebx, [ebp+8]
+    shl ebx, 16
+    or ebx, [ebp+16]
+    mov ecx, [ebp+12]
+    shl ecx, 16
+    or ecx, [ebp+20]
+    mov edx, [ebp+24]
     mov esi, 0x808899FF
     xor eax, eax
     int 0x40

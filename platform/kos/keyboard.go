@@ -3,11 +3,31 @@ package kos
 type KeyboardLayoutKind int
 type KeyboardLanguage int
 type KeyboardLayoutTable [128]byte
+type HotkeyModifierState byte
+
+type HotkeyModifiers struct {
+	Shift HotkeyModifierState
+	Ctrl  HotkeyModifierState
+	Alt   HotkeyModifierState
+}
+
+type Hotkey struct {
+	ScanCode  byte
+	Modifiers HotkeyModifiers
+}
 
 const (
 	KeyboardLayoutNormal KeyboardLayoutKind = 1
 	KeyboardLayoutShift  KeyboardLayoutKind = 2
 	KeyboardLayoutAlt    KeyboardLayoutKind = 3
+)
+
+const (
+	HotkeyModifierNotPressed HotkeyModifierState = 0
+	HotkeyModifierSingle     HotkeyModifierState = 1
+	HotkeyModifierBoth       HotkeyModifierState = 2
+	HotkeyModifierLeftOnly   HotkeyModifierState = 3
+	HotkeyModifierRightOnly  HotkeyModifierState = 4
 )
 
 const (
@@ -77,6 +97,43 @@ func ControlKeysStatus() ControlKeys {
 	return ControlKeys(GetControlKeysRaw())
 }
 
+func RegisterHotkey(hotkey Hotkey) bool {
+	if !hotkey.valid() {
+		return false
+	}
+
+	return SetKeyboardHotkeyRaw(hotkey.ScanCode, hotkey.Modifiers.pack()) == 0
+}
+
+func UnregisterHotkey(hotkey Hotkey) bool {
+	if !hotkey.valid() {
+		return false
+	}
+
+	return DeleteKeyboardHotkeyRaw(hotkey.ScanCode, hotkey.Modifiers.pack()) == 0
+}
+
+func (key KeyEvent) HotkeyPressed() bool {
+	return key.Hotkey && key.ScanCode&0x80 == 0
+}
+
+func (key KeyEvent) HotkeyReleased() bool {
+	return key.Hotkey && key.ScanCode&0x80 != 0
+}
+
+func (key KeyEvent) HotkeyPressScanCode() byte {
+	if !key.Hotkey {
+		return 0
+	}
+
+	return key.ScanCode & 0x7F
+}
+
+func (hotkey Hotkey) Release() Hotkey {
+	hotkey.ScanCode |= 0x80
+	return hotkey
+}
+
 func (keys ControlKeys) Shift() bool {
 	return keys&(ControlShiftLeft|ControlShiftRight) != 0
 }
@@ -87,6 +144,18 @@ func (keys ControlKeys) Ctrl() bool {
 
 func (keys ControlKeys) Alt() bool {
 	return keys&(ControlAltLeft|ControlAltRight) != 0
+}
+
+func (modifiers HotkeyModifiers) pack() uint32 {
+	return uint32(modifiers.Shift&0x0F) |
+		(uint32(modifiers.Ctrl&0x0F) << 4) |
+		(uint32(modifiers.Alt&0x0F) << 8)
+}
+
+func (hotkey Hotkey) valid() bool {
+	return validHotkeyModifierState(hotkey.Modifiers.Shift) &&
+		validHotkeyModifierState(hotkey.Modifiers.Ctrl) &&
+		validHotkeyModifierState(hotkey.Modifiers.Alt)
 }
 
 func ReadKeyboardLayoutTable(kind KeyboardLayoutKind) (KeyboardLayoutTable, bool) {
@@ -142,4 +211,8 @@ func isValidKeyboardLayoutKind(kind KeyboardLayoutKind) bool {
 
 func isValidKeyboardLanguage(language KeyboardLanguage) bool {
 	return language >= KeyboardLanguageEnglish && language <= KeyboardLanguageCatalan
+}
+
+func validHotkeyModifierState(state HotkeyModifierState) bool {
+	return state >= HotkeyModifierNotPressed && state <= HotkeyModifierRightOnly
 }

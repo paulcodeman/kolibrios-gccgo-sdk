@@ -15,14 +15,16 @@ func GetDate() uint32
 func GetTimeCounter() uint32
 func GetTimeCounterPro() uint64 { return 0 }
 func Event() int
-func GetKey() int                                      { return 0 }
-func GetControlKeysRaw() uint32                        { return 0 }
-func SetKeyboardLayoutRaw(which int, table *byte) int  { return 0 }
-func SetKeyboardLanguageRaw(language int) int          { return 0 }
-func SetSystemLanguageRaw(language int) int            { return 0 }
-func GetKeyboardLayoutRaw(which int, buffer *byte) int { return 0 }
-func GetKeyboardLanguageRaw() int                      { return 0 }
-func GetSystemLanguageRaw() int                        { return 0 }
+func GetKey() int                                                 { return 0 }
+func GetControlKeysRaw() uint32                                   { return 0 }
+func SetKeyboardHotkeyRaw(scanCode byte, modifiers uint32) int    { return 0 }
+func DeleteKeyboardHotkeyRaw(scanCode byte, modifiers uint32) int { return 0 }
+func SetKeyboardLayoutRaw(which int, table *byte) int             { return 0 }
+func SetKeyboardLanguageRaw(language int) int                     { return 0 }
+func SetSystemLanguageRaw(language int) int                       { return 0 }
+func GetKeyboardLayoutRaw(which int, buffer *byte) int            { return 0 }
+func GetKeyboardLanguageRaw() int                                 { return 0 }
+func GetSystemLanguageRaw() int                                   { return 0 }
 func CheckEvent() int
 func GetThreadInfo(buffer *byte, slot int) int       { return 0 }
 func CreateThreadRaw(entry uint32, stack uint32) int { return 0 }
@@ -97,7 +99,7 @@ func ReadUint32Raw(base uint32, offset uint32) uint32                           
 func BootstrapRuntimeHasGCRaw() uint32                                                     { return 0 }
 func PollRuntimeGCRaw()                                                                    {}
 func PollRuntimeWorldStopRaw()                                                             {}
-func StartRuntimeThreadRaw(record uint32, stackSize uint32) uint32                          { return 0 }
+func StartRuntimeThreadRaw(record uint32, stackSize uint32) uint32                         { return 0 }
 func GetRuntimeMCountRaw() uint32                                                          { return 0 }
 func HeapAllocCountRaw() uint32                                                            { return 0 }
 func HeapAllocBytesRaw() uint32                                                            { return 0 }
@@ -128,33 +130,38 @@ func RuntimeExitProcessRaw()
 func RuntimeExitThreadRaw()
 func Redraw(mode int)
 func windowRaw(x int, y int, width int, height int, title *byte)
+func windowStyleRaw(x int, y int, width int, height int, style uint32, title *byte)
 
 func Window(x int, y int, width int, height int, title string) {
+	WindowWithStyle(x, y, width, height, WindowStyleSkinnedFixed, title)
+}
+
+func WindowWithStyle(x int, y int, width int, height int, style uint32, title string) {
 	ptr, _ := stringAddress(title)
 	if ptr == nil {
 		ptr = &emptyCStringByte
 	}
-	windowRaw(x, y, width, height, ptr)
+	windowStyleRaw(x, y, width, height, style, ptr)
 	freeCString(ptr)
 }
 
-func SetCaption(title string)                                            {}
-func SetCaptionWithPrefix(encoding StringEncoding, title string)         {}
-func SendMessage(event int, param uint32) int                            { return 0 }
-func GetMouseScreenPosition() uint32                                     { return 0 }
-func GetMouseWindowPosition() uint32                                     { return 0 }
-func GetMouseButtonState() uint32                                        { return 0 }
-func GetMouseButtonEventState() uint32                                   { return 0 }
-func LoadCursorRaw(data uint32, descriptor uint32) uint32                { return 0 }
-func SetCursorRaw(handle uint32) uint32                                  { return 0 }
-func DeleteCursorRaw(handle uint32)                                      {}
-func GetMouseScrollData() uint32                                         { return 0 }
-func GetPixelColorFromScreenRaw(offset int) uint32                       { return 0 }
+func SetCaption(title string)                                             {}
+func SetCaptionWithPrefix(encoding StringEncoding, title string)          {}
+func SendMessage(event int, param uint32) int                             { return 0 }
+func GetMouseScreenPosition() uint32                                      { return 0 }
+func GetMouseWindowPosition() uint32                                      { return 0 }
+func GetMouseButtonState() uint32                                         { return 0 }
+func GetMouseButtonEventState() uint32                                    { return 0 }
+func LoadCursorRaw(data uint32, descriptor uint32) uint32                 { return 0 }
+func SetCursorRaw(handle uint32) uint32                                   { return 0 }
+func DeleteCursorRaw(handle uint32)                                       {}
+func GetMouseScrollData() uint32                                          { return 0 }
+func GetPixelColorFromScreenRaw(offset int) uint32                        { return 0 }
 func ReadScreenAreaRaw(buffer *byte, width int, height int, x int, y int) {}
-func GetGraphicsBitsPerPixelRaw() uint32                                 { return 0 }
-func GetGraphicsBytesPerLineRaw() uint32                                 { return 0 }
-func CopyGraphicsBufferRaw(dst *byte, screenOffset uint32, size uint32)  {}
-func LoadCursorWithEncoding(encoding StringEncoding, path string) uint32 { return 0 }
+func GetGraphicsBitsPerPixelRaw() uint32                                  { return 0 }
+func GetGraphicsBytesPerLineRaw() uint32                                  { return 0 }
+func CopyGraphicsBufferRaw(dst *byte, screenOffset uint32, size uint32)   {}
+func LoadCursorWithEncoding(encoding StringEncoding, path string) uint32  { return 0 }
 func writeTextRaw(x int, y int, color uint32, text *byte, textLen int)
 
 func WriteText(x int, y int, color uint32, text string) {

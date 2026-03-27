@@ -64,6 +64,7 @@ jobs:
           name: kex-artifacts
           path: |
             apps/**/*.kex
+            apps/**/assets/**
 
       - name: Upload obj artifacts
         uses: actions/upload-artifact@v4

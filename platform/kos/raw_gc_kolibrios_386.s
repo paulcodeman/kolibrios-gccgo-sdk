@@ -141,6 +141,20 @@ TEXT ·windowRaw(SB),NOSPLIT,$0-20
 	INT	$0x40
 	RET
 
+TEXT ·windowStyleRaw(SB),NOSPLIT,$0-24
+	MOVL	x+0(FP), BX
+	SHLL	$16, BX
+	ORL	width+8(FP), BX
+	MOVL	y+4(FP), CX
+	SHLL	$16, CX
+	ORL	height+12(FP), CX
+	MOVL	style+16(FP), DX
+	MOVL	$0x808899FF, SI
+	MOVL	title+20(FP), DI
+	XORL	AX, AX
+	INT	$0x40
+	RET
+
 TEXT ·writeTextRaw(SB),NOSPLIT,$0-20
 	MOVL	x+0(FP), BX
 	SHLL	$16, BX

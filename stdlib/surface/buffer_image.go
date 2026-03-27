@@ -1,5 +1,12 @@
 package surface
 
+func (buffer *Buffer) DrawImage(x int, y int, image *Image) {
+	if image == nil {
+		return
+	}
+	buffer.DrawImageRect(Rect{X: x, Y: y, Width: image.Width, Height: image.Height}, image)
+}
+
 func (buffer *Buffer) DrawImageRect(rect Rect, image *Image) {
 	raw := rawBuffer(buffer)
 	if raw == nil || image == nil || !image.Valid() || rect.Empty() {

@@ -31,6 +31,12 @@ func GetKey() int
 // Function 66, subfunction 3 - get status of control keys.
 func GetControlKeysRaw() uint32
 
+// Function 66, subfunction 4 - register a system-wide hotkey.
+func SetKeyboardHotkeyRaw(scanCode byte, modifiers uint32) int
+
+// Function 66, subfunction 5 - unregister a previously registered system-wide hotkey.
+func DeleteKeyboardHotkeyRaw(scanCode byte, modifiers uint32) int
+
 // Function 21, subfunction 2 - set one of the keyboard layout tables.
 func SetKeyboardLayoutRaw(which int, table *byte) int
 
@@ -313,6 +319,9 @@ func Redraw(mode int)
 
 // Function 0 - define and draw the window.
 func Window(x int, y int, width int, height int, title string)
+
+// Function 0 - define and draw the window with an explicit edx style/color payload.
+func WindowWithStyle(x int, y int, width int, height int, style uint32, title string)
 
 // Function 71, subfunction 2 - set window caption with explicit encoding.
 func SetCaption(title string)

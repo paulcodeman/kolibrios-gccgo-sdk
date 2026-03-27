@@ -345,22 +345,24 @@ func parseINIInt32(value string) (int32, bool) {
 }
 
 func formatINIInt32(value int32) string {
-	if value == 0 {
-		return "0"
-	}
 	if value < 0 {
-		return "-" + formatINIUint32(uint32(-value))
+		return "-" + formatINIUint32(uint32(-int64(value)))
 	}
-
 	return formatINIUint32(uint32(value))
 }
 
 func formatINIUint32(value uint32) string {
-	if value < 10 {
-		return string([]byte{'0' + byte(value)})
+	if value == 0 {
+		return "0"
 	}
-
-	return formatINIUint32(value/10) + string([]byte{'0' + byte(value%10)})
+	var buffer [10]byte
+	index := len(buffer)
+	for value > 0 {
+		index--
+		buffer[index] = '0' + byte(value%10)
+		value /= 10
+	}
+	return string(buffer[index:])
 }
 
 func cStringBufferToString(buffer []byte) string {
