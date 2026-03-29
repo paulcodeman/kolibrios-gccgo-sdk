@@ -163,6 +163,92 @@ func StorePointer(addr *unsafe.Pointer, val unsafe.Pointer) {
 	*addr = val
 }
 
+// Bool provides a minimal implementation of atomic.Bool.
+type Bool struct {
+	v uint32
+}
+
+func (x *Bool) Load() bool {
+	return LoadUint32(&x.v) != 0
+}
+
+func (x *Bool) Store(val bool) {
+	if val {
+		StoreUint32(&x.v, 1)
+		return
+	}
+	StoreUint32(&x.v, 0)
+}
+
+func (x *Bool) Swap(new bool) (old bool) {
+	if new {
+		return SwapUint32(&x.v, 1) != 0
+	}
+	return SwapUint32(&x.v, 0) != 0
+}
+
+func (x *Bool) CompareAndSwap(old, new bool) (swapped bool) {
+	oldValue := uint32(0)
+	if old {
+		oldValue = 1
+	}
+	newValue := uint32(0)
+	if new {
+		newValue = 1
+	}
+	return CompareAndSwapUint32(&x.v, oldValue, newValue)
+}
+
+// Int64 provides a minimal implementation of atomic.Int64.
+type Int64 struct {
+	v int64
+}
+
+func (x *Int64) Load() int64 {
+	return LoadInt64(&x.v)
+}
+
+func (x *Int64) Store(val int64) {
+	StoreInt64(&x.v, val)
+}
+
+func (x *Int64) Swap(new int64) (old int64) {
+	return SwapInt64(&x.v, new)
+}
+
+func (x *Int64) CompareAndSwap(old, new int64) (swapped bool) {
+	return CompareAndSwapInt64(&x.v, old, new)
+}
+
+func (x *Int64) Add(delta int64) (new int64) {
+	return AddInt64(&x.v, delta)
+}
+
+// Uint64 provides a minimal implementation of atomic.Uint64.
+type Uint64 struct {
+	v uint64
+}
+
+func (x *Uint64) Load() uint64 {
+	return LoadUint64(&x.v)
+}
+
+func (x *Uint64) Store(val uint64) {
+	StoreUint64(&x.v, val)
+}
+
+func (x *Uint64) Swap(new uint64) (old uint64) {
+	return SwapUint64(&x.v, new)
+}
+
+func (x *Uint64) CompareAndSwap(old, new uint64) (swapped bool) {
+	return CompareAndSwapUint64(&x.v, old, new)
+}
+
+func (x *Uint64) Add(delta uint64) (new uint64) {
+	return AddUint64(&x.v, delta)
+}
+
 // Value provides a minimal implementation of atomic.Value.
 type Value struct {
 	v any

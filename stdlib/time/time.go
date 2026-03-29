@@ -598,6 +598,10 @@ func (value Time) Format(layout string) string {
 	}
 }
 
+func (value Time) AppendFormat(buffer []byte, layout string) []byte {
+	return append(buffer, value.Format(layout)...)
+}
+
 func (value Time) compare(other Time) int {
 	if value.hasMonotonic && other.hasMonotonic {
 		switch {

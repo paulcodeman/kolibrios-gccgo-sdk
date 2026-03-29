@@ -1051,6 +1051,10 @@ func (v Value) Set(x Value) {
 	runtimeTypedmemmove(v.typ, valueDataPointer(v), valueDataPointer(x))
 }
 
+func (v Value) SetZero() {
+	v.Set(Zero(v.typ))
+}
+
 func (v Value) SetInt(x int64) {
 	v.flag.mustBeAssignable("reflect.Value.SetInt")
 	switch v.kind() {
