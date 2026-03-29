@@ -440,13 +440,14 @@ func (buffer *Buffer) scratchPixels(size int) []uint32 {
 }
 
 type Presenter struct {
-	X      int
-	Y      int
-	Width  int
-	Height int
-	Title  string
-	Client Rect
-	Style  uint32
+	X             int
+	Y             int
+	Width         int
+	Height        int
+	Title         string
+	TitleIconPath string
+	Client        Rect
+	Style         uint32
 }
 
 func NewPresenter(x int, y int, width int, height int, title string) Presenter {
@@ -493,6 +494,13 @@ func (presenter *Presenter) SetTitle(title string) {
 	presenter.Title = title
 }
 
+func (presenter *Presenter) SetTitleIconPath(path string) {
+	if presenter == nil {
+		return
+	}
+	presenter.TitleIconPath = path
+}
+
 func (presenter *Presenter) SetSize(width int, height int) {
 	if presenter == nil {
 		return
@@ -521,10 +529,11 @@ func (presenter *Presenter) SetClientRect(rect Rect) {
 
 func (presenter Presenter) PresentFull(buffer *Buffer) {
 	kos.BeginRedraw()
-	kos.OpenWindowStyle(presenter.X, presenter.Y, presenter.Width, presenter.Height, presenter.windowStyle(), presenter.Title)
+	kos.OpenWindowStyle(presenter.X, presenter.Y, presenter.Width, presenter.Height, presenter.presentWindowStyle(), presenter.systemTitle())
 	if buffer != nil {
 		buffer.BlitToWindow(presenter.Client.X, presenter.Client.Y)
 	}
+	presenter.drawCustomTitleBar()
 	kos.EndRedraw()
 }
 

@@ -45,6 +45,7 @@ type windowPresenter struct {
 func newWindowPresenter(window *Window) surfacepkg.Presenter {
 	presenter := surfacepkg.NewPresenter(window.X, window.Y, window.Width, window.Height, window.Title)
 	presenter.SetClientRect(window.client)
+	presenter.SetTitleIconPath(window.TitleIconPath)
 	return presenter
 }
 

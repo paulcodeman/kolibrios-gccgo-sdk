@@ -2,6 +2,17 @@ package ui
 
 import "kos"
 
+func (window *Window) customTitleBarEnabled() bool {
+	return window != nil && window.TitleIconPath != ""
+}
+
+func (window *Window) noteNonClientDirty() {
+	if window == nil {
+		return
+	}
+	window.nonClientDirty = true
+}
+
 func (window *Window) SetLeft(x int) bool {
 	if window == nil {
 		return false
@@ -71,7 +82,51 @@ func (window *Window) SetTitle(title string) bool {
 		return false
 	}
 	window.Title = title
+	if window.customTitleBarEnabled() {
+		window.noteNonClientDirty()
+		return true
+	}
 	kos.SetWindowTitle(title)
+	return true
+}
+
+func (window *Window) SetTitleIconPath(path string) bool {
+	if window == nil {
+		return false
+	}
+	if window.TitleIconPath == path {
+		return false
+	}
+	hadCustomTitleBar := window.customTitleBarEnabled()
+	window.TitleIconPath = path
+	if hadCustomTitleBar || window.customTitleBarEnabled() {
+		window.noteNonClientDirty()
+	}
+	return true
+}
+
+func (window *Window) SetTitleWithIcon(title string, iconPath string) bool {
+	if window == nil {
+		return false
+	}
+	hadCustomTitleBar := window.customTitleBarEnabled()
+	changed := false
+	if window.Title != title {
+		window.Title = title
+		changed = true
+	}
+	if window.TitleIconPath != iconPath {
+		window.TitleIconPath = iconPath
+		changed = true
+	}
+	if !changed {
+		return false
+	}
+	if hadCustomTitleBar || window.customTitleBarEnabled() {
+		window.noteNonClientDirty()
+	} else {
+		kos.SetWindowTitle(title)
+	}
 	return true
 }
 

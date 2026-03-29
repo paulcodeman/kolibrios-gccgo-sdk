@@ -17,6 +17,7 @@ func (window *Window) Redraw() {
 	if WindowEnableTinyGL {
 		window.drawTinyGL(true, Rect{})
 	}
+	window.nonClientDirty = false
 	window.clearDirtyState()
 	window.clearPresentRect()
 	window.syncScrollDrawState()
@@ -26,6 +27,10 @@ func (window *Window) Redraw() {
 
 func (window *Window) RedrawContent() {
 	if window == nil {
+		return
+	}
+	if window.nonClientDirty {
+		window.Redraw()
 		return
 	}
 	window.beginWindowFrameState()
@@ -48,6 +53,32 @@ func (window *Window) RedrawContent() {
 
 func (window *Window) RedrawContentStats(stats *FrameStats) {
 	if window == nil {
+		return
+	}
+	if window.nonClientDirty {
+		if stats == nil {
+			window.Redraw()
+			return
+		}
+		window.beginWindowFrameState()
+		*stats = FrameStats{}
+		window.syncWindowInfo()
+		window.ensureCanvas()
+		start := kos.UptimeNanoseconds()
+		window.drawFrameStats(stats)
+		afterDraw := kos.UptimeNanoseconds()
+		if presenter := window.presenter(); presenter != nil {
+			presenter.PresentFull(window.canvas)
+		}
+		if WindowEnableTinyGL {
+			window.drawTinyGL(true, Rect{})
+		}
+		end := kos.UptimeNanoseconds()
+		stats.BlitNs = end - afterDraw
+		stats.TotalNs = end - start
+		window.nonClientDirty = false
+		window.noteCaretBlinkDrawn()
+		window.endWindowFrameState()
 		return
 	}
 	window.beginWindowFrameState()

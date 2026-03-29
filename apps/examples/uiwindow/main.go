@@ -27,7 +27,7 @@ func Run() {
 			Direction: ui.GradientVertical,
 		})
 	})
-	window.SetTitle("UI Window Demo")
+	window.SetTitleWithIcon("UI Window Demo", "assets/favicon.png")
 	window.CenterOnScreen()
 
 	count := 0
@@ -179,7 +179,7 @@ func Run() {
 				Direction: ui.GradientVertical,
 			})
 		})
-		extra.SetTitle("UI Extra Window")
+		extra.SetTitleWithIcon("UI Extra Window", "assets/favicon.png")
 
 		extraLabel := elements.Label("Extra window #" + strconv.Itoa(index))
 		apply(extraLabel, func(style *ui.Style) {

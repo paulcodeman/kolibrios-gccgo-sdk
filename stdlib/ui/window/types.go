@@ -3,9 +3,9 @@ package ui
 import "kos"
 
 const (
-	windowClientLeft   = 5
-	windowClientRight  = 4
-	windowClientBottom = 4
+	windowClientLeft     = 5
+	windowClientRight    = 4
+	windowClientBottom   = 4
 	windowPresentRectMax = 4
 )
 
@@ -18,12 +18,13 @@ const (
 )
 
 type Window struct {
-	X      int
-	Y      int
-	Width  int
-	Height int
-	Title  string
-	Style  Style
+	X             int
+	Y             int
+	Width         int
+	Height        int
+	Title         string
+	TitleIconPath string
+	Style         Style
 
 	Background kos.Color
 	OnClose    func()
@@ -56,6 +57,7 @@ type Window struct {
 	awaitingPress           bool
 	lastMouseInteractive    bool
 	pendingEvent            kos.EventType
+	nonClientDirty          bool
 	dirty                   Rect
 	dirtySet                bool
 	visualDirtyOnly         bool
