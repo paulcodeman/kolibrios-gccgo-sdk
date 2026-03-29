@@ -1,0 +1,5 @@
+{
+  "access_token": "vk1.your_user_token_here",
+  "api_base": "https://api.vk.ru/method/",
+  "api_version": "5.199"
+}

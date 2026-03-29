@@ -1047,50 +1047,8 @@ func (v Value) Set(x Value) {
 	if !x.IsValid() {
 		panic("reflect: zero Value passed to Set")
 	}
-	if v.typ != x.typ {
-		panic("reflect: Set of incompatible value")
-	}
-	switch v.kind() {
-	case Bool:
-		*(*bool)(v.ptr) = *(*bool)(x.ptr)
-	case Int:
-		*(*int)(v.ptr) = *(*int)(x.ptr)
-	case Int8:
-		*(*int8)(v.ptr) = *(*int8)(x.ptr)
-	case Int16:
-		*(*int16)(v.ptr) = *(*int16)(x.ptr)
-	case Int32:
-		*(*int32)(v.ptr) = *(*int32)(x.ptr)
-	case Int64:
-		*(*int64)(v.ptr) = *(*int64)(x.ptr)
-	case Uint:
-		*(*uint)(v.ptr) = *(*uint)(x.ptr)
-	case Uint8:
-		*(*uint8)(v.ptr) = *(*uint8)(x.ptr)
-	case Uint16:
-		*(*uint16)(v.ptr) = *(*uint16)(x.ptr)
-	case Uint32:
-		*(*uint32)(v.ptr) = *(*uint32)(x.ptr)
-	case Uint64:
-		*(*uint64)(v.ptr) = *(*uint64)(x.ptr)
-	case Uintptr:
-		*(*uintptr)(v.ptr) = *(*uintptr)(x.ptr)
-	case String:
-		*(*string)(v.ptr) = *(*string)(x.ptr)
-	case Slice:
-		switch v.typ.Elem().Kind() {
-		case Uint8:
-			*(*[]byte)(v.ptr) = *(*[]byte)(x.ptr)
-		case String:
-			*(*[]string)(v.ptr) = *(*[]string)(x.ptr)
-		default:
-			panic("reflect: Set unsupported slice type")
-		}
-	case Pointer, UnsafePointer:
-		*(*unsafe.Pointer)(v.ptr) = rawValuePointer(x)
-	default:
-		panic("reflect: Set unsupported kind " + v.kind().String())
-	}
+	x = assignToType("reflect.Set", x, v.typ)
+	runtimeTypedmemmove(v.typ, valueDataPointer(v), valueDataPointer(x))
 }
 
 func (v Value) SetInt(x int64) {
@@ -1176,8 +1134,25 @@ func (v Value) SetBytes(x []byte) {
 	*(*[]byte)(v.ptr) = x
 }
 
-func (v Value) SetLen(x int) {}
-func (v Value) SetCap(x int) {}
+func (v Value) SetLen(x int) {
+	v.flag.mustBeAssignable("reflect.Value.SetLen")
+	v.flag.mustBe(Slice, "reflect.Value.SetLen")
+	s := (*unsafeheader.Slice)(v.ptr)
+	if x < 0 || x > s.Cap {
+		panic("reflect: slice length out of range")
+	}
+	s.Len = x
+}
+
+func (v Value) SetCap(x int) {
+	v.flag.mustBeAssignable("reflect.Value.SetCap")
+	v.flag.mustBe(Slice, "reflect.Value.SetCap")
+	s := (*unsafeheader.Slice)(v.ptr)
+	if x < s.Len || x > s.Cap {
+		panic("reflect: slice capacity out of range")
+	}
+	s.Cap = x
+}
 
 func (v Value) OverflowInt(x int64) bool {
 	switch v.kind() {
