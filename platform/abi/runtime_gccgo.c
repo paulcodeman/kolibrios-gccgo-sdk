@@ -11874,11 +11874,27 @@ static void RUNTIME_USED runtime_noop_import(void) {
 
 static const unsigned char RUNTIME_USED runtime_empty_types[1] = {0};
 
-static void* runtime_memmove_export(void* dest, const void* src, size_t size) {
+void* runtime_memmove_export(void* dest, const void* src, size_t size) {
     if (dest == NULL || src == NULL) {
         return dest;
     }
     return kos_memmove(dest, src, size);
+}
+
+void runtime_memclr_no_heap_pointers_export(void* ptr, size_t size) {
+    if (ptr == NULL || size == 0) {
+        return;
+    }
+    kos_memset(ptr, 0, size);
+}
+
+void runtime_memclr_has_pointers_export(void* ptr, size_t size) {
+    if (ptr == NULL || size == 0) {
+        return;
+    }
+    // The KolibriOS gccgo runtime currently uses direct zeroing here.
+    // When bulk write barriers land, this entrypoint should match upstream.
+    kos_memset(ptr, 0, size);
 }
 
 void runtime_memfill32_export(uint32_t* dest, uint32_t value, size_t count) __asm__("runtime.memfill32");
@@ -12385,6 +12401,12 @@ __asm__(".set runtime.slicerunetostring, runtime_slicerunetostring");
 
 __asm__(".global runtime.memmove");
 __asm__(".set runtime.memmove, runtime_memmove_export");
+
+__asm__(".global runtime.memclrNoHeapPointers");
+__asm__(".set runtime.memclrNoHeapPointers, runtime_memclr_no_heap_pointers_export");
+
+__asm__(".global runtime.memclrHasPointers");
+__asm__(".set runtime.memclrHasPointers, runtime_memclr_has_pointers_export");
 
 __asm__(".global runtime.intstring");
 __asm__(".set runtime.intstring, runtime_intstring");

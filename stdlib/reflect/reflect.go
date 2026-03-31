@@ -8,6 +8,17 @@ import (
 
 type Kind uint8
 
+type StringHeader struct {
+	Data uintptr
+	Len  int
+}
+
+type SliceHeader struct {
+	Data uintptr
+	Len  int
+	Cap  int
+}
+
 const (
 	Invalid Kind = iota
 	Bool
@@ -1218,6 +1229,46 @@ func MakeSlice(t Type, len, cap int) Value {
 	header.Cap = cap
 	return Value{typ: rt, ptr: headerPtr, flag: flag(Slice) | flagIndir}
 }
+
+func (v Value) grow(n int) {
+	v.flag.mustBe(Slice, "reflect.Value.grow")
+	p := (*unsafeheader.Slice)(v.ptr)
+	switch {
+	case n < 0:
+		panic("reflect.Value.Grow: negative len")
+	case p.Len+n < 0:
+		panic("reflect.Value.Grow: slice overflow")
+	case p.Len+n > p.Cap:
+		st := (*sliceType)(unsafe.Pointer(v.typ))
+		grown := runtimeGrowSlice(st.elem, p.Data, p.Len, p.Cap, p.Len+n)
+		grown.Len = p.Len
+		*p = grown
+	}
+}
+
+func (v Value) extendSlice(n int) Value {
+	v.flag.mustBe(Slice, "reflect.Value.extendSlice")
+
+	headerPtr := runtimeNewObject(v.typ)
+	*(*unsafeheader.Slice)(headerPtr) = *(*unsafeheader.Slice)(v.ptr)
+
+	v.ptr = headerPtr
+	v.flag = flag(Slice) | flagIndir
+	v.grow(n)
+	(*unsafeheader.Slice)(v.ptr).Len += n
+	return v
+}
+
+func Append(s Value, x ...Value) Value {
+	s.flag.mustBe(Slice, "reflect.Append")
+	n := s.Len()
+	s = s.extendSlice(len(x))
+	for i, v := range x {
+		s.Index(n + i).Set(v)
+	}
+	return s
+}
+
 func MakeMap(t Type) Value                                 { return MakeMapWithSize(t, 0) }
 func MakeMapWithSize(t Type, n int) Value {
 	if t == nil {
@@ -1438,6 +1489,7 @@ func deepValueEqual(x, y Value) bool {
 
 func runtimeNewObject(t *rtype) unsafe.Pointer __asm__("runtime.newobject")
 func runtimeMakeSlice(t *rtype, len int, cap int) unsafe.Pointer __asm__("runtime.makeslice")
+func runtimeGrowSlice(t *rtype, oldValues unsafe.Pointer, oldLen int, oldCap int, newLen int) unsafeheader.Slice __asm__("runtime.growslice")
 func runtimeMakemap(t *rtype, hint int, ignored unsafe.Pointer) unsafe.Pointer __asm__("runtime.makemap")
 func runtimeMapaccess2(mapType unsafe.Pointer, m unsafe.Pointer, key unsafe.Pointer) runtimeMapaccess2Result __asm__("runtime.mapaccess2")
 func runtimeMapassign(mapType unsafe.Pointer, m unsafe.Pointer, key unsafe.Pointer) unsafe.Pointer __asm__("runtime.mapassign")

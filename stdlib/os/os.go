@@ -606,6 +606,24 @@ func IsNotExist(err error) bool {
 	return errorMatches(err, ErrNotExist)
 }
 
+func IsExist(err error) bool {
+	return errorMatches(err, ErrExist)
+}
+
+func IsPermission(err error) bool {
+	return errorMatches(err, ErrPermission)
+}
+
+func TempDir() string {
+	if value, ok := LookupEnv("TMPDIR"); ok && value != "" {
+		return value
+	}
+	if value, ok := LookupEnv("TEMP"); ok && value != "" {
+		return value
+	}
+	return "/tmp0/1"
+}
+
 func ReadFile(name string) ([]byte, error) {
 	data, status := kos.ReadAllFile(name)
 	if status == kos.FileSystemOK || status == kos.FileSystemEOF {
@@ -782,6 +800,77 @@ func (file *File) Stat() (FileInfo, error) {
 	}
 
 	return Stat(file.name)
+}
+
+func (file *File) Readdir(n int) ([]FileInfo, error) {
+	if file == nil {
+		return nil, &PathError{Op: "readdir", Path: "", Err: ErrInvalid}
+	}
+	if file.closed {
+		return nil, &PathError{Op: "readdir", Path: file.name, Err: ErrClosed}
+	}
+	if file.fdBacked {
+		return nil, &PathError{Op: "readdir", Path: file.name, Err: ErrInvalid}
+	}
+
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, &PathError{Op: "readdir", Path: file.name, Err: ErrInvalid}
+	}
+
+	readAll := n <= 0
+	remaining := n
+	result := make([]FileInfo, 0, 16)
+
+	for {
+		batchSize := uint32(64)
+		if !readAll && remaining < int(batchSize) {
+			batchSize = uint32(remaining)
+		}
+		if batchSize == 0 {
+			break
+		}
+
+		read, status := kos.ReadFolder(file.name, uint32(file.offset), batchSize)
+		if status != kos.FileSystemOK && status != kos.FileSystemEOF {
+			if len(result) > 0 {
+				return result, nil
+			}
+			return nil, wrapPathError("readdir", file.name, status)
+		}
+
+		for index := 0; index < len(read.Entries); index++ {
+			entry := read.Entries[index]
+			result = append(result, fileInfo{
+				name: entry.Name,
+				path: path.Join(file.name, entry.Name),
+				raw:  entry.Info,
+			})
+		}
+		file.offset += uint64(len(read.Entries))
+
+		if !readAll {
+			remaining -= len(read.Entries)
+			if remaining <= 0 {
+				return result, nil
+			}
+		}
+
+		if status == kos.FileSystemEOF || len(read.Entries) == 0 {
+			if !readAll && len(result) == 0 {
+				return nil, io.EOF
+			}
+			return result, nil
+		}
+	}
+
+	if !readAll && len(result) == 0 {
+		return nil, io.EOF
+	}
+	return result, nil
 }
 
 func (file *File) Close() error {
@@ -970,6 +1059,16 @@ func (file *File) Write(buffer []byte) (int, error) {
 
 func (file *File) WriteString(value string) (int, error) {
 	return file.Write([]byte(value))
+}
+
+func (file *File) Sync() error {
+	if file == nil {
+		return &PathError{Op: "sync", Path: "", Err: ErrInvalid}
+	}
+	if file.closed {
+		return &PathError{Op: "sync", Path: file.name, Err: ErrClosed}
+	}
+	return nil
 }
 
 func (file *File) readActiveConsole(buffer []byte) (int, error) {

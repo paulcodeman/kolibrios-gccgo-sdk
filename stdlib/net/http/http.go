@@ -30,6 +30,7 @@ const (
 	StatusCreated             = 201
 	StatusAccepted            = 202
 	StatusNoContent           = 204
+	StatusIMUsed              = 226
 	StatusOK                  = 200
 	StatusMovedPermanently    = 301
 	StatusFound               = 302
