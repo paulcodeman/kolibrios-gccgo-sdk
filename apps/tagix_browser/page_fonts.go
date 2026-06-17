@@ -51,8 +51,9 @@ func indexFontDirectory(registry []fontFamilyEntry, dir string) []fontFamilyEntr
 	register := func(key string, path string) {
 		registry = registerFontFamilyPath(registry, key, path)
 	}
+	const maxIterations = 10000
 	start := uint32(0)
-	for {
+	for iter := 0; iter < maxIterations; iter++ {
 		result, status := kos.ReadDirectory(dir, start, 64)
 		if status != kos.FileSystemOK && status != kos.FileSystemEOF {
 			return registry
@@ -80,6 +81,7 @@ func indexFontDirectory(registry []fontFamilyEntry, dir string) []fontFamilyEntr
 			return registry
 		}
 	}
+	return registry
 }
 
 func fontLookupKeys(name string) []string {

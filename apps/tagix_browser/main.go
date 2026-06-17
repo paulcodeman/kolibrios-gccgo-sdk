@@ -419,15 +419,11 @@ func newBrowserHTTPClient(resourceCacheDir string) (*nethttp.Client, *persistent
 	transport := &nethttp.Transport{}
 	if baseTransport != nil {
 		*transport = *baseTransport
-		if baseTransport.TLSClientConfig != nil {
-			transport.TLSClientConfig = baseTransport.TLSClientConfig.Clone()
-		}
+		transport.TLSClientConfig = baseTransport.TLSClientConfig.Clone()
 	}
 	if rootCAs != nil {
 		if transport.TLSClientConfig == nil {
 			transport.TLSClientConfig = &tls.Config{}
-		} else {
-			transport.TLSClientConfig = transport.TLSClientConfig.Clone()
 		}
 		transport.TLSClientConfig.RootCAs = rootCAs
 	}

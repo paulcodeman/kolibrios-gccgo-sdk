@@ -150,6 +150,7 @@ func Parse(html string) *Document {
 		return doc
 	}
 	if err != nil {
+		tagixDebugf("html parse error: %v", err)
 	}
 	appendHTMLNodes(doc, doc.Root, root)
 	return doc

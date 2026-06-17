@@ -11,6 +11,7 @@ const (
 	defaultPageFontSize   = 16
 	defaultPageLineHeight = 24
 	defaultBodyMargin     = 8
+	maxStyleCacheSize     = 2048
 )
 
 type cssLayoutContext struct {
@@ -563,7 +564,7 @@ func parseCSSRulesWithMedia(source string, order *int, media cssMediaCondition) 
 			rules = append(rules, parseCSSRulesWithMedia(block, order, media.merge(condition))...)
 			continue
 		}
-		for _, rawSelector := range strings.Split(header, ",") {
+		for _, rawSelector := range splitCSSSelectors(header) {
 			selector, ok := parseCSSSelector(rawSelector)
 			if !ok {
 				continue
@@ -579,6 +580,34 @@ func parseCSSRulesWithMedia(source string, order *int, media cssMediaCondition) 
 		}
 	}
 	return rules
+}
+
+func splitCSSSelectors(source string) []string {
+	var parts []string
+	start := 0
+	depth := 0
+	for index := 0; index < len(source); index++ {
+		switch source[index] {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		case ',':
+			if depth == 0 {
+				parts = append(parts, strings.TrimSpace(source[start:index]))
+				start = index + 1
+			}
+		}
+	}
+	if tail := strings.TrimSpace(source[start:]); tail != "" {
+		parts = append(parts, tail)
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	return parts
 }
 
 func parseCSSAutoMargins(declarations string, current cssAutoMargins) cssAutoMargins {
@@ -1026,6 +1055,9 @@ func (sheet *pageStylesheet) resolvedStyle(node *Node, layout cssLayoutContext, 
 			applyCSSDeclarations(&style, inline, layout)
 		}
 	}
+	if len(sheet.cache) >= maxStyleCacheSize {
+		sheet.cache = map[string]ui.Style{}
+	}
 	sheet.cache[key] = style
 	return style
 }
@@ -1076,6 +1108,9 @@ func (sheet *pageStylesheet) fontSize(node *Node, layout cssLayoutContext, ctx *
 	}
 	if inline := attrValue(node, "style"); inline != "" {
 		applyCSSFontDeclarations(&fontStyle, inline, &layout)
+	}
+	if len(sheet.fontSizeCache) >= maxStyleCacheSize {
+		sheet.fontSizeCache = map[string]int{}
 	}
 	if size, ok := fontStyle.GetFontSize(); ok && size > 0 {
 		sheet.fontSizeCache[key] = size

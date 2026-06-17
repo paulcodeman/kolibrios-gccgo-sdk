@@ -9,12 +9,14 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/publicsuffix"
 )
 
 type persistentCookieJar struct {
+	mu      sync.Mutex
 	base    *netcookiejar.Jar
 	path    string
 	records map[string]persistedCookie
@@ -67,6 +69,8 @@ func (jar *persistentCookieJar) SetCookies(u *neturl.URL, cookies []*nethttp.Coo
 	if jar == nil || jar.base == nil || u == nil {
 		return
 	}
+	jar.mu.Lock()
+	defer jar.mu.Unlock()
 	jar.base.SetCookies(u, cookies)
 	now := time.Now()
 	changed := false
@@ -101,6 +105,8 @@ func (jar *persistentCookieJar) Save() error {
 	if jar == nil {
 		return nil
 	}
+	jar.mu.Lock()
+	defer jar.mu.Unlock()
 	path := strings.TrimSpace(jar.path)
 	if path == "" {
 		return nil
@@ -128,6 +134,8 @@ func (jar *persistentCookieJar) load() error {
 	if jar == nil {
 		return nil
 	}
+	jar.mu.Lock()
+	defer jar.mu.Unlock()
 	path := strings.TrimSpace(jar.path)
 	if path == "" {
 		return nil
