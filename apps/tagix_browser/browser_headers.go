@@ -120,10 +120,10 @@ func browserLanguageKnown(language kos.KeyboardLanguage) bool {
 }
 
 func (app *App) applyNavigationRequestHeaders(request *nethttp.Request, referrer string) {
-	app.applyStandardBrowserHeaders(request, "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8", referrer)
 	if request == nil {
 		return
 	}
+	app.applyStandardBrowserHeaders(request, "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8", referrer)
 	request.Header.Set("Upgrade-Insecure-Requests", "1")
 	request.Header.Set("Sec-Fetch-Dest", "document")
 	request.Header.Set("Sec-Fetch-Mode", "navigate")
@@ -132,10 +132,10 @@ func (app *App) applyNavigationRequestHeaders(request *nethttp.Request, referrer
 }
 
 func (app *App) applyFormRequestHeaders(request *nethttp.Request, referrer string) {
-	app.applyNavigationRequestHeaders(request, referrer)
 	if request == nil {
 		return
 	}
+	app.applyNavigationRequestHeaders(request, referrer)
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	if origin := browserOriginHeaderValue(referrer); origin != "" {
 		request.Header.Set("Origin", origin)
@@ -143,20 +143,20 @@ func (app *App) applyFormRequestHeaders(request *nethttp.Request, referrer strin
 }
 
 func (app *App) applyStylesheetRequestHeaders(request *nethttp.Request, referrer string) {
-	app.applyStandardBrowserHeaders(request, "text/css,*/*;q=0.1", referrer)
 	if request == nil {
 		return
 	}
+	app.applyStandardBrowserHeaders(request, "text/css,*/*;q=0.1", referrer)
 	request.Header.Set("Sec-Fetch-Dest", "style")
 	request.Header.Set("Sec-Fetch-Mode", "no-cors")
 	request.Header.Set("Sec-Fetch-Site", browserFetchSite(request.URL, referrer))
 }
 
 func (app *App) applyImageRequestHeaders(request *nethttp.Request, referrer string) {
-	app.applyStandardBrowserHeaders(request, "image/webp,image/png,image/jpeg,image/gif,image/*;q=0.8,*/*;q=0.5", referrer)
 	if request == nil {
 		return
 	}
+	app.applyStandardBrowserHeaders(request, "image/webp,image/png,image/jpeg,image/gif,image/*;q=0.8,*/*;q=0.5", referrer)
 	request.Header.Set("Sec-Fetch-Dest", "image")
 	request.Header.Set("Sec-Fetch-Mode", "no-cors")
 	request.Header.Set("Sec-Fetch-Site", browserFetchSite(request.URL, referrer))
@@ -166,10 +166,10 @@ func (app *App) applyImageRequestHeaders(request *nethttp.Request, referrer stri
 }
 
 func (app *App) applyFontRequestHeaders(request *nethttp.Request, referrer string) {
-	app.applyStandardBrowserHeaders(request, "font/ttf,font/otf,font/sfnt,application/font-sfnt,application/octet-stream;q=0.8,*/*;q=0.5", referrer)
 	if request == nil {
 		return
 	}
+	app.applyStandardBrowserHeaders(request, "font/ttf,font/otf,font/sfnt,application/font-sfnt,application/octet-stream;q=0.8,*/*;q=0.5", referrer)
 	request.Header.Set("Sec-Fetch-Dest", "font")
 	request.Header.Set("Sec-Fetch-Mode", "no-cors")
 	request.Header.Set("Sec-Fetch-Site", browserFetchSite(request.URL, referrer))

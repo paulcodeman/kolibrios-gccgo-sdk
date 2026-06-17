@@ -478,7 +478,6 @@ func (app *App) finishNavigation() {
 	if app.pageView != nil {
 		app.pageView.MarkDirty()
 	}
-	app.syncShell()
 }
 
 func (app *App) handleHTTPResponse(response *nethttp.Response, requestedURL string) {

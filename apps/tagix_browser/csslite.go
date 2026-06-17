@@ -50,10 +50,16 @@ type cssMediaCondition struct {
 	hasMax   bool
 }
 
+type cssSpecificity struct {
+	ids     int
+	classes int
+	tags    int
+}
+
 type cssRule struct {
 	selector     cssSelector
 	declarations string
-	specificity  int
+	specificity  cssSpecificity
 	order        int
 	media        cssMediaCondition
 }
@@ -229,21 +235,34 @@ func cssResolvedStyleCacheKey(node *Node, layout cssLayoutContext, variant cssSt
 	if node == nil {
 		return ""
 	}
-	return strconv.Itoa(node.ID) +
-		"|" + strconv.Itoa(layout.viewportWidth) +
-		"|" + strconv.Itoa(layout.viewportHeight) +
-		"|" + strconv.Itoa(layout.fontSize) +
-		"|v" + strconv.Itoa(int(variant))
+	var b strings.Builder
+	b.Grow(64)
+	b.WriteString(strconv.Itoa(node.ID))
+	b.WriteByte('|')
+	b.WriteString(strconv.Itoa(layout.viewportWidth))
+	b.WriteByte('|')
+	b.WriteString(strconv.Itoa(layout.viewportHeight))
+	b.WriteByte('|')
+	b.WriteString(strconv.Itoa(layout.fontSize))
+	b.WriteByte('|')
+	b.WriteByte('v')
+	b.WriteString(strconv.Itoa(int(variant)))
+	return b.String()
 }
 
 func cssResolvedFontSizeCacheKey(node *Node, layout cssLayoutContext) string {
 	if node == nil {
 		return ""
 	}
-	return strconv.Itoa(node.ID) +
-		"|" + strconv.Itoa(layout.viewportWidth) +
-		"|" + strconv.Itoa(layout.viewportHeight) +
-		"|fs"
+	var b strings.Builder
+	b.Grow(64)
+	b.WriteString(strconv.Itoa(node.ID))
+	b.WriteByte('|')
+	b.WriteString(strconv.Itoa(layout.viewportWidth))
+	b.WriteByte('|')
+	b.WriteString(strconv.Itoa(layout.viewportHeight))
+	b.WriteString("|fs")
+	return b.String()
 }
 
 func parseCSSRules(source string, order *int) []cssRule {
@@ -432,27 +451,30 @@ func isCSSSpace(value byte) bool {
 	return value == ' ' || value == '\t' || value == '\r' || value == '\n'
 }
 
-func (selector cssSimpleSelector) specificity() int {
-	score := 0
+func (selector cssSimpleSelector) specificity() cssSpecificity {
+	s := cssSpecificity{}
 	if selector.id != "" {
-		score += 100
+		s.ids++
 	}
-	score += len(selector.classes) * 10
+	s.classes = len(selector.classes)
 	if len(selector.pseudos) > 0 {
-		score += len(selector.pseudos) * 10
+		s.classes += len(selector.pseudos)
 	}
 	if selector.tag != "" {
-		score++
+		s.tags++
 	}
-	return score
+	return s
 }
 
-func (selector cssSelector) specificity() int {
-	score := 0
+func (selector cssSelector) specificity() cssSpecificity {
+	s := cssSpecificity{}
 	for _, step := range selector.steps {
-		score += step.simple.specificity()
+		sub := step.simple.specificity()
+		s.ids += sub.ids
+		s.classes += sub.classes
+		s.tags += sub.tags
 	}
-	return score
+	return s
 }
 
 func (selector cssSelector) matchesStatic(node *Node) bool {
@@ -530,8 +552,6 @@ func (selector cssSimpleSelector) matchesStatic(node *Node) bool {
 
 func matchesCSSStructuralPseudo(node *Node, pseudo string) bool {
 	switch pseudo {
-	case "", "focus-visible":
-		return true
 	case "link", "visited", "any-link":
 		return node.Tag == "a" && attrValue(node, "href") != ""
 	case "root":
@@ -1125,8 +1145,15 @@ func (sheet *pageStylesheet) resolvedStyle(node *Node, layout cssLayoutContext, 
 	}
 	if len(matched) > 0 {
 		sort.SliceStable(matched, func(i int, j int) bool {
-			if matched[i].specificity != matched[j].specificity {
-				return matched[i].specificity < matched[j].specificity
+			ai, aj := matched[i].specificity, matched[j].specificity
+			if ai.ids != aj.ids {
+				return ai.ids < aj.ids
+			}
+			if ai.classes != aj.classes {
+				return ai.classes < aj.classes
+			}
+			if ai.tags != aj.tags {
+				return ai.tags < aj.tags
 			}
 			return matched[i].order < matched[j].order
 		})
@@ -1140,9 +1167,13 @@ func (sheet *pageStylesheet) resolvedStyle(node *Node, layout cssLayoutContext, 
 		}
 	}
 	if len(sheet.cache) >= maxStyleCacheSize {
+		toDelete := maxStyleCacheSize / 10
 		for k := range sheet.cache {
 			delete(sheet.cache, k)
-			break
+			toDelete--
+			if toDelete <= 0 {
+				break
+			}
 		}
 	}
 	sheet.cache[key] = style
@@ -1176,9 +1207,13 @@ func (sheet *pageStylesheet) fontSize(node *Node, layout cssLayoutContext, ctx *
 		applyCSSFontDeclarations(&fontStyle, inline, &layout)
 	}
 	if len(sheet.fontSizeCache) >= maxStyleCacheSize {
+		toDelete := maxStyleCacheSize / 10
 		for k := range sheet.fontSizeCache {
 			delete(sheet.fontSizeCache, k)
-			break
+			toDelete--
+			if toDelete <= 0 {
+				break
+			}
 		}
 	}
 	if size, ok := fontStyle.GetFontSize(); ok && size > 0 {
@@ -1318,8 +1353,15 @@ func (sheet *pageStylesheet) matchRules(node *Node, layout cssLayoutContext) []c
 		return nil
 	}
 	sort.SliceStable(matched, func(i int, j int) bool {
-		if matched[i].specificity != matched[j].specificity {
-			return matched[i].specificity < matched[j].specificity
+		ai, aj := matched[i].specificity, matched[j].specificity
+		if ai.ids != aj.ids {
+			return ai.ids < aj.ids
+		}
+		if ai.classes != aj.classes {
+			return ai.classes < aj.classes
+		}
+		if ai.tags != aj.tags {
+			return ai.tags < aj.tags
 		}
 		return matched[i].order < matched[j].order
 	})
@@ -1451,9 +1493,6 @@ func resolvedNodeVerticalAlign(node *Node, ctx *renderContext) string {
 	} else if normalized, ok := normalizeCSSVerticalAlign(attrValue(node, "valign")); ok {
 		return normalized
 	}
-	if normalized, ok := normalizeCSSVerticalAlign(attrValue(node, "valign")); ok {
-		return normalized
-	}
 	if node.Tag == "td" || node.Tag == "th" {
 		return "middle"
 	}
@@ -1563,12 +1602,14 @@ func copyPageTextProperties(target *ui.Style, source ui.Style) {
 	}
 }
 
-func applyResolvedStyle(target *ui.Style, source ui.Style) {
+func applyResolvedStyleInner(target *ui.Style, source ui.Style, skipBackground bool) {
 	if target == nil {
 		return
 	}
-	if color, ok := source.GetBackground(); ok {
-		target.SetBackground(color)
+	if !skipBackground {
+		if color, ok := source.GetBackground(); ok {
+			target.SetBackground(color)
+		}
 	}
 	if color, ok := source.GetForeground(); ok {
 		target.SetForeground(color)
@@ -1626,11 +1667,15 @@ func applyResolvedStyle(target *ui.Style, source ui.Style) {
 	if radius, ok := source.GetBorderRadius(); ok {
 		target.SetBorderRadius(radius.TopLeft, radius.TopRight, radius.BottomRight, radius.BottomLeft)
 	}
-	if gradient, ok := source.GetGradient(); ok {
-		target.SetGradient(gradient)
+	if !skipBackground {
+		if gradient, ok := source.GetGradient(); ok {
+			target.SetGradient(gradient)
+		}
 	}
-	if attachment, ok := source.GetBackgroundAttachment(); ok {
-		target.SetBackgroundAttachment(attachment)
+	if !skipBackground {
+		if attachment, ok := source.GetBackgroundAttachment(); ok {
+			target.SetBackgroundAttachment(attachment)
+		}
 	}
 	if shadow, ok := source.GetShadow(); ok {
 		target.SetShadow(shadow)
@@ -1641,8 +1686,10 @@ func applyResolvedStyle(target *ui.Style, source ui.Style) {
 	if alignItems, ok := source.GetAlignItems(); ok {
 		target.SetAlignItems(alignItems)
 	}
-	if visibility, ok := source.GetVisibility(); ok {
-		target.SetVisibility(visibility)
+	if !skipBackground {
+		if visibility, ok := source.GetVisibility(); ok {
+			target.SetVisibility(visibility)
+		}
 	}
 	if align, ok := source.GetTextAlign(); ok {
 		target.SetTextAlign(align)
@@ -1653,11 +1700,15 @@ func applyResolvedStyle(target *ui.Style, source ui.Style) {
 	if whiteSpace, ok := source.GetWhiteSpace(); ok {
 		target.SetWhiteSpace(whiteSpace)
 	}
-	if overflowWrap, ok := source.GetOverflowWrap(); ok {
-		target.SetOverflowWrap(overflowWrap)
+	if !skipBackground {
+		if overflowWrap, ok := source.GetOverflowWrap(); ok {
+			target.SetOverflowWrap(overflowWrap)
+		}
 	}
-	if wordBreak, ok := source.GetWordBreak(); ok {
-		target.SetWordBreak(wordBreak)
+	if !skipBackground {
+		if wordBreak, ok := source.GetWordBreak(); ok {
+			target.SetWordBreak(wordBreak)
+		}
 	}
 	if textShadow, ok := source.GetTextShadow(); ok {
 		target.SetTextShadow(textShadow)
@@ -1677,8 +1728,10 @@ func applyResolvedStyle(target *ui.Style, source ui.Style) {
 	if opacity, ok := source.GetOpacity(); ok {
 		target.SetOpacity(opacity)
 	}
-	if boxSizing, ok := source.GetBoxSizing(); ok {
-		target.SetBoxSizing(boxSizing)
+	if !skipBackground {
+		if boxSizing, ok := source.GetBoxSizing(); ok {
+			target.SetBoxSizing(boxSizing)
+		}
 	}
 	if color, ok := source.GetOutlineColor(); ok {
 		target.SetOutlineColor(color)
@@ -1772,195 +1825,12 @@ func applyResolvedStyle(target *ui.Style, source ui.Style) {
 	}
 }
 
+func applyResolvedStyle(target *ui.Style, source ui.Style) {
+	applyResolvedStyleInner(target, source, false)
+}
+
 func applyResolvedStyleExceptBackground(target *ui.Style, source ui.Style) {
-	if target == nil {
-		return
-	}
-	if color, ok := source.GetForeground(); ok {
-		target.SetForeground(color)
-	}
-	if color, ok := source.GetBorderColor(); ok {
-		target.SetBorderColor(color)
-	}
-	if color, ok := source.GetBorderTopColor(); ok {
-		target.SetBorderTopColor(color)
-	}
-	if color, ok := source.GetBorderRightColor(); ok {
-		target.SetBorderRightColor(color)
-	}
-	if color, ok := source.GetBorderBottomColor(); ok {
-		target.SetBorderBottomColor(color)
-	}
-	if color, ok := source.GetBorderLeftColor(); ok {
-		target.SetBorderLeftColor(color)
-	}
-	if width, ok := source.GetBorderWidth(); ok {
-		if color, colorOK := source.GetBorderColor(); colorOK {
-			target.SetBorder(width, color)
-		} else {
-			target.SetBorderWidth(width)
-		}
-	}
-	if width, ok := source.GetBorderTopWidth(); ok {
-		if color, colorOK := source.GetBorderTopColor(); colorOK {
-			target.SetBorderTop(width, color)
-		} else {
-			target.SetBorderTopWidth(width)
-		}
-	}
-	if width, ok := source.GetBorderRightWidth(); ok {
-		if color, colorOK := source.GetBorderRightColor(); colorOK {
-			target.SetBorderRight(width, color)
-		} else {
-			target.SetBorderRightWidth(width)
-		}
-	}
-	if width, ok := source.GetBorderBottomWidth(); ok {
-		if color, colorOK := source.GetBorderBottomColor(); colorOK {
-			target.SetBorderBottom(width, color)
-		} else {
-			target.SetBorderBottomWidth(width)
-		}
-	}
-	if width, ok := source.GetBorderLeftWidth(); ok {
-		if color, colorOK := source.GetBorderLeftColor(); colorOK {
-			target.SetBorderLeft(width, color)
-		} else {
-			target.SetBorderLeftWidth(width)
-		}
-	}
-	if radius, ok := source.GetBorderRadius(); ok {
-		target.SetBorderRadius(radius.TopLeft, radius.TopRight, radius.BottomRight, radius.BottomLeft)
-	}
-	if display, ok := source.GetDisplay(); ok {
-		target.SetDisplay(display)
-	}
-	if alignItems, ok := source.GetAlignItems(); ok {
-		target.SetAlignItems(alignItems)
-	}
-	if position, ok := source.GetPosition(); ok {
-		target.SetPosition(position)
-	}
-	if value, ok := source.GetFloat(); ok {
-		target.SetFloat(value)
-	}
-	if value, ok := source.GetClear(); ok {
-		target.SetClear(value)
-	}
-	if value, ok := source.GetTop(); ok {
-		target.SetTop(value)
-	}
-	if value, ok := source.GetRight(); ok {
-		target.SetRight(value)
-	}
-	if value, ok := source.GetBottom(); ok {
-		target.SetBottom(value)
-	}
-	if value, ok := source.GetLeft(); ok {
-		target.SetLeft(value)
-	}
-	if margin, ok := source.GetMargin(); ok {
-		target.SetMargin(margin.Top, margin.Right, margin.Bottom, margin.Left)
-	}
-	if padding, ok := source.GetPadding(); ok {
-		target.SetPadding(padding.Top, padding.Right, padding.Bottom, padding.Left)
-	}
-	if value, ok := source.GetWidth(); ok {
-		target.SetWidth(value)
-	}
-	if value, ok := source.GetWidthPercent(); ok {
-		target.SetWidthPercent(value)
-	}
-	if value, ok := source.GetFlexGrow(); ok {
-		target.SetFlexGrowFloat(value)
-	}
-	if value, ok := source.GetHeight(); ok {
-		target.SetHeight(value)
-	}
-	if value, ok := source.GetMinWidth(); ok {
-		target.SetMinWidth(value)
-	}
-	if value, ok := source.GetMaxWidth(); ok {
-		target.SetMaxWidth(value)
-	}
-	if value, ok := source.GetMinHeight(); ok {
-		target.SetMinHeight(value)
-	}
-	if value, ok := source.GetMaxHeight(); ok {
-		target.SetMaxHeight(value)
-	}
-	if value, ok := source.GetForeground(); ok {
-		target.SetForeground(value)
-	}
-	if path, ok := source.GetFontPath(); ok {
-		target.SetFontPath(path)
-	}
-	if value, ok := source.GetFontSize(); ok {
-		target.SetFontSize(value)
-	}
-	if value, ok := source.GetLineHeight(); ok {
-		target.SetLineHeight(value)
-	}
-	if value, ok := source.GetTextAlign(); ok {
-		target.SetTextAlign(value)
-	}
-	if value, ok := source.GetTextDecoration(); ok {
-		target.SetTextDecoration(value)
-	}
-	if value, ok := source.GetWhiteSpace(); ok {
-		target.SetWhiteSpace(value)
-	}
-	if value, ok := source.GetOverflow(); ok {
-		target.SetOverflow(value)
-	}
-	if value, ok := source.GetOverflowX(); ok {
-		target.SetOverflowX(value)
-	}
-	if value, ok := source.GetOverflowY(); ok {
-		target.SetOverflowY(value)
-	}
-	if value, ok := source.GetContain(); ok {
-		target.SetContain(value)
-	}
-	if shadow, ok := source.GetShadow(); ok {
-		target.SetShadow(shadow)
-	}
-	if shadow, ok := source.GetTextShadow(); ok {
-		target.SetTextShadow(shadow)
-	}
-	if value, ok := source.GetOpacity(); ok {
-		target.SetOpacity(value)
-	}
-	if value, ok := source.GetOutlineColor(); ok {
-		target.SetOutlineColor(value)
-	}
-	if value, ok := source.GetOutlineWidth(); ok {
-		target.SetOutlineWidth(value)
-	}
-	if value, ok := source.GetOutlineOffset(); ok {
-		target.SetOutlineOffset(value)
-	}
-	if value, ok := source.GetOutlineRadius(); ok {
-		target.SetOutlineRadius(value)
-	}
-	if value, ok := source.GetWillChange(); ok {
-		target.SetWillChange(value)
-	}
-	if value, ok := source.GetScrollbarWidth(); ok {
-		target.SetScrollbarWidth(value)
-	}
-	if color, ok := source.GetScrollbarTrack(); ok {
-		target.SetScrollbarTrack(color)
-	}
-	if color, ok := source.GetScrollbarThumb(); ok {
-		target.SetScrollbarThumb(color)
-	}
-	if value, ok := source.GetScrollbarRadius(); ok {
-		target.SetScrollbarRadius(value)
-	}
-	if padding, ok := source.GetScrollbarPadding(); ok {
-		target.SetScrollbarPadding(padding.Top, padding.Right, padding.Bottom, padding.Left)
-	}
+	applyResolvedStyleInner(target, source, true)
 }
 
 func applyPageCanvasStyles(style *ui.Style, doc *Document, ctx *renderContext) {

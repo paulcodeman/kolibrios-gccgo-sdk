@@ -1276,14 +1276,6 @@ func parseHTMLFontPath(value string) string {
 	return webSansFontPath
 }
 
-func lastStyleToken(value string) string {
-	tokens := strings.Fields(strings.TrimSpace(value))
-	if len(tokens) == 0 {
-		return ""
-	}
-	return tokens[len(tokens)-1]
-}
-
 func applyShellFrameTemplate(app *App, node *Node, ctx *shellRenderContext) {
 	if app == nil || node == nil || app.pageFrame == nil || app.pageView == nil {
 		return

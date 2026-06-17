@@ -89,6 +89,14 @@ func (doc *Document) AppendChild(parent *Node, child *Node) {
 	if parent == nil || child == nil {
 		return
 	}
+	if child.Parent != nil {
+		for i, c := range child.Parent.Children {
+			if c == child {
+				child.Parent.Children = append(child.Parent.Children[:i], child.Parent.Children[i+1:]...)
+				break
+			}
+		}
+	}
 	child.Parent = parent
 	parent.Children = append(parent.Children, child)
 }

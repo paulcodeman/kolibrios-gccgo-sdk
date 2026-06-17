@@ -180,7 +180,7 @@ func fontFamilyPathRank(key string, path string) int {
 }
 
 func (app *App) collectDocumentFontFaces(registry []fontFamilyEntry, source string, baseURL string) []fontFamilyEntry {
-	if app == nil || len(registry) == 0 && strings.TrimSpace(source) == "" {
+	if app == nil || (len(registry) == 0 && strings.TrimSpace(source) == "") {
 		return registry
 	}
 	source = stripCSSComments(source)

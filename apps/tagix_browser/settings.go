@@ -235,9 +235,10 @@ func applyBrowserSettings(settings browserSettings) {
 	if value := strings.TrimSpace(settings.cacheName); value != "" {
 		resourceCacheDirName = value
 	}
-	resourceCacheRootCandidates = append([]string{}, defaultBrowserSettings().cacheRoots...)
 	if len(settings.cacheRoots) > 0 {
 		resourceCacheRootCandidates = append([]string{}, settings.cacheRoots...)
+	} else {
+		resourceCacheRootCandidates = append([]string{}, defaultBrowserSettings().cacheRoots...)
 	}
 	cookieStoreFileName = defaultCookieStoreFile
 	if value := strings.TrimSpace(settings.cookieStore); value != "" {

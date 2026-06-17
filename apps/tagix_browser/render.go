@@ -679,6 +679,9 @@ func buildShellTemplateNode(app *App, node *Node, ctx *shellRenderContext) *ui.D
 	}
 
 	role := strings.TrimSpace(node.Attrs["data-role"])
+	action := strings.TrimSpace(node.Attrs["data-action"])
+	value := strings.TrimSpace(node.Attrs["value"])
+	inputType := strings.TrimSpace(node.Attrs["type"])
 	switch role {
 	case "shell-root":
 		return shellContainerNode(app, node, "browser-shell", shellRootStyle(), ctx)
@@ -690,9 +693,9 @@ func buildShellTemplateNode(app *App, node *Node, ctx *shellRenderContext) *ui.D
 	case "status":
 		return shellBoundTextNode(app, node, "status", ctx)
 	case "button":
-		return shellButtonNodeWithSource(app, collectNodeText(node, false), strings.TrimSpace(node.Attrs["data-action"]), true, node, ctx)
+		return shellButtonNodeWithSource(app, collectNodeText(node, false), action, true, node, ctx)
 	case "address":
-		return shellAddressNodeWithSource(app, strings.TrimSpace(node.Attrs["value"]), node, ctx)
+		return shellAddressNodeWithSource(app, value, node, ctx)
 	case "page-frame":
 		applyShellFrameTemplate(app, node, ctx)
 		return nil
@@ -705,16 +708,16 @@ func buildShellTemplateNode(app *App, node *Node, ctx *shellRenderContext) *ui.D
 		applyShellFrameTemplate(app, node, ctx)
 		return nil
 	case "footer":
-		if strings.TrimSpace(attrValue(node, "data-role")) == "status-bar" {
+		if role == "status-bar" {
 			applyShellStatusTemplate(app, node, ctx)
 			return nil
 		}
 		return shellContainerNode(app, node, node.Tag, shellContainerStyleForTag(node.Tag), ctx)
 	case "button":
-		return shellButtonNodeWithSource(app, collectNodeText(node, false), strings.TrimSpace(node.Attrs["data-action"]), true, node, ctx)
+		return shellButtonNodeWithSource(app, collectNodeText(node, false), action, true, node, ctx)
 	case "input":
-		if role == "address" || strings.TrimSpace(node.Attrs["type"]) == "" || strings.EqualFold(strings.TrimSpace(node.Attrs["type"]), "text") {
-			return shellAddressNodeWithSource(app, strings.TrimSpace(node.Attrs["value"]), node, ctx)
+		if role == "address" || inputType == "" || strings.EqualFold(inputType, "text") {
+			return shellAddressNodeWithSource(app, value, node, ctx)
 		}
 		return nil
 	case "h1", "h2", "p", "small", "span", "strong", "em", "label":
@@ -1777,15 +1780,6 @@ func formatRomanListIndex(index int, upper bool) string {
 	return value
 }
 
-func appendNestedDocumentLinks(out *[]*ui.DocumentNode, node *Node, ctx *renderContext) {
-	if out == nil || node == nil {
-		return
-	}
-	for _, child := range node.Children {
-		appendDirectAnchorNodes(out, child, ctx)
-	}
-}
-
 func appendDirectAnchorNodes(out *[]*ui.DocumentNode, node *Node, ctx *renderContext) {
 	if out == nil || node == nil {
 		return
@@ -2424,10 +2418,6 @@ func standaloneLinkNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 		style.SetLineHeight(defaultPageLineHeight)
 		style.SetContain(ui.ContainPaint)
 	}), link)
-}
-
-func blockStandaloneLinkNode(node *Node, href string, ctx *renderContext) *ui.DocumentNode {
-	return blockStandaloneLinkNodeWithInteraction(node, href, ctx, true)
 }
 
 func blockStandaloneLinkNodeWithInteraction(node *Node, href string, ctx *renderContext, interactive bool) *ui.DocumentNode {
@@ -3302,7 +3292,7 @@ func inlineTextTokens(text string, baseStyle ui.Style) []*ui.DocumentNode {
 	if text == "" {
 		return nil
 	}
-	parts := strings.Split(text, " ")
+	parts := fieldsASCII(text)
 	nodes := make([]*ui.DocumentNode, 0, len(parts)*2)
 	for i, part := range parts {
 		if part == "" {
@@ -3473,8 +3463,11 @@ func inlineCodeNode(text string, baseStyle ui.Style) *ui.DocumentNode {
 
 func inlineImageNode(node *Node, label string, baseStyle ui.Style, resolvedStyle ui.Style, ctx *renderContext) *ui.DocumentNode {
 	label = normalizeBlockText(label)
-	image := resolveRenderedImage(node, ctx)
-	reason := resolveRenderedImageError(node, ctx)
+	imgURL := resolveRenderedImageURL(node, ctx)
+	var image *ui.DocumentImage
+	if imgURL != "" && ctx != nil && ctx.loadImage != nil {
+		image = ctx.loadImage(imgURL)
+	}
 	style := baseStyle
 	style.SetDisplay(ui.DisplayInlineBlock)
 	style.SetMargin(0, 1)
@@ -3503,6 +3496,10 @@ func inlineImageNode(node *Node, label string, baseStyle ui.Style, resolvedStyle
 	style.SetBorderRadius(4)
 	style.SetBackground(0xEEF2F6)
 	style.SetBorder(1, 0xD8DEE4)
+	reason := ""
+	if ctx != nil && ctx.imageError != nil && imgURL != "" {
+		reason = strings.TrimSpace(ctx.imageError(imgURL))
+	}
 	if reason != "" {
 		style.SetBackground(0xFDECEC)
 		style.SetBorder(1, 0xD93025)
@@ -3814,16 +3811,6 @@ func verticalMarginsForStyle(style ui.Style) int {
 		return margin.Top + margin.Bottom
 	}
 	return 0
-}
-
-func listItemNode(text string) *ui.DocumentNode {
-	return ui.NewDocumentText("- "+text, styled(func(style *ui.Style) {
-		style.SetDisplay(ui.DisplayBlock)
-		style.SetMargin(0, 0, 6, 10)
-		style.SetForeground(ui.Black)
-		style.SetFontSize(13)
-		style.SetLineHeight(18)
-	}))
 }
 
 func separatorNode() *ui.DocumentNode {
