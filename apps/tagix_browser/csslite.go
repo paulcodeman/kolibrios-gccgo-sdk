@@ -57,10 +57,86 @@ type cssRule struct {
 	media        cssMediaCondition
 }
 
+type cssRuleIndex struct {
+	tag    map[string][]*cssRule
+	class  map[string][]*cssRule
+	id     map[string][]*cssRule
+	any    []*cssRule
+}
+
 type pageStylesheet struct {
 	rules         []cssRule
 	cache         map[string]ui.Style
 	fontSizeCache map[string]int
+	index         cssRuleIndex
+	indexed       bool
+}
+
+func (sheet *pageStylesheet) buildIndex() {
+	if sheet == nil || sheet.indexed {
+		return
+	}
+	sheet.index = cssRuleIndex{
+		tag:   map[string][]*cssRule{},
+		class: map[string][]*cssRule{},
+		id:    map[string][]*cssRule{},
+	}
+	for i := range sheet.rules {
+		rule := &sheet.rules[i]
+		last := &rule.selector.steps[len(rule.selector.steps)-1].simple
+		if last.id != "" {
+			sheet.index.id[last.id] = append(sheet.index.id[last.id], rule)
+		}
+		if len(last.classes) > 0 {
+			for _, cls := range last.classes {
+				sheet.index.class[cls] = append(sheet.index.class[cls], rule)
+			}
+		}
+		if last.universal && last.id == "" && len(last.classes) == 0 {
+			sheet.index.any = append(sheet.index.any, rule)
+		}
+		if last.tag != "" {
+			sheet.index.tag[last.tag] = append(sheet.index.tag[last.tag], rule)
+		}
+	}
+	sheet.indexed = true
+}
+
+func (sheet *pageStylesheet) candidatesFor(node *Node) []*cssRule {
+	if node == nil || node.Type != ElementNode {
+		return nil
+	}
+	seen := map[*cssRule]struct{}{}
+	n := 0
+	add := func(r *cssRule) {
+		if _, ok := seen[r]; !ok {
+			seen[r] = struct{}{}
+			n++
+		}
+	}
+	for _, r := range sheet.index.tag[node.Tag] {
+		add(r)
+	}
+	for _, r := range sheet.index.any {
+		add(r)
+	}
+	if classes := node.Classes(); len(classes) > 0 {
+		for _, cls := range classes {
+			for _, r := range sheet.index.class[cls] {
+				add(r)
+			}
+		}
+	}
+	if id := attrValue(node, "id"); id != "" {
+		for _, r := range sheet.index.id[id] {
+			add(r)
+		}
+	}
+	out := make([]*cssRule, 0, n)
+	for r := range seen {
+		out = append(out, r)
+	}
+	return out
 }
 
 type cssAutoMargins struct {
@@ -1014,43 +1090,43 @@ func (sheet *pageStylesheet) resolvedStyle(node *Node, layout cssLayoutContext, 
 	if cached, ok := sheet.cache[key]; ok {
 		return cached
 	}
+	sheet.buildIndex()
 	style := ui.Style{}
 	stateMask := cssVariantStateMask(variant)
-	if len(sheet.rules) > 0 {
-		matched := make([]cssRule, 0, 8)
-		for _, rule := range sheet.rules {
-			if !rule.media.matches(layout) {
-				continue
-			}
-			if !rule.selector.matchesStatic(node) {
-				continue
-			}
-			switch variant {
-			case cssStyleVariantBase:
-				if rule.selector.hasDynamicPseudo() {
-					continue
-				}
-			default:
-				if rule.selector.hasDynamicPseudoOutsideTerminal() {
-					continue
-				}
-				required := rule.selector.dynamicTerminalMask()
-				if required == 0 || required&^stateMask != 0 {
-					continue
-				}
-			}
-			matched = append(matched, rule)
+	candidates := sheet.candidatesFor(node)
+	matched := make([]cssRule, 0, 8)
+	for _, rule := range candidates {
+		if !rule.media.matches(layout) {
+			continue
 		}
-		if len(matched) > 0 {
-			sort.SliceStable(matched, func(i int, j int) bool {
-				if matched[i].specificity != matched[j].specificity {
-					return matched[i].specificity < matched[j].specificity
-				}
-				return matched[i].order < matched[j].order
-			})
-			for _, rule := range matched {
-				applyCSSDeclarations(&style, rule.declarations, layout)
+		if !rule.selector.matchesStatic(node) {
+			continue
+		}
+		switch variant {
+		case cssStyleVariantBase:
+			if rule.selector.hasDynamicPseudo() {
+				continue
 			}
+		default:
+			if rule.selector.hasDynamicPseudoOutsideTerminal() {
+				continue
+			}
+			required := rule.selector.dynamicTerminalMask()
+			if required == 0 || required&^stateMask != 0 {
+				continue
+			}
+		}
+		matched = append(matched, *rule)
+	}
+	if len(matched) > 0 {
+		sort.SliceStable(matched, func(i int, j int) bool {
+			if matched[i].specificity != matched[j].specificity {
+				return matched[i].specificity < matched[j].specificity
+			}
+			return matched[i].order < matched[j].order
+		})
+		for _, rule := range matched {
+			applyCSSDeclarations(&style, rule.declarations, layout)
 		}
 	}
 	if variant == cssStyleVariantBase {
@@ -1088,29 +1164,8 @@ func (sheet *pageStylesheet) fontSize(node *Node, layout cssLayoutContext, ctx *
 	}
 	fontStyle := ui.Style{}
 	layout.fontSize = inherited
-	matched := make([]cssRule, 0, 8)
-	for _, rule := range sheet.rules {
-		if !rule.media.matches(layout) {
-			continue
-		}
-		if rule.selector.hasDynamicPseudo() {
-			continue
-		}
-		if !rule.selector.matchesStatic(node) {
-			continue
-		}
-		matched = append(matched, rule)
-	}
-	if len(matched) > 0 {
-		sort.SliceStable(matched, func(i int, j int) bool {
-			if matched[i].specificity != matched[j].specificity {
-				return matched[i].specificity < matched[j].specificity
-			}
-			return matched[i].order < matched[j].order
-		})
-		for _, rule := range matched {
-			applyCSSFontDeclarations(&fontStyle, rule.declarations, &layout)
-		}
+	for _, rule := range sheet.matchRules(node, layout) {
+		applyCSSFontDeclarations(&fontStyle, rule.declarations, &layout)
 	}
 	if inline := attrValue(node, "style"); inline != "" {
 		applyCSSFontDeclarations(&fontStyle, inline, &layout)
@@ -1236,35 +1291,43 @@ func applyShellInteractionTextStyles(target *ui.DocumentNode) {
 	applyStateTextPropertiesToTextNodes(target.Children, target.StyleHover, target.StyleActive, target.StyleFocus)
 }
 
+func (sheet *pageStylesheet) matchRules(node *Node, layout cssLayoutContext) []cssRule {
+	if sheet == nil || node == nil {
+		return nil
+	}
+	sheet.buildIndex()
+	candidates := sheet.candidatesFor(node)
+	matched := make([]cssRule, 0, 8)
+	for _, rule := range candidates {
+		if !rule.media.matches(layout) {
+			continue
+		}
+		if rule.selector.hasDynamicPseudo() {
+			continue
+		}
+		if rule.selector.matchesStatic(node) {
+			matched = append(matched, *rule)
+		}
+	}
+	if len(matched) == 0 {
+		return nil
+	}
+	sort.SliceStable(matched, func(i int, j int) bool {
+		if matched[i].specificity != matched[j].specificity {
+			return matched[i].specificity < matched[j].specificity
+		}
+		return matched[i].order < matched[j].order
+	})
+	return matched
+}
+
 func (sheet *pageStylesheet) autoMargins(node *Node, layout cssLayoutContext) cssAutoMargins {
 	state := cssAutoMargins{}
 	if sheet == nil || node == nil {
 		return state
 	}
-	if len(sheet.rules) > 0 {
-		matched := make([]cssRule, 0, 8)
-		for _, rule := range sheet.rules {
-			if !rule.media.matches(layout) {
-				continue
-			}
-			if rule.selector.hasDynamicPseudo() {
-				continue
-			}
-			if rule.selector.matchesStatic(node) {
-				matched = append(matched, rule)
-			}
-		}
-		if len(matched) > 0 {
-			sort.SliceStable(matched, func(i int, j int) bool {
-				if matched[i].specificity != matched[j].specificity {
-					return matched[i].specificity < matched[j].specificity
-				}
-				return matched[i].order < matched[j].order
-			})
-			for _, rule := range matched {
-				state = parseCSSAutoMargins(rule.declarations, state)
-			}
-		}
+	for _, rule := range sheet.matchRules(node, layout) {
+		state = parseCSSAutoMargins(rule.declarations, state)
 	}
 	if inline := attrValue(node, "style"); inline != "" {
 		state = parseCSSAutoMargins(inline, state)
@@ -1277,30 +1340,8 @@ func (sheet *pageStylesheet) listStyleType(node *Node, layout cssLayoutContext) 
 	if node == nil {
 		return state.listStyleType, state.hasType
 	}
-	if sheet != nil && len(sheet.rules) > 0 {
-		matched := make([]cssRule, 0, 8)
-		for _, rule := range sheet.rules {
-			if !rule.media.matches(layout) {
-				continue
-			}
-			if rule.selector.hasDynamicPseudo() {
-				continue
-			}
-			if rule.selector.matchesStatic(node) {
-				matched = append(matched, rule)
-			}
-		}
-		if len(matched) > 0 {
-			sort.SliceStable(matched, func(i int, j int) bool {
-				if matched[i].specificity != matched[j].specificity {
-					return matched[i].specificity < matched[j].specificity
-				}
-				return matched[i].order < matched[j].order
-			})
-			for _, rule := range matched {
-				state = parseCSSListStyleState(rule.declarations, state)
-			}
-		}
+	for _, rule := range sheet.matchRules(node, layout) {
+		state = parseCSSListStyleState(rule.declarations, state)
 	}
 	if inline := attrValue(node, "style"); inline != "" {
 		state = parseCSSListStyleState(inline, state)
@@ -1313,30 +1354,8 @@ func (sheet *pageStylesheet) backgroundState(node *Node, layout cssLayoutContext
 	if node == nil {
 		return state
 	}
-	if sheet != nil && len(sheet.rules) > 0 {
-		matched := make([]cssRule, 0, 8)
-		for _, rule := range sheet.rules {
-			if !rule.media.matches(layout) {
-				continue
-			}
-			if rule.selector.hasDynamicPseudo() {
-				continue
-			}
-			if rule.selector.matchesStatic(node) {
-				matched = append(matched, rule)
-			}
-		}
-		if len(matched) > 0 {
-			sort.SliceStable(matched, func(i int, j int) bool {
-				if matched[i].specificity != matched[j].specificity {
-					return matched[i].specificity < matched[j].specificity
-				}
-				return matched[i].order < matched[j].order
-			})
-			for _, rule := range matched {
-				state = parseCSSBackgroundState(rule.declarations, state)
-			}
-		}
+	for _, rule := range sheet.matchRules(node, layout) {
+		state = parseCSSBackgroundState(rule.declarations, state)
 	}
 	if inline := attrValue(node, "style"); inline != "" {
 		state = parseCSSBackgroundState(inline, state)
@@ -1349,30 +1368,8 @@ func (sheet *pageStylesheet) verticalAlign(node *Node, layout cssLayoutContext) 
 	if node == nil {
 		return state.value, state.hasValue
 	}
-	if sheet != nil && len(sheet.rules) > 0 {
-		matched := make([]cssRule, 0, 8)
-		for _, rule := range sheet.rules {
-			if !rule.media.matches(layout) {
-				continue
-			}
-			if rule.selector.hasDynamicPseudo() {
-				continue
-			}
-			if rule.selector.matchesStatic(node) {
-				matched = append(matched, rule)
-			}
-		}
-		if len(matched) > 0 {
-			sort.SliceStable(matched, func(i int, j int) bool {
-				if matched[i].specificity != matched[j].specificity {
-					return matched[i].specificity < matched[j].specificity
-				}
-				return matched[i].order < matched[j].order
-			})
-			for _, rule := range matched {
-				state = parseCSSVerticalAlignState(rule.declarations, state)
-			}
-		}
+	for _, rule := range sheet.matchRules(node, layout) {
+		state = parseCSSVerticalAlignState(rule.declarations, state)
 	}
 	if inline := attrValue(node, "style"); inline != "" {
 		state = parseCSSVerticalAlignState(inline, state)
