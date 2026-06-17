@@ -22,6 +22,16 @@ func toLowerASCII(value string) string {
 	if value == "" {
 		return ""
 	}
+	hasUpper := false
+	for i := 0; i < len(value); i++ {
+		if value[i] >= 'A' && value[i] <= 'Z' {
+			hasUpper = true
+			break
+		}
+	}
+	if !hasUpper {
+		return value
+	}
 	buf := make([]byte, len(value))
 	for i := 0; i < len(value); i++ {
 		c := value[i]

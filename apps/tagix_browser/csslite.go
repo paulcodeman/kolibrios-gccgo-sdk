@@ -11,7 +11,7 @@ const (
 	defaultPageFontSize   = 16
 	defaultPageLineHeight = 24
 	defaultBodyMargin     = 8
-	maxStyleCacheSize     = 2048
+	maxStyleCacheSize     = 8192
 )
 
 type cssLayoutContext struct {
@@ -1056,7 +1056,10 @@ func (sheet *pageStylesheet) resolvedStyle(node *Node, layout cssLayoutContext, 
 		}
 	}
 	if len(sheet.cache) >= maxStyleCacheSize {
-		sheet.cache = map[string]ui.Style{}
+		for k := range sheet.cache {
+			delete(sheet.cache, k)
+			break
+		}
 	}
 	sheet.cache[key] = style
 	return style
@@ -1110,7 +1113,10 @@ func (sheet *pageStylesheet) fontSize(node *Node, layout cssLayoutContext, ctx *
 		applyCSSFontDeclarations(&fontStyle, inline, &layout)
 	}
 	if len(sheet.fontSizeCache) >= maxStyleCacheSize {
-		sheet.fontSizeCache = map[string]int{}
+		for k := range sheet.fontSizeCache {
+			delete(sheet.fontSizeCache, k)
+			break
+		}
 	}
 	if size, ok := fontStyle.GetFontSize(); ok && size > 0 {
 		sheet.fontSizeCache[key] = size
@@ -2024,7 +2030,8 @@ func applyCSSDeclarations(style *ui.Style, declarations string, layout cssLayout
 		if colon <= 0 || colon+1 >= len(chunk) {
 			continue
 		}
-		name := strings.ToLower(strings.TrimSpace(chunk[:colon]))
+		name := strings.TrimSpace(chunk[:colon])
+		name = toLowerASCII(name)
 		value := strings.TrimSpace(chunk[colon+1:])
 		applyCSSDeclaration(style, name, value, &layout)
 	}
@@ -2044,7 +2051,8 @@ func applyCSSFontDeclarations(style *ui.Style, declarations string, layout *cssL
 		if colon <= 0 || colon+1 >= len(chunk) {
 			continue
 		}
-		name := strings.ToLower(strings.TrimSpace(chunk[:colon]))
+		name := strings.TrimSpace(chunk[:colon])
+		name = toLowerASCII(name)
 		value := strings.TrimSpace(chunk[colon+1:])
 		switch name {
 		case "font":

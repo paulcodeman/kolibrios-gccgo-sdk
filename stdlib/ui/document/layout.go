@@ -436,6 +436,9 @@ func (document *Document) layoutChildFlow(ctx LayoutContext, parentStyle Style, 
 	if outerH > lineHeight {
 		lineHeight = outerH
 	}
+	if cssLineHeight := lineHeightForStyle(style, 0); cssLineHeight > lineHeight {
+		lineHeight = cssLineHeight
+	}
 	return fragment, cursorX, cursorY, lineHeight
 }
 

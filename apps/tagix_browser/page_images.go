@@ -227,17 +227,23 @@ func decodeDocumentImage(data []byte) (*ui.DocumentImage, error) {
 		return nil, errImageSize
 	}
 	pixels := make([]uint32, width*height)
-	index := 0
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			r, g, b, a := source.At(x, y).RGBA()
-			pixels[index] = premultiplyDocumentPixel(
-				uint8(r>>8),
-				uint8(g>>8),
-				uint8(b>>8),
-				uint8(a>>8),
-			)
-			index++
+	if rgba, ok := source.(*image.RGBA); ok {
+		copyDocumentRGBAPixels(pixels, rgba, width, height)
+	} else if nrgba, ok := source.(*image.NRGBA); ok {
+		copyDocumentNRGBAPixels(pixels, nrgba, width, height)
+	} else {
+		index := 0
+		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				r, g, b, a := source.At(x, y).RGBA()
+				pixels[index] = premultiplyDocumentPixel(
+					uint8(r>>8),
+					uint8(g>>8),
+					uint8(b>>8),
+					uint8(a>>8),
+				)
+				index++
+			}
 		}
 	}
 	return &ui.DocumentImage{
@@ -245,6 +251,40 @@ func decodeDocumentImage(data []byte) (*ui.DocumentImage, error) {
 		Height: height,
 		Pixels: pixels,
 	}, nil
+}
+
+func copyDocumentRGBAPixels(pixels []uint32, rgba *image.RGBA, width int, height int) {
+	index := 0
+	for y := 0; y < height; y++ {
+		row := rgba.PixOffset(0, y)
+		for x := 0; x < width; x++ {
+			off := row + x*4
+			pixels[index] = premultiplyDocumentPixel(
+				rgba.Pix[off+0],
+				rgba.Pix[off+1],
+				rgba.Pix[off+2],
+				rgba.Pix[off+3],
+			)
+			index++
+		}
+	}
+}
+
+func copyDocumentNRGBAPixels(pixels []uint32, nrgba *image.NRGBA, width int, height int) {
+	index := 0
+	for y := 0; y < height; y++ {
+		row := nrgba.PixOffset(0, y)
+		for x := 0; x < width; x++ {
+			off := row + x*4
+			pixels[index] = premultiplyDocumentPixel(
+				nrgba.Pix[off+0],
+				nrgba.Pix[off+1],
+				nrgba.Pix[off+2],
+				nrgba.Pix[off+3],
+			)
+			index++
+		}
+	}
 }
 
 func decodeDocumentRaster(data []byte) (image.Image, error) {

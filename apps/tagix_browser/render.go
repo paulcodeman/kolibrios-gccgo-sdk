@@ -896,63 +896,22 @@ func syncShellDocument(app *App, title string, status string) {
 	layoutDirty := false
 	paintDirty := false
 
-	if app.setShellTextByID("browser-title", title) {
+	if syncShellTextDirect(app.shellTitleNode, app, "browser-title", "title", title) {
 		layoutDirty = true
 	}
-	if app.setShellTextByRole("title", title) {
+	if syncShellTextDirect(app.shellStatusNode, app, "browser-status", "status", status) {
 		layoutDirty = true
 	}
-	if setShellNodeText(app.shellTitleNode, title) {
-		layoutDirty = true
-	}
-
-	if app.setShellTextByID("browser-status", status) {
-		layoutDirty = true
-	}
-	if app.setShellTextByRole("status", status) {
-		layoutDirty = true
-	}
-	if setShellNodeText(app.shellStatusNode, status) {
-		layoutDirty = true
-	}
-
-	if app.setShellEnabledByID("browser-back", app.historyIndex > 0) {
+	if syncShellEnabledDirect(app.shellBackNode, app, "browser-back", "back", app.historyIndex > 0) {
 		paintDirty = true
 	}
-	if app.setShellEnabledByAction("back", app.historyIndex > 0) {
+	if syncShellEnabledDirect(app.shellForwardNode, app, "browser-forward", "forward", app.historyIndex+1 < len(app.history)) {
 		paintDirty = true
 	}
-	if setShellButtonEnabled(app.shellBackNode, app.historyIndex > 0) {
+	if syncShellEnabledDirect(app.shellReloadNode, app, "browser-reload", "reload", true) {
 		paintDirty = true
 	}
-
-	if app.setShellEnabledByID("browser-forward", app.historyIndex+1 < len(app.history)) {
-		paintDirty = true
-	}
-	if app.setShellEnabledByAction("forward", app.historyIndex+1 < len(app.history)) {
-		paintDirty = true
-	}
-	if setShellButtonEnabled(app.shellForwardNode, app.historyIndex+1 < len(app.history)) {
-		paintDirty = true
-	}
-
-	if app.setShellEnabledByID("browser-reload", true) {
-		paintDirty = true
-	}
-	if app.setShellEnabledByAction("reload", true) {
-		paintDirty = true
-	}
-	if setShellButtonEnabled(app.shellReloadNode, true) {
-		paintDirty = true
-	}
-
-	if app.setShellEnabledByID("browser-home", true) {
-		paintDirty = true
-	}
-	if app.setShellEnabledByAction("home", true) {
-		paintDirty = true
-	}
-	if setShellButtonEnabled(app.shellHomeNode, true) {
+	if syncShellEnabledDirect(app.shellHomeNode, app, "browser-home", "home", true) {
 		paintDirty = true
 	}
 
@@ -965,13 +924,7 @@ func syncShellDocument(app *App, title string, status string) {
 	if address == "" {
 		address = browserHomeURL
 	}
-	if app.setShellValueByID("browser-address", address) {
-		paintDirty = true
-	}
-	if app.setShellValueByRole("address", address) {
-		paintDirty = true
-	}
-	if setShellNodeValue(app.shellAddressNode, address) {
+	if syncShellValueDirect(app.shellAddressNode, app, "browser-address", "address", address) {
 		paintDirty = true
 	}
 	if app.shellAddressNode != nil {
@@ -982,6 +935,48 @@ func syncShellDocument(app *App, title string, status string) {
 	} else if paintDirty {
 		app.shellDocument.MarkDirty()
 	}
+}
+
+func syncShellTextDirect(node *ui.DocumentNode, app *App, id string, role string, value string) bool {
+	if node != nil {
+		return setShellNodeText(node, value)
+	}
+	dirty := false
+	if app.setShellTextByID(id, value) {
+		dirty = true
+	}
+	if app.setShellTextByRole(role, value) {
+		dirty = true
+	}
+	return dirty
+}
+
+func syncShellEnabledDirect(node *ui.DocumentNode, app *App, id string, role string, enabled bool) bool {
+	if node != nil {
+		return setShellButtonEnabled(node, enabled)
+	}
+	dirty := false
+	if app.setShellEnabledByID(id, enabled) {
+		dirty = true
+	}
+	if app.setShellEnabledByAction(role, enabled) {
+		dirty = true
+	}
+	return dirty
+}
+
+func syncShellValueDirect(node *ui.DocumentNode, app *App, id string, role string, value string) bool {
+	if node != nil {
+		return setShellNodeValue(node, value)
+	}
+	dirty := false
+	if app.setShellValueByID(id, value) {
+		dirty = true
+	}
+	if app.setShellValueByRole(role, value) {
+		dirty = true
+	}
+	return dirty
 }
 
 const defaultShellTemplateHTML = `<html>
@@ -4334,7 +4329,11 @@ func attrValue(node *Node, name string) string {
 	if node == nil || node.Attrs == nil {
 		return ""
 	}
-	return strings.TrimSpace(node.Attrs[name])
+	value := node.Attrs[name]
+	if len(value) == 0 || (value[0] > ' ' && value[len(value)-1] > ' ') {
+		return value
+	}
+	return strings.TrimSpace(value)
 }
 
 func attrInt(node *Node, name string, fallback int) int {
@@ -5308,7 +5307,26 @@ func normalizeBlockText(value string) string {
 	if value == "" {
 		return ""
 	}
-	return strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+	buf := make([]byte, 0, len(value))
+	i := 0
+	for i < len(value) && isSpaceByte(value[i]) {
+		i++
+	}
+	space := false
+	for i < len(value) {
+		c := value[i]
+		if isSpaceByte(c) {
+			space = true
+		} else {
+			if space && len(buf) > 0 {
+				buf = append(buf, ' ')
+			}
+			buf = append(buf, c)
+			space = false
+		}
+		i++
+	}
+	return string(buf)
 }
 
 func displayURL(value string) string {
