@@ -458,7 +458,7 @@ func NewPresenter(x int, y int, width int, height int, title string) Presenter {
 		Height: height,
 		Title:  title,
 		Client: WindowClientRect(width, height),
-		Style:  kos.WindowStyleSkinnedFixed,
+		Style:  kos.WindowStyleSkinned,
 	}
 }
 
@@ -471,7 +471,7 @@ func NewPresenterClient(x int, y int, clientWidth int, clientHeight int, title s
 		Height: height,
 		Title:  title,
 		Client: WindowClientRect(width, height),
-		Style:  kos.WindowStyleSkinnedFixed,
+		Style:  kos.WindowStyleSkinned,
 	}
 }
 
@@ -587,7 +587,7 @@ func (presenter Presenter) windowStyle() uint32 {
 	if presenter.Style != 0 {
 		return presenter.Style
 	}
-	return kos.WindowStyleSkinnedFixed
+	return kos.WindowStyleSkinned
 }
 
 func fill32(slice []uint32, value uint32) {

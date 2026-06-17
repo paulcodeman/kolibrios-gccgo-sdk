@@ -26,9 +26,11 @@ type Window struct {
 	TitleIconPath string
 	Style         Style
 
-	Background kos.Color
-	OnClose    func()
-	OnResize   func(Rect)
+	Background      kos.Color
+	OnClose         func()
+	OnResize        func(Rect)
+	OnIdle          func()
+	GlobalKeyHandler func(key kos.KeyEvent) bool
 	// ImplicitDirty scans nodes for Dirty() changes each frame.
 	// Leave enabled for compatibility; disable for explicit invalidation.
 	ImplicitDirty bool

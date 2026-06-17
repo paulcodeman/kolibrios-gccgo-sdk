@@ -109,6 +109,7 @@ global go_0kos.DebugSuspendRaw
 global go_0kos.DebugResumeRaw
 global go_0kos.DebugReadMemoryRaw
 global go_0kos.PortWriteByteRaw
+global go_0kos.ChangeWindowSizeRaw
 
 %macro KOS_ALIAS 1
 global kos.%1
@@ -214,6 +215,7 @@ KOS_ALIAS DebugSuspendRaw
 KOS_ALIAS DebugResumeRaw
 KOS_ALIAS DebugReadMemoryRaw
 KOS_ALIAS PortWriteByteRaw
+KOS_ALIAS ChangeWindowSizeRaw
 
 go_0kos.Sleep:
     push ebp
@@ -1488,6 +1490,22 @@ go_0kos.PortWriteByteRaw:
     mov edx, [esp+4]
     mov eax, [esp+8]
     out dx, al
+    ret
+
+go_0kos.ChangeWindowSizeRaw:
+    push ebp
+    mov ebp, esp
+    push ebx
+    push esi
+    mov eax, 67
+    mov ebx, [ebp+8]
+    mov ecx, [ebp+12]
+    mov edx, [ebp+16]
+    mov esi, [ebp+20]
+    int 0x40
+    pop esi
+    pop ebx
+    pop ebp
     ret
 
 go_0kos.CreateButton:

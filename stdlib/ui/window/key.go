@@ -10,6 +10,11 @@ func (window *Window) handleKey() bool {
 	if key.Empty || key.Hotkey {
 		return false
 	}
+	if window.GlobalKeyHandler != nil {
+		if window.GlobalKeyHandler(key) {
+			return true
+		}
+	}
 	if key.Code == 9 {
 		if window.focused != nil {
 			if aware, ok := window.focused.(TabAware); ok {

@@ -11,8 +11,9 @@ const (
 )
 
 const (
-	WindowStyleSkinnedFixed uint32 = 0x14FFFFFF
-	WindowStyleBorderless   uint32 = 0x01000000
+	WindowStyleSkinnedFixed    uint32 = 0x14FFFFFF
+	WindowStyleSkinned         uint32 = 0x13FFFFFF
+	WindowStyleBorderless      uint32 = 0x01000000
 )
 
 func BeginRedraw() {
@@ -29,6 +30,18 @@ func OpenWindow(x int, y int, width int, height int, title string) {
 
 func OpenWindowStyle(x int, y int, width int, height int, style uint32, title string) {
 	WindowWithStyle(x, y, width, height, style, title)
+}
+
+func WindowResize(width int, height int) {
+	ChangeWindowSizeRaw(-1, -1, width, height)
+}
+
+func WindowMove(x int, y int) {
+	ChangeWindowSizeRaw(x, y, -1, -1)
+}
+
+func WindowMoveReposition(x int, y int, width int, height int) {
+	ChangeWindowSizeRaw(x, y, width, height)
 }
 
 func SetWindowTitle(title string) {

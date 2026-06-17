@@ -5019,24 +5019,21 @@ func htmlRangeNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 }
 
 func htmlTextareaNode(node *Node, ctx *renderContext) *ui.DocumentNode {
-	text := collectNodeTextPreserve(node, false)
-	initialText := text
-	if text == "" {
-		text = attrValue(node, "placeholder")
+	text := collectNodeTextPreserveEdges(node, false)
+	placeholderText := attrValue(node, "placeholder")
+	var children []*ui.DocumentNode
+	if text != "" {
+		children = append(children, ui.NewDocumentText(text, htmlControlTextStyle()))
+	} else if placeholderText != "" {
+		children = append(children, ui.NewDocumentText(placeholderText, htmlControlTextStyle()))
 	}
-	if text == "" {
-		text = "Textarea"
-	}
-	area := ui.NewDocumentElement("html-textarea", htmlControlStyle(),
-		ui.NewDocumentText(text, styled(func(style *ui.Style) {
-			style.SetDisplay(ui.DisplayBlock)
-			style.SetForeground(ui.Black)
-			style.SetFontPath(webMonoFontPath)
-			style.SetFontSize(12)
-			style.SetLineHeight(17)
-			style.SetWhiteSpace(ui.WhiteSpacePreWrap)
-		})),
-	)
+	area := ui.NewDocumentElement("html-textarea", htmlControlStyle(), children...)
+	area.Style.SetOverflow(ui.OverflowHidden)
+	area.Style.SetWhiteSpace(ui.WhiteSpacePreWrap)
+	area.Style.SetFontPath(webMonoFontPath)
+	area.Style.SetFontSize(12)
+	area.Style.SetLineHeight(17)
+	area.Style.SetForeground(ui.Black)
 	applyPageNodeStyles(&area.Style, node, ctx)
 	applyPresentationalNodeAttrs(&area.Style, node)
 	applyPageInteractionStyles(area, node, ctx)
@@ -5053,24 +5050,29 @@ func htmlTextareaNode(node *Node, ctx *renderContext) *ui.DocumentNode {
 	} else {
 		area.Style.SetWidth(320)
 	}
-	if form := ctx.formForControl(node); form != nil {
-		name := attrValue(node, "name")
-		form.addControl(&formControlState{
-			node: node,
-			fields: func(_ *Node) []formField {
-				if hasAttr(node, "disabled") || name == "" {
-					return nil
-				}
-				return []formField{{name: name, value: initialText}}
-			},
-		})
-	}
 	if rows := attrInt(node, "rows", 0); rows > 0 {
 		height := rows*18 + 18
 		if height < 56 {
 			height = 56
 		}
 		area.Style.SetHeight(height)
+	}
+	if hasAttr(node, "disabled") {
+		applyDisabledControlState(area)
+		return area
+	}
+	if form := ctx.formForControl(node); form != nil {
+		name := attrValue(node, "name")
+		form.addControl(&formControlState{
+			node: node,
+			fields: func(_ *Node) []formField {
+				if name == "" {
+					return nil
+				}
+				return []formField{{name: name, value: text}}
+			},
+			reset: nil,
+		})
 	}
 	return area
 }

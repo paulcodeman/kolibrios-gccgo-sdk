@@ -306,6 +306,9 @@ func GetCurrentFolderRaw(buffer *byte, size uint32, encoding StringEncoding) int
 // Function 17 - get the identifier of the pressed button.
 func GetButtonID() int
 
+// Function 67 - change position/sizes of the window.
+func ChangeWindowSizeRaw(x int, y int, width int, height int)
+
 // Function 8 - define/delete button.
 func CreateButton(x int, y int, width int, height int, id int, color uint32)
 

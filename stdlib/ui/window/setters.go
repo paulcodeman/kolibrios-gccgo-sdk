@@ -180,23 +180,23 @@ func (window *Window) setSize(width int, height int) bool {
 	changed := window.Width != width || window.Height != height
 	window.Style.SetWidth(width)
 	window.Style.SetHeight(height)
-	if !changed {
-		return false
-	}
-	window.Width = width
-	window.Height = height
-	updated := windowClientRect(width, height)
-	if updated != window.client {
-		window.client = updated
-		window.invalidateWindowContentPropertyState()
-		window.invalidateWindowEffectPropertyState()
-		window.layoutDirty = true
-		window.renderListValid = false
-		window.invalidateHoverTracking()
-		if window.OnResize != nil {
-			window.OnResize(window.client)
+	if changed {
+		window.Width = width
+		window.Height = height
+		updated := windowClientRect(width, height)
+		if updated != window.client {
+			window.client = updated
+			window.invalidateWindowContentPropertyState()
+			window.invalidateWindowEffectPropertyState()
+			window.layoutDirty = true
+			window.renderListValid = false
+			window.invalidateHoverTracking()
+			if window.OnResize != nil {
+				window.OnResize(window.client)
+			}
 		}
 	}
+	kos.WindowResize(width, height)
 	return true
 }
 
@@ -208,6 +208,7 @@ func (window *Window) setPosition(x int, y int) bool {
 	if changed {
 		window.X = x
 		window.Y = y
+		kos.WindowMove(x, y)
 	}
 	window.Style.SetLeft(x)
 	window.Style.SetTop(y)

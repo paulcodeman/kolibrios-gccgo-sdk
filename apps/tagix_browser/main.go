@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"ui"
 )
 
@@ -26,6 +27,11 @@ const (
 	legacyHomeURL       = "about:tagix"
 	legacyFormsURL      = "about:forms"
 )
+
+type pageBuildResult struct {
+	loadID int
+	root   *ui.DocumentNode
+}
 
 type App struct {
 	window *ui.Window
@@ -50,7 +56,9 @@ type App struct {
 	pageDocument  *ui.Document
 	pageView      *ui.DocumentView
 
-	loadingID int
+	loadingID    int
+	mu           sync.Mutex
+	pageResultCh chan pageBuildResult
 
 	shellNodesByID     map[string]*ui.DocumentNode
 	shellNodesByRole   map[string][]*ui.DocumentNode
@@ -80,6 +88,12 @@ type App struct {
 	startupURL    string
 	pageMinHeight int
 	webViewMode   bool
+
+	isMaximized      bool
+	preMaxX          int
+	preMaxY          int
+	preMaxWidth      int
+	preMaxHeight     int
 }
 
 func NewApp() *App {
@@ -103,6 +117,7 @@ func NewApp() *App {
 		startupURL:        startupURL,
 		pageMinHeight:     minPageHeight,
 		webViewMode:       webViewMode,
+		pageResultCh:      make(chan pageBuildResult, 1),
 	}
 	if strings.TrimSpace(caBundleError) != "" {
 		app.debugf("tls root bundle: %s (path=%s)", strings.TrimSpace(caBundleError), strings.TrimSpace(caBundlePath))
@@ -143,6 +158,7 @@ func (app *App) buildUI() {
 	})
 	window.CenterOnScreen()
 	window.OnClose = app.handleWindowClose
+	window.OnIdle = app.onIdle
 	app.window = window
 
 	root := ui.CreateBox()
@@ -243,10 +259,12 @@ func (app *App) buildUI() {
 	root.Append(app.statusBar)
 	window.Append(root)
 	window.OnResize = app.handleResize
+	window.GlobalKeyHandler = app.handleGlobalKey
 	app.handleResize(window.ClientRect())
 }
 
 func (app *App) Run() {
+	runtime.GOMAXPROCS(1)
 	startURL := strings.TrimSpace(app.startupURL)
 	if startURL == "" {
 		startURL = browserHomeURL
@@ -849,33 +867,69 @@ func (app *App) showRenderedDocument(doc *Document) {
 	app.renderWidth = viewportWidth
 	app.renderHeight = viewportHeight
 	app.applyDocumentViewportStyle(doc, viewportWidth, viewportHeight)
+	pageTitle := app.pageTitle
+	currentURL := app.currentURL
 	go func() {
-		result := buildRenderedDocument(app.pageTitle, app.currentURL, doc, viewportWidth, viewportHeight, func(target string) {
-			app.openURLWithReferrer(target, true, app.currentURL)
-		}, func(actionURL string, method string, values neturl.Values) {
-			app.submitForm(actionURL, method, values)
-		}, func(rawURL string) *ui.DocumentImage {
-			return app.loadDocumentImage(rawURL)
-		}, func(rawURL string) string {
-			return app.imageErrors[strings.TrimSpace(rawURL)]
-		}, func(value string) {
-			app.setStatusHint(value)
-		}, func() {
-			app.pageDocument.MarkLayoutDirty()
-		}, func() {
-			app.pageDocument.MarkDirty()
-		})
-		if app.loadingID != loadID {
+		result := buildRenderedDocument(pageTitle, currentURL, doc, viewportWidth, viewportHeight,
+			func(target string) {
+				app.openURLWithReferrer(target, true, currentURL)
+			},
+			func(actionURL string, method string, values neturl.Values) {
+				app.submitForm(actionURL, method, values)
+			},
+			func(rawURL string) *ui.DocumentImage {
+				app.mu.Lock()
+				defer app.mu.Unlock()
+				return app.loadDocumentImage(rawURL)
+			},
+			func(rawURL string) string {
+				app.mu.Lock()
+				defer app.mu.Unlock()
+				return app.imageErrors[strings.TrimSpace(rawURL)]
+			},
+			func(value string) {
+			},
+			func() {
+				if app.pageDocument != nil {
+					app.pageDocument.MarkLayoutDirty()
+				}
+			},
+			func() {
+				if app.pageDocument != nil {
+					app.pageDocument.MarkDirty()
+				}
+			},
+		)
+		select {
+		case <-app.pageResultCh:
+		default:
+		}
+		app.pageResultCh <- pageBuildResult{loadID: loadID, root: result}
+	}()
+}
+
+func (app *App) onIdle() {
+	if app == nil {
+		return
+	}
+	for {
+		select {
+		case res := <-app.pageResultCh:
+			if app.loadingID == res.loadID {
+				app.mu.Lock()
+				app.pageDocument.SetRoot(res.root)
+				if app.pageView != nil {
+					app.pageView.MarkDirty()
+				}
+				app.syncShell()
+				app.window.RedrawContent()
+				app.mu.Unlock()
+				return
+			}
+		default:
 			return
 		}
-		app.pageDocument.SetRoot(result)
-		if app.pageView != nil {
-			app.pageView.MarkDirty()
-		}
-		app.syncShell()
-		app.window.RedrawContent()
-		runtime.Gosched()
-	}()
+	}
 }
 
 func (app *App) syncShell() {
@@ -926,7 +980,58 @@ func (app *App) handleResize(client ui.Rect) {
 		app.shellView.MarkLayoutDirty()
 		app.pageView.MarkLayoutDirty()
 	}
+	if app.window != nil {
+		screenW, screenH := kos.ScreenSize()
+		maxed := screenW > 0 && screenH > 0 && app.window.Width >= screenW-2 && app.window.Height >= screenH-2
+		if maxed != app.isMaximized {
+			app.isMaximized = maxed
+			if !maxed {
+				app.preMaxWidth = app.window.Width
+				app.preMaxHeight = app.window.Height
+			}
+		}
+	}
 	app.rerenderForViewportChange()
+}
+
+func (app *App) handleGlobalKey(key kos.KeyEvent) bool {
+	if key.Hotkey || key.Empty {
+		return false
+	}
+	if key.ScanCode == 87 {
+		app.toggleMaximize()
+		return true
+	}
+	return false
+}
+
+func (app *App) toggleMaximize() {
+	if app == nil || app.window == nil {
+		return
+	}
+	if !app.isMaximized {
+		screenW, screenH := kos.ScreenSize()
+		if screenW <= 0 || screenH <= 0 {
+			return
+		}
+		app.preMaxX = app.window.X
+		app.preMaxY = app.window.Y
+		app.preMaxWidth = app.window.Width
+		app.preMaxHeight = app.window.Height
+		app.isMaximized = true
+		app.window.SetBounds(0, 0, screenW, screenH)
+	} else {
+		app.isMaximized = false
+		w := app.preMaxWidth
+		if w < 320 {
+			w = 320
+		}
+		h := app.preMaxHeight
+		if h < 240 {
+			h = 240
+		}
+		app.window.SetBounds(app.preMaxX, app.preMaxY, w, h)
+	}
 }
 
 func (app *App) shellHeightForClient(client ui.Rect) int {

@@ -193,6 +193,7 @@ func DebugSuspendRaw(uint32)                                 {}
 func DebugResumeRaw(uint32)                                  {}
 func DebugReadMemoryRaw(uint32, uint32, *byte, uint32) int32 { return 0 }
 func PortWriteByteRaw(port uint32, value byte)               {}
+func ChangeWindowSizeRaw(x int, y int, width int, height int)       {}
 
 func allocCString(value string) *byte {
 	if value == "" {

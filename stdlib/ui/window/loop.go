@@ -65,7 +65,7 @@ func (window *Window) startLoop(pollGC bool) {
 	if FastNoFontSmoothing {
 		kos.SetFontSmoothing(kos.FontSmoothingOff)
 	}
-	kos.SwapEventMask(kos.DefaultEventMask | kos.EventMaskMouse | kos.EventMaskMouseActiveWindowOnly)
+	kos.SwapEventMask(kos.DefaultEventMask | kos.EventMaskDesktop | kos.EventMaskMouse | kos.EventMaskMouseActiveWindowOnly)
 	// Ensure the window is created and painted at least once.
 	window.Redraw()
 	window.lastEventAt = kos.UptimeCentiseconds()
@@ -101,6 +101,8 @@ func (window *Window) startLoop(pollGC bool) {
 			if kos.CurrentButtonID() == 1 {
 				window.Close()
 			}
+		case kos.EventDesktop:
+			window.syncWindowInfo()
 		}
 		if !window.running {
 			break
@@ -112,6 +114,9 @@ func (window *Window) startLoop(pollGC bool) {
 		if needsRedraw {
 			window.RedrawContent()
 			redrawn = true
+		}
+		if window.OnIdle != nil {
+			window.OnIdle()
 		}
 		if !redrawn && window.caretBlinkNeedsRedraw() {
 			window.noteCaretBlinkDirty()
@@ -143,11 +148,13 @@ func (window *Window) nextEvent(pollGC bool) kos.EventType {
 	return event
 }
 
+var windowIdleTimeout = uint32(10) // 100ms default idle wake-up for OnIdle
+
 func (window *Window) waitEvent(pollGC bool) kos.EventType {
 	timeout := window.caretBlinkTimeout()
 	if !pollGC || !WindowPollRuntimeGC {
 		if timeout == 0 {
-			return kos.WaitEvent()
+			timeout = windowIdleTimeout
 		}
 		event := kos.EventType(kos.CheckEvent())
 		if event != kos.EventNone {
@@ -163,7 +170,7 @@ func (window *Window) waitEvent(pollGC bool) kos.EventType {
 		window.pollRuntimeGC()
 	}
 	if timeout == 0 {
-		return kos.WaitEvent()
+		timeout = windowIdleTimeout
 	}
 	return kos.WaitEventFor(timeout)
 }
