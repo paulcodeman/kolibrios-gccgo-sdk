@@ -15,13 +15,27 @@ const (
 )
 
 type Node struct {
-	ID       int
-	Type     NodeType
-	Tag      string
-	Attrs    map[string]string
-	Text     string
-	Parent   *Node
-	Children []*Node
+	ID            int
+	Type          NodeType
+	Tag           string
+	Attrs         map[string]string
+	Text          string
+	Parent        *Node
+	Children      []*Node
+	parsedClasses []string
+}
+
+func (n *Node) Classes() []string {
+	if n.parsedClasses != nil || n.Attrs == nil {
+		return n.parsedClasses
+	}
+	classAttr := n.Attrs["class"]
+	if classAttr == "" {
+		n.parsedClasses = []string{}
+	} else {
+		n.parsedClasses = strings.Split(classAttr, " ")
+	}
+	return n.parsedClasses
 }
 
 type Document struct {
@@ -215,6 +229,15 @@ func classListContains(classAttr string, target string) bool {
 		return false
 	}
 	for _, item := range strings.Split(classAttr, " ") {
+		if item == target {
+			return true
+		}
+	}
+	return false
+}
+
+func containsClass(classes []string, target string) bool {
+	for _, item := range classes {
 		if item == target {
 			return true
 		}

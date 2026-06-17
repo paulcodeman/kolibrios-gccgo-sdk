@@ -1027,6 +1027,9 @@ func buildRenderedDocument(title string, currentURL string, doc *Document, viewp
 		radioGroups:    map[string][]*radioControlState{},
 		forms:          map[*Node]*formState{},
 	}
+	if ctx.stylesheet != nil {
+		ctx.warmFontSizeCache(doc)
+	}
 	var content *ui.DocumentNode
 	contentNodes := buildDocumentNodes(doc, ctx)
 	if len(contentNodes) == 0 {
@@ -1179,6 +1182,18 @@ func buildFlowNodes(node *Node, ctx *renderContext) []*ui.DocumentNode {
 	nodes := make([]*ui.DocumentNode, 0, len(node.Children))
 	appendFlowContentNodes(&nodes, node, ctx)
 	return nodes
+}
+
+func (ctx *renderContext) warmFontSizeCache(doc *Document) {
+	if doc == nil || doc.Root == nil || ctx.stylesheet == nil {
+		return
+	}
+	layout := ctx.cssLayoutContext()
+	walkNode(doc.Root, func(node *Node) {
+		if node.Type == ElementNode {
+			ctx.stylesheet.fontSize(node, layout, ctx)
+		}
+	})
 }
 
 func anchorChildRenderContext(ctx *renderContext, node *Node) *renderContext {

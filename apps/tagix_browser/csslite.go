@@ -430,9 +430,12 @@ func (selector cssSimpleSelector) matchesStatic(node *Node) bool {
 		return false
 	}
 	if len(selector.classes) > 0 {
-		classAttr := attrValue(node, "class")
+		classes := node.Classes()
+		if len(classes) == 0 {
+			return false
+		}
 		for _, className := range selector.classes {
-			if !classListContains(classAttr, className) {
+			if !containsClass(classes, className) {
 				return false
 			}
 		}
