@@ -7,6 +7,13 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
+func isBreakableSpace(r rune) bool {
+	if r == 0x00A0 {
+		return false
+	}
+	return unicode.IsSpace(r)
+}
+
 func (element *Element) text() string {
 	if element != nil && element.isTextInput() {
 		return element.Text
@@ -303,7 +310,7 @@ func appendWrapWordsFont(lines []textLine, text string, rawStart, rawEnd int, ma
 	start := rawStart
 	for start < rawEnd {
 		r, size := utf8.DecodeRuneInString(text[start:rawEnd])
-		if !unicode.IsSpace(r) {
+		if !isBreakableSpace(r) {
 			break
 		}
 		start += size
@@ -330,7 +337,7 @@ func appendWrapWordsFont(lines []textLine, text string, rawStart, rawEnd int, ma
 				start = lastBreak
 			} else if !breakLongWords {
 				width = nextWidth
-				if !unicode.IsSpace(r) {
+				if !isBreakableSpace(r) {
 					lastNonSpaceEnd = start + size
 				}
 				prev = r
@@ -341,7 +348,7 @@ func appendWrapWordsFont(lines []textLine, text string, rawStart, rawEnd int, ma
 			}
 			for start < rawEnd {
 				r, size = utf8.DecodeRuneInString(text[start:rawEnd])
-				if !unicode.IsSpace(r) {
+				if !isBreakableSpace(r) {
 					break
 				}
 				start += size
@@ -354,7 +361,7 @@ func appendWrapWordsFont(lines []textLine, text string, rawStart, rawEnd int, ma
 			continue
 		}
 		width = nextWidth
-		if unicode.IsSpace(r) {
+		if isBreakableSpace(r) {
 			if lastNonSpaceEnd > lineStart {
 				lastBreak = start
 			}
@@ -446,7 +453,7 @@ func appendWrapWordsUnicode(lines []textLine, text string, rawStart, rawEnd, max
 	i := rawStart
 	for i < rawEnd {
 		r, size := utf8.DecodeRuneInString(text[i:rawEnd])
-		if !unicode.IsSpace(r) {
+		if !isBreakableSpace(r) {
 			break
 		}
 		i += size
@@ -457,7 +464,7 @@ func appendWrapWordsUnicode(lines []textLine, text string, rawStart, rawEnd, max
 	lineStart := i
 	for i < rawEnd {
 		r, size := utf8.DecodeRuneInString(text[i:rawEnd])
-		if unicode.IsSpace(r) {
+		if isBreakableSpace(r) {
 			break
 		}
 		i += size
@@ -467,7 +474,7 @@ func appendWrapWordsUnicode(lines []textLine, text string, rawStart, rawEnd, max
 	for {
 		for i < rawEnd {
 			r, size := utf8.DecodeRuneInString(text[i:rawEnd])
-			if !unicode.IsSpace(r) {
+			if !isBreakableSpace(r) {
 				break
 			}
 			i += size
@@ -478,7 +485,7 @@ func appendWrapWordsUnicode(lines []textLine, text string, rawStart, rawEnd, max
 		wordStart := i
 		for i < rawEnd {
 			r, size := utf8.DecodeRuneInString(text[i:rawEnd])
-			if unicode.IsSpace(r) {
+			if isBreakableSpace(r) {
 				break
 			}
 			i += size

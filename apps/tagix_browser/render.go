@@ -5,6 +5,7 @@ import (
 	neturl "net/url"
 	"os"
 	pathpkg "path"
+	"runtime"
 	"strconv"
 	"strings"
 	"ui"
@@ -1171,6 +1172,7 @@ func buildDocumentNodes(doc *Document, ctx *renderContext) []*ui.DocumentNode {
 	}
 	nodes := make([]*ui.DocumentNode, 0, 16)
 	appendDocumentNodes(&nodes, doc.Root, ctx)
+	runtime.Gosched()
 	return nodes
 }
 
@@ -1221,7 +1223,11 @@ func appendFlowContentNodes(out *[]*ui.DocumentNode, node *Node, ctx *renderCont
 		}
 		builder = inlinePieceBuilder{}
 	}
-	for _, child := range node.Children {
+	children := node.Children
+	for ci, child := range children {
+		if ci&63 == 63 && len(children) > 128 {
+			runtime.Gosched()
+		}
 		if child == nil {
 			continue
 		}
@@ -2821,9 +2827,9 @@ func (builder *inlinePieceBuilder) appendText(raw string, style inlineTextStyle)
 	if builder == nil {
 		return
 	}
-	words := strings.Fields(raw)
+	words := fieldsASCII(raw)
 	if len(words) == 0 {
-		if strings.TrimSpace(raw) == "" && len(builder.pieces) > 0 {
+		if isASCIIWhitespaceOnly(raw) && len(builder.pieces) > 0 {
 			builder.needSpace = true
 		}
 		return

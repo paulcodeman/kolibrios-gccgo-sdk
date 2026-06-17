@@ -1,6 +1,7 @@
 package main
 
 import (
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -1095,7 +1096,11 @@ func (sheet *pageStylesheet) resolvedStyle(node *Node, layout cssLayoutContext, 
 	stateMask := cssVariantStateMask(variant)
 	candidates := sheet.candidatesFor(node)
 	matched := make([]cssRule, 0, 8)
-	for _, rule := range candidates {
+	nCand := len(candidates)
+	for ci, rule := range candidates {
+		if ci&31 == 0 && nCand > 64 {
+			runtime.Gosched()
+		}
 		if !rule.media.matches(layout) {
 			continue
 		}

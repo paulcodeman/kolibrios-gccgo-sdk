@@ -46,3 +46,31 @@ func toLowerASCII(value string) string {
 func isSpaceByte(c byte) bool {
 	return c == ' ' || c == '\t' || c == '\n' || c == '\r'
 }
+
+func isASCIIWhitespaceOnly(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if !isSpaceByte(s[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func fieldsASCII(s string) []string {
+	var result []string
+	start := -1
+	for i := 0; i < len(s); i++ {
+		if isSpaceByte(s[i]) {
+			if start >= 0 {
+				result = append(result, s[start:i])
+				start = -1
+			}
+		} else if start < 0 {
+			start = i
+		}
+	}
+	if start >= 0 {
+		result = append(result, s[start:])
+	}
+	return result
+}

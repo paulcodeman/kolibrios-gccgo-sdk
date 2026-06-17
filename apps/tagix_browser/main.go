@@ -9,6 +9,7 @@ import (
 	neturl "net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"ui"
 )
@@ -48,6 +49,8 @@ type App struct {
 	statusLabel   *ui.Element
 	pageDocument  *ui.Document
 	pageView      *ui.DocumentView
+
+	loadingID int
 
 	shellNodesByID     map[string]*ui.DocumentNode
 	shellNodesByRole   map[string][]*ui.DocumentNode
@@ -836,6 +839,8 @@ func (app *App) showRenderedDocument(doc *Document) {
 	if app == nil || app.pageDocument == nil || doc == nil {
 		return
 	}
+	app.loadingID++
+	loadID := app.loadingID
 	app.statusHint = ""
 	setCurrentDocumentFontFamilies(doc.fontFamilies)
 	app.renderDoc = doc
@@ -845,25 +850,33 @@ func (app *App) showRenderedDocument(doc *Document) {
 	app.renderWidth = viewportWidth
 	app.renderHeight = viewportHeight
 	app.applyDocumentViewportStyle(doc, viewportWidth, viewportHeight)
-	app.pageDocument.SetRoot(buildRenderedDocument(app.pageTitle, app.currentURL, doc, viewportWidth, viewportHeight, func(target string) {
-		app.openURLWithReferrer(target, true, app.currentURL)
-	}, func(actionURL string, method string, values neturl.Values) {
-		app.submitForm(actionURL, method, values)
-	}, func(rawURL string) *ui.DocumentImage {
-		return app.loadDocumentImage(rawURL)
-	}, func(rawURL string) string {
-		return app.imageErrors[strings.TrimSpace(rawURL)]
-	}, func(value string) {
-		app.setStatusHint(value)
-	}, func() {
-		app.pageDocument.MarkLayoutDirty()
-	}, func() {
-		app.pageDocument.MarkDirty()
-	}))
-	if app.pageView != nil {
-		app.pageView.MarkDirty()
-	}
-	app.syncShell()
+	go func() {
+		result := buildRenderedDocument(app.pageTitle, app.currentURL, doc, viewportWidth, viewportHeight, func(target string) {
+			app.openURLWithReferrer(target, true, app.currentURL)
+		}, func(actionURL string, method string, values neturl.Values) {
+			app.submitForm(actionURL, method, values)
+		}, func(rawURL string) *ui.DocumentImage {
+			return app.loadDocumentImage(rawURL)
+		}, func(rawURL string) string {
+			return app.imageErrors[strings.TrimSpace(rawURL)]
+		}, func(value string) {
+			app.setStatusHint(value)
+		}, func() {
+			app.pageDocument.MarkLayoutDirty()
+		}, func() {
+			app.pageDocument.MarkDirty()
+		})
+		if app.loadingID != loadID {
+			return
+		}
+		app.pageDocument.SetRoot(result)
+		if app.pageView != nil {
+			app.pageView.MarkDirty()
+		}
+		app.syncShell()
+		app.window.RedrawContent()
+		runtime.Gosched()
+	}()
 }
 
 func (app *App) syncShell() {

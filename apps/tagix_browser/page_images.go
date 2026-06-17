@@ -10,6 +10,7 @@ import (
 	neturl "net/url"
 	"os"
 	pathpkg "path"
+	"runtime"
 	"strings"
 	"ui"
 
@@ -255,6 +256,7 @@ func decodeDocumentImage(data []byte) (*ui.DocumentImage, error) {
 
 func copyDocumentRGBAPixels(pixels []uint32, rgba *image.RGBA, width int, height int) {
 	index := 0
+	total := width * height
 	for y := 0; y < height; y++ {
 		row := rgba.PixOffset(0, y)
 		for x := 0; x < width; x++ {
@@ -267,11 +269,15 @@ func copyDocumentRGBAPixels(pixels []uint32, rgba *image.RGBA, width int, height
 			)
 			index++
 		}
+		if total > 4096 && y&7 == 7 {
+			runtime.Gosched()
+		}
 	}
 }
 
 func copyDocumentNRGBAPixels(pixels []uint32, nrgba *image.NRGBA, width int, height int) {
 	index := 0
+	total := width * height
 	for y := 0; y < height; y++ {
 		row := nrgba.PixOffset(0, y)
 		for x := 0; x < width; x++ {
@@ -283,6 +289,9 @@ func copyDocumentNRGBAPixels(pixels []uint32, nrgba *image.NRGBA, width int, hei
 				nrgba.Pix[off+3],
 			)
 			index++
+		}
+		if total > 4096 && y&7 == 7 {
+			runtime.Gosched()
 		}
 	}
 }
