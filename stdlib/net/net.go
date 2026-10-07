@@ -45,43 +45,35 @@ func (err *AddrError) As(target interface{}) bool {
 }
 
 type DNSError struct {
-	Err  string
-	Name string
+	Err         string // description of the error
+	Name        string // name looked for
+	Server      string // server used
+	IsTimeout   bool   // if true, timed out; not all timeouts set this
+	IsTemporary bool   // if true, error is temporary; not all errors set this
+	IsNotFound  bool   // if true, host could not be found
 }
 
-func (err *DNSError) Error() string {
-	if err == nil {
-		return ""
+func (e *DNSError) Error() string {
+	if e == nil {
+		return "<nil>"
 	}
-	if err.Name == "" {
-		return err.Err
+	s := "lookup " + e.Name
+	if e.Server != "" {
+		s += " on " + e.Server
 	}
-
-	return "lookup " + err.Name + ": " + err.Err
+	s += ": " + e.Err
+	return s
 }
 
-func (err *DNSError) As(target interface{}) bool {
-	if err == nil {
-		return false
-	}
+// Timeout reports whether the DNS lookup is known to have timed out.
+// This is not always known; a DNS lookup may fail due to a timeout
+// and return a DNSError for which Timeout returns false.
+func (e *DNSError) Timeout() bool { return e.IsTimeout }
 
-	switch typed := target.(type) {
-	case **DNSError:
-		if typed == nil {
-			return false
-		}
-		*typed = err
-		return true
-	case *error:
-		if typed == nil {
-			return false
-		}
-		*typed = err
-		return true
-	}
-
-	return false
-}
+// Temporary reports whether the DNS error is known to be temporary.
+// This is not always known; a DNS lookup may fail due to a temporary
+// error and return a DNSError for which Temporary returns false.
+func (e *DNSError) Temporary() bool { return e.IsTimeout || e.IsTemporary }
 
 func LookupHost(host string) ([]string, error) {
 	network, ok := kos.LoadNetwork()

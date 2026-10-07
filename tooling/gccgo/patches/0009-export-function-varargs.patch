@@ -1,0 +1,16 @@
+--- a/gcc/go/gofrontend/export.cc
++++ b/gcc/go/gofrontend/export.cc
+@@ -670,6 +670,13 @@
+ 	{
+ 	  const Function_type* ft1 = t1->function_type();
+ 	  const Function_type* ft2 = t2->function_type();
++
++          // Function identity includes variadicness. Builtin min/max can
++          // have no concrete parameters and the same backend name as an
++          // ordinary func(), so parameter/result comparison is insufficient.
++          if (ft1->is_varargs() != ft2->is_varargs())
++            return ft1->is_varargs() < ft2->is_varargs();
++
+ 	  const Typed_identifier* r1 = ft1->receiver();
+ 	  const Typed_identifier* r2 = ft2->receiver();
+ 	  if (r1 == NULL)

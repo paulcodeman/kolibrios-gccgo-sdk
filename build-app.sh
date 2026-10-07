@@ -82,11 +82,14 @@ else
     fi
 
     if [[ "${base}" == "apps" ]]; then
-      for group in "${REPO_ROOT}/${base}"/*; do
-        if [[ -d "${group}/${INPUT}" ]]; then
-          matches+=("${group}/${INPUT}")
+      while IFS= read -r -d '' makefile; do
+        candidate=${makefile%/Makefile}
+        if [[ "${candidate##*/}" == "${INPUT}" ]]; then
+          matches+=("${candidate}")
         fi
-      done
+      done < <(find "${REPO_ROOT}/${base}" -mindepth 1 \
+        -type d \( -name vendor -o -name .git -o -name .build \) -prune -o \
+        -type f -name Makefile -print0)
     fi
   done
 
@@ -128,8 +131,7 @@ case "${MAKE_TARGET}" in
   ;;
 esac
 
-target_base=$(basename "${target_dir}")
-output_path="${target_dir}/${target_base}.kex"
+output_path=$(env "${env_vars[@]}" make -s -C "${target_dir}" print-output | tail -n 1)
 
 if [[ ! -f "${output_path}" ]]; then
   echo "expected output not found: ${output_path}" >&2

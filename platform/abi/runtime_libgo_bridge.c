@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include "runtime_entropy.h"
 
 #include "runtime.h"
 
@@ -775,10 +776,13 @@ runtime_abort(void)
 }
 
 void runtime_exit(int32 code) __asm__(GOSYM_PREFIX "runtime.exit");
+extern void runtime_report_child_exit(int32 code)
+    __asm__("kos.ChildProcessExit") __attribute__((weak));
 
 void
 runtime_exit(int32 code)
 {
+  if (runtime_report_child_exit != NULL) runtime_report_child_exit(code);
   runtime_kolibri_exit_code((uint32_t) code);
 }
 

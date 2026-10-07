@@ -1,0 +1,38 @@
+{
+  "version": "Go 1.23.0",
+  "files": {
+    "src/os/exec/exec.go": {
+      "url": "https://raw.githubusercontent.com/golang/go/go1.23.0/src/os/exec/exec.go",
+      "sha256": "29714fd5a52e58f551b53c970326f9f14b0262a22945fe5d52f4f6c4d2c3aad4"
+    },
+    "src/os/exec/lp_unix.go": {
+      "url": "https://raw.githubusercontent.com/golang/go/go1.23.0/src/os/exec/lp_unix.go",
+      "sha256": "b34642fc1f86afc9ee992af2aa886efa2ec4aabffc747da4aed3e6a914368cc6"
+    },
+    "src/os/exec.go": {
+      "url": "https://raw.githubusercontent.com/golang/go/go1.23.0/src/os/exec.go",
+      "sha256": "78a120b1a32c1544a5270f70a91ac22b36c9a9db910606266f2eabf1c8f6f31f"
+    },
+    "src/os/exec_posix.go": {
+      "url": "https://raw.githubusercontent.com/golang/go/go1.23.0/src/os/exec_posix.go",
+      "sha256": "f11e7c9d6176cd0b273bffb03b84879d5bab507ca1dd51d68a29da202df78df1"
+    },
+    "src/os/exec_unix.go": {
+      "url": "https://raw.githubusercontent.com/golang/go/go1.23.0/src/os/exec_unix.go",
+      "sha256": "0ba656c68ba5786021ea133b9256c5846be7ce52a56bf54e292ff96839296dbc"
+    },
+    "src/internal/syscall/execenv/execenv_default.go": {
+      "url": "https://raw.githubusercontent.com/golang/go/go1.23.0/src/internal/syscall/execenv/execenv_default.go",
+      "sha256": "42dcdfc64c4b31806fb848c61f3c6efceff7659db131964240ccf57813355af3"
+    },
+    "LICENSE": {
+      "url": "https://raw.githubusercontent.com/golang/go/go1.23.0/LICENSE",
+      "sha256": "2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067"
+    },
+    "src/os/exec/exec_unix.go": {
+      "url": "https://raw.githubusercontent.com/golang/go/go1.23.0/src/os/exec/exec_unix.go",
+      "sha256": "b7606c80ae631012d0d1fa17acdbfd5ec36daf2c1810138d23df923f4665163a"
+    }
+  },
+  "purpose": "upstream process and command implementation for native adaptation"
+}

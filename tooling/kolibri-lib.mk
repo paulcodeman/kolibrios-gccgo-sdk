@@ -4,6 +4,7 @@ ROOT_ABS := $(abspath $(ROOT))
 STDLIB_DIR_ABS := $(ROOT_ABS)/stdlib
 FIRST_PARTY_DIRS ?= platform
 THIRD_PARTY_DIRS ?= third_party
+include $(ROOT_ABS)/tooling/kolibri-compat.mk
 RUNTIME_FLAVOR ?= bootstrap
 ifeq ($(RUNTIME_FLAVOR),libgo)
 FIRST_PARTY_DIRS := $(FIRST_PARTY_DIRS) native/libgo/staging/go
@@ -11,9 +12,12 @@ BUILD_CACHE_NAMESPACE ?= libgo
 BUILD_TAGS += libgo_runtime
 endif
 FIRST_PARTY_DIRS_ABS := $(foreach dir,$(FIRST_PARTY_DIRS),$(if $(filter /%,$(dir)),$(dir),$(ROOT_ABS)/$(dir)))
-THIRD_PARTY_DIRS_ABS := $(foreach dir,$(THIRD_PARTY_DIRS),$(if $(filter /%,$(dir)),$(dir),$(ROOT_ABS)/$(dir)))
+THIRD_PARTY_DIRS_ABS := $(SDK_VENDOR_ROOT) $(foreach dir,$(THIRD_PARTY_DIRS),$(if $(filter /%,$(dir)),$(dir),$(ROOT_ABS)/$(dir)))
 BUILD_CACHE_ROOT ?= $(ROOT)/.build-cache
-BUILD_CACHE_NAMESPACE ?=
+# Libraries can omit DWARF while applications use it for native stack traces.
+# Keep their package objects separate so either build preserves the other's
+# compiler metadata and dependency timestamps.
+BUILD_CACHE_NAMESPACE ?= libraries
 BUILD_CACHE_BASE := $(BUILD_CACHE_ROOT)$(if $(strip $(BUILD_CACHE_NAMESPACE)),/$(BUILD_CACHE_NAMESPACE),)
 BUILD_CACHE_BASE_ABS := $(abspath $(BUILD_CACHE_BASE))
 PACKAGE_ARTIFACT_ROOT := $(BUILD_CACHE_BASE)/pkg
@@ -32,6 +36,7 @@ RESOLVE_PACKAGES := $(PYTHON) $(MK_DIR)/resolve-packages.py
 
 TOOLING_BIN ?= $(ROOT_ABS)/tooling/bin
 GO ?= $(firstword \
+  $(wildcard $(ROOT_ABS)/tooling/gccgo/gccgo-kolibri) \
   $(wildcard $(TOOLING_BIN)/gccgo-15) \
   $(wildcard $(TOOLING_BIN)/gccgo) \
   $(shell command -v gccgo-15 2>/dev/null) \
@@ -137,9 +142,14 @@ GO_PACKAGE ?= $(strip $(shell $(SED) -n 's/^package[[:space:]]\+\([A-Za-z_][A-Za
 PACKAGE_DIRS ?= kos ui
 DEBUG_PKG ?= 0
 AUTO_DEPS ?= 1
+PACKAGE_IMPORT_DEPS_FILE := $(BUILD_CACHE_BASE_ABS)/$(PROGRAM).library.packages.mk
 ifneq ($(AUTO_DEPS),0)
-RESOLVED_PACKAGE_DIRS := $(shell $(RESOLVE_PACKAGES) --root $(ROOT_ABS) --stdlib $(STDLIB_DIR_ABS) --first-party "$(FIRST_PARTY_DIRS)" --third-party "$(THIRD_PARTY_DIRS)" --app-dir $(CURDIR) --packages "$(PACKAGE_DIRS)" --goos $(GOOS_TARGET) --goarch $(GOARCH_TARGET) --tags "$(BUILD_TAGS)")
+RESOLVED_PACKAGE_DIRS := $(shell $(RESOLVE_PACKAGES) --root $(ROOT_ABS) --stdlib $(STDLIB_DIR_ABS) --first-party "$(FIRST_PARTY_DIRS)" --third-party "$(THIRD_PARTY_DIRS_ABS)" --app-dir $(CURDIR) --packages "$(PACKAGE_DIRS)" --goos $(GOOS_TARGET) --goarch $(GOARCH_TARGET) --tags "$(BUILD_TAGS)" --make-deps "$(PACKAGE_IMPORT_DEPS_FILE)" --artifact-root "$(PACKAGE_ARTIFACT_ROOT_ABS)")
+ifneq ($(.SHELLSTATUS),0)
+$(error Go dependency resolution failed; see the missing import diagnostics above)
+endif
 override PACKAGE_DIRS := $(RESOLVED_PACKAGE_DIRS)
+include $(PACKAGE_IMPORT_DEPS_FILE)
 endif
 PACKAGE_OBJS =
 PACKAGE_GOXS =
@@ -191,7 +201,7 @@ endif
 PACKAGE_OBJS += $$(PACKAGE_OBJ_$(1))
 PACKAGE_GOXS += $$(PACKAGE_GOX_$(1))
 
-$$(PACKAGE_GO_OBJ_$(1)): $$(PACKAGE_SOURCES_$(1)) $$(PACKAGE_ORDER_DEPS_$(1))
+$$(PACKAGE_GO_OBJ_$(1)): $$(PACKAGE_SOURCES_$(1)) $$(PACKAGE_SOURCE_SELECTION_$(1)) $$(PACKAGE_ORDER_DEPS_$(1))
 	mkdir -p $$(dir $$@)
 	cd $$(PACKAGE_SOURCE_DIR_$(1)) && $(GO) $(GO_COMPILER_FLAGS) -fgo-pkgpath=$(1) -o $$(PACKAGE_ARTIFACT_PREFIX_ABS_$(1)).gccgo.go.o $$(PACKAGE_SOURCE_FILES_$(1))
 	$$(if $$(strip $$(PACKAGE_GLOBALIZE_SYMBOLS_$(1))),for sym in $$(PACKAGE_GLOBALIZE_SYMBOLS_$(1)); do $(OBJCOPY) --globalize-symbol=$$$$sym $$@; done)
@@ -298,7 +308,7 @@ clean:
 	rm -f $(APP_OBJ) $(PROGRAM).obj $(OBJ_EXTRA_CLEAN)
 
 clean-cache:
-	rm -rf $(BUILD_CACHE_BASE)
+	rm -rf $(PACKAGE_ARTIFACT_ROOT) $(ABI_ARTIFACT_ROOT)
 
 distclean: clean clean-cache
 

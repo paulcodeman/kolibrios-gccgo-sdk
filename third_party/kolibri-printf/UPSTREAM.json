@@ -1,0 +1,10 @@
+{
+  "source": "KolibriOS programs/develop/ktcc/libc.obj/source/stdio",
+  "files": {
+    "format_print.c": "6a516f3c65718fcf5004441a8358ec4ce5856d627cafceb09208cc9e2ca1221e",
+    "format_print.h": "bc1c9aa0b772ba0c94f7a220f7d947c35026315e22f56a912de9bc797bfd3193",
+    "snprintf.c": "d1425885231b0cb3cb9da5d8f4e5073f978807dffc506925bc6e9ff6a4a25c5a",
+    "vsnprintf.c": "1d6844dd9ac3134cd2ccef8ec9a2edf58eca08273859c3e6b6dc50c3c8bb470b"
+  },
+  "purpose": "unchanged upstream embedded formatter for libvterm native terminal replies"
+}

@@ -1,0 +1,13 @@
+{
+  "files": {
+    "LICENSE": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+    "errgroup.go": "c702746f51641a8cdffc7c98e4b918cafef0c75a3c45c2fd329dfc9907b30de0",
+    "errgroup_example_md5all_test.go": "2640ab81cc3fde6995ab9d751fd8347b5a133e28934ddd65b81f1f1375f19093",
+    "errgroup_test.go": "0f00f8063652f3047e79e3a9659e4e08a69ef8e1defac2fdff0addf3b77c75cd",
+    "go.mod": "720b98f1bf033d6b64a454ca8c29cdca6e9265ab7d70db3b834dff49560f1587"
+  },
+  "module": "golang.org/x/sync",
+  "module_checksum": "h1:AauUjRAJ9OSnvULf/ARrrVywoJDy0YS2AwQ98I37610=",
+  "source": "verified Go module cache",
+  "version": "v0.13.0"
+}

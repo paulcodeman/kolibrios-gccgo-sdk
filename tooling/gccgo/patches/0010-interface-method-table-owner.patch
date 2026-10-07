@@ -1,0 +1,19 @@
+--- a/gcc/go/gofrontend/expressions.cc
++++ b/gcc/go/gofrontend/expressions.cc
+@@ -20960,7 +20960,15 @@
+ 	   p != interface_methods->end();
+ 	   ++p)
+ 	{
+-	  if (Gogo::is_hidden_name(p->name()))
++	  // Re-exporting an interface records the exporter as package(),
++	  // but a hidden method still belongs to its original package.
++	  // Only that ownership can require a table from the type's owner.
++	  const Package* type_package =
++	    this->type_->named_type()->named_object()->package();
++	  if (Gogo::is_hidden_name(p->name())
++	      && Gogo::hidden_name_pkgpath(p->name())
++	         == (type_package == NULL ? gogo->pkgpath()
++	                                  : type_package->pkgpath()))
+ 	    {
+ 	      is_public = true;
+ 	      break;

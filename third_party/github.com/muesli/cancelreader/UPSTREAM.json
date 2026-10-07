@@ -1,0 +1,20 @@
+{
+  "files": {
+    "LICENSE": "8c139dbbc83b4fb055b4100b6b9402f7de3dd6bbca05015bdfcc4b392c8cfd5f",
+    "cancelreader.go": "00b7d715abc90ac4ff55336a06ced519e7a577e722b83003edb5195f72d15f48",
+    "cancelreader_bsd.go": "4556a0ab425a63422b1c71258575cee90b5e90be0dd06692e7e0045f8fe859a0",
+    "cancelreader_default.go": "670fc7ca36c388a2a1efec6362761108430e1f4cd4c188e458db71e2b10389b0",
+    "cancelreader_default_test.go": "cb9ea379b1afa01e59eff9a63663b41917db99399a5ca698177bcaa101c7cd4c",
+    "cancelreader_fallback_test.go": "4165f1c01c5b21f3aff7c6011ae96549838e39a3de6cca2c1986b86c03565d29",
+    "cancelreader_linux.go": "208edb9deb60b726445cd6d440c517e39f69aa13e7cc6091ef55c78675573e0c",
+    "cancelreader_select.go": "e5fa86217e4155332e2defb46487651d63cc12d9498a117340e236ed7051132c",
+    "cancelreader_test.go": "e6bf6f0b9960aa137379fe3c8e9fe7266d6f704cbf346245321b727d926c106b",
+    "cancelreader_unix.go": "8a3fc3b05f09f75ddf014c5665ae317c279f9ca1152adeb2314be69ef059a972",
+    "cancelreader_windows.go": "ae6eb133c4e1b316c61c7ea6f1318e046c1293d2f494939cdb126ea7e34e752c",
+    "go.mod": "4343f36dcc06d4ce4e170190062b5d224ff5be831f742531ec27a3d709378fe1"
+  },
+  "module": "github.com/muesli/cancelreader",
+  "module_checksum": "h1:3I4Kt4BQjOR54NavqnDogx/MIoWBFa0StPA8ELUXHmA=",
+  "source": "verified Go module cache",
+  "version": "v0.2.2"
+}

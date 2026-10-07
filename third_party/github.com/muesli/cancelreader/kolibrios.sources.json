@@ -1,0 +1,6 @@
+{
+  "reason": "Native console raw reads can be canceled without waiting for a key; retain upstream fallback for other readers",
+  "replace": {
+    "cancelreader_default.go": "cancelreader_kolibrios.go"
+  }
+}

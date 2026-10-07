@@ -4,6 +4,7 @@
 #include <unwind.h>
 
 #include "runtime_panic.h"
+#include "runtime_entropy.h"
 
 #define RUNTIME_USED __attribute__((used))
 
@@ -45,6 +46,33 @@ void* calloc(size_t count, size_t size) {
     memset(ptr, 0, total);
     return ptr;
 }
+
+/* runtime.Stack: reuse libgcc's unwinder rather than inventing frame layouts. */
+typedef struct {
+    uintptr_t* pcs;
+    int capacity;
+    int count;
+} runtime_kolibri_backtrace;
+
+static _Unwind_Reason_Code runtime_kolibri_backtrace_frame(struct _Unwind_Context* context, void* argument) {
+    runtime_kolibri_backtrace* trace = (runtime_kolibri_backtrace*)argument;
+    uintptr_t pc = (uintptr_t)_Unwind_GetIP(context);
+    if (trace->count >= trace->capacity) {
+        return _URC_END_OF_STACK;
+    }
+    if (pc != 0) {
+        trace->pcs[trace->count++] = pc;
+    }
+    return _URC_NO_REASON;
+}
+
+int runtime_kolibri_collect_callers(uintptr_t* pcs, int capacity) {
+    runtime_kolibri_backtrace trace = {pcs, capacity, 0};
+    if (pcs != NULL && capacity > 0) {
+        _Unwind_Backtrace(runtime_kolibri_backtrace_frame, &trace);
+    }
+    return trace.count;
+}
 extern uint32_t runtime_kos_heap_init_raw(void);
 extern uint32_t runtime_kos_heap_alloc_raw(uint32_t size);
 extern uint32_t runtime_kos_heap_free_raw(uint32_t ptr);
@@ -69,6 +97,9 @@ static inline uint32_t runtime_atomic_load_u32(const volatile uint32_t* value);
 static inline void runtime_atomic_store_u32(uint32_t* value, uint32_t next);
 static inline bool runtime_atomic_cas_u32(uint32_t* value, uint32_t expected, uint32_t desired);
 static runtime_m* runtime_getm(void);
+static void runtime_finalizer_maybe_start(void);
+static void runtime_finalizer_mark_roots(void);
+static void runtime_finalizer_prepare_queue(void);
 static uintptr_t runtime_align_up_pow2(uintptr_t value, uintptr_t align);
 static void runtime_init_fixallocs(void);
 static void* kos_memset(void* dest, int value, size_t size);
@@ -1887,6 +1918,72 @@ typedef struct {
 } go_string;
 
 typedef struct {
+    uintptr_t start;
+    uintptr_t end;
+    const char* name;
+} runtime_kolibri_symbol;
+
+typedef struct {
+    uintptr_t pc;
+    const char* file;
+    intptr_t line;
+} runtime_kolibri_line;
+
+/* Strong definitions are generated from the linked ELF's DWARF/symbols before
+ * conversion to a flat executable. Weak empty tables allow builds that choose
+ * to omit metadata; lookups then correctly report unknown source locations. */
+extern const runtime_kolibri_symbol runtime_kolibri_symbols[] __attribute__((weak));
+extern const uint32_t runtime_kolibri_symbol_count __attribute__((weak));
+extern const runtime_kolibri_line runtime_kolibri_lines[] __attribute__((weak));
+extern const uint32_t runtime_kolibri_line_count __attribute__((weak));
+
+typedef struct {
+    go_string function;
+    go_string file;
+    intptr_t line;
+    uintptr_t entry;
+} runtime_kolibri_frame;
+
+static size_t kos_strlen(const char* str);
+
+runtime_kolibri_frame runtime_kolibri_lookup_frame(uintptr_t pc) {
+    runtime_kolibri_frame frame = {{NULL, 0}, {NULL, 0}, 0, 0};
+    if (&runtime_kolibri_symbol_count == NULL) return frame;
+    uint32_t low = 0, high = runtime_kolibri_symbol_count;
+    while (low < high) {
+        uint32_t mid = low + (high - low) / 2;
+        if (runtime_kolibri_symbols[mid].start <= pc) low = mid + 1;
+        else high = mid;
+    }
+    if (low == 0 || pc >= runtime_kolibri_symbols[low - 1].end) return frame;
+    const runtime_kolibri_symbol* symbol = &runtime_kolibri_symbols[low - 1];
+    frame.function.str = symbol->name;
+    frame.function.len = (intptr_t)kos_strlen(symbol->name);
+    frame.entry = symbol->start;
+    low = 0;
+    high = &runtime_kolibri_line_count == NULL ? 0 : runtime_kolibri_line_count;
+    while (low < high) {
+        uint32_t mid = low + (high - low) / 2;
+        if (runtime_kolibri_lines[mid].pc <= pc) low = mid + 1;
+        else high = mid;
+    }
+    if (low != 0 && runtime_kolibri_lines[low - 1].pc >= symbol->start) {
+        const runtime_kolibri_line* line = &runtime_kolibri_lines[low - 1];
+        frame.file.str = line->file;
+        frame.file.len = (intptr_t)kos_strlen(line->file);
+        frame.line = line->line;
+    }
+    return frame;
+}
+
+/* The SDK make build does not embed cmd/go module information. The upstream
+   ReadBuildInfo contract represents that situation as (nil, false). */
+go_string runtime_debug_modinfo(void) __asm__("runtime_1debug.modinfo");
+go_string runtime_debug_modinfo(void) {
+    return (go_string){NULL, 0};
+}
+
+typedef struct {
     unsigned char* values;
     intptr_t len;
     intptr_t cap;
@@ -2015,6 +2112,27 @@ typedef struct {
     uintptr_t dir;
 } go_chan_type_descriptor;
 
+/* Layouts from libgo runtime/type.go, shared with reflect constructors. */
+typedef struct {
+    go_type_descriptor common;
+    const go_type_descriptor* elem;
+    const go_type_descriptor* slice;
+    uintptr_t len;
+} go_array_type_descriptor;
+
+typedef struct {
+    const go_string* name;
+    const go_string* package_path;
+    const go_type_descriptor* type;
+    const go_string* tag;
+    uintptr_t offset_embed;
+} go_struct_field_descriptor;
+
+typedef struct {
+    go_type_descriptor common;
+    go_slice fields;
+} go_struct_type_descriptor;
+
 enum {
     RUNTIME_G_IDLE = 0,
     RUNTIME_G_RUNNABLE = 1,
@@ -2023,7 +2141,10 @@ enum {
     RUNTIME_G_DEAD = 4,
 };
 
-#define RUNTIME_G_STACK_SIZE (256u * 1024u)
+/* libgo runtime/proc.c StackMin for builds without split-stack support.
+ * gccgo's ordinary frames are larger than gc's growing Go stack frames;
+ * original regexp compilation can legitimately exceed a 256 KiB stack. */
+#define RUNTIME_G_STACK_SIZE ((sizeof(char*) < 8) ? 2u * 1024u * 1024u : 4u * 1024u * 1024u)
 
 typedef struct runtime_hchan runtime_hchan;
 typedef struct runtime_sudog runtime_sudog;
@@ -2166,6 +2287,18 @@ static inline bool runtime_atomic_cas_u32(uint32_t* value, uint32_t expected, ui
 static inline uint32_t runtime_atomic_xadd_u32(volatile uint32_t* value, uint32_t delta);
 static void runtime_yield(void);
 static void runtime_sleep_ticks(uint32_t ticks);
+int64_t runtime_nanotime(void);
+/* libgo timeSleep parks only its caller until a monotonic deadline. The
+ * bootstrap scheduler has no P timer heaps; keep its sleepers on a locked
+ * deadline list and use the existing channel parking/wakeup protocol. */
+typedef struct runtime_sleep_wait {
+    runtime_g* g;
+    int64_t when;
+    struct runtime_sleep_wait* next;
+} runtime_sleep_wait;
+static runtime_sleep_wait* runtime_sleepers;
+static uint32_t runtime_sleepers_count;
+static bool runtime_poll_sleepers(void);
 static bool runtime_thread_slot_dead(uint32_t slot);
 static inline runtime_g* runtime_atomic_load_g(runtime_g* const* value);
 static inline runtime_g* runtime_atomic_exchange_g(runtime_g** value, runtime_g* next);
@@ -2272,6 +2405,30 @@ static uint32_t runtime_kolibri_find_thread_slot_by_tid(uint32_t tid) {
     return 0;
 }
 
+static uint32_t* runtime_process_thread_control;
+
+static void runtime_process_thread_publish(uint32_t slot) {
+    uint32_t* control = __atomic_load_n(&runtime_process_thread_control, __ATOMIC_ACQUIRE);
+    uint8_t buffer[1024];
+    if (control == NULL || slot == 0 || slot > RUNTIME_MAX_THREAD_SLOTS) return;
+    if (runtime_kos_get_thread_info_raw(buffer, (int32_t)slot) >= 0) {
+        uint32_t id = *(uint32_t*)(buffer + 30); /* sysfuncs.txt function 9 */
+        __atomic_store_n(&control[slot], id, __ATOMIC_RELEASE);
+    }
+}
+
+void runtime_kolibri_process_thread_control(uintptr_t address) {
+    __atomic_store_n(&runtime_process_thread_control, (uint32_t*)address, __ATOMIC_RELEASE);
+    runtime_lock_mutex(&runtime_m_lock);
+    for (runtime_m* m = runtime_allm; m != NULL; m = m->next) {
+        runtime_process_thread_publish(m->tid);
+    }
+    runtime_unlock_mutex(&runtime_m_lock);
+    if (__atomic_load_n(&runtime_process_thread_control[0], __ATOMIC_ACQUIRE) != 0) {
+        runtime_exit_process();
+    }
+}
+
 static void runtime_allm_add(runtime_m* m) {
     if (m == NULL) {
         return;
@@ -2284,6 +2441,12 @@ static void runtime_allm_add(runtime_m* m) {
         runtime_m_pending--;
     }
     runtime_unlock_mutex(&runtime_m_lock);
+    runtime_process_thread_publish(m->tid);
+    uint32_t* control = __atomic_load_n(&runtime_process_thread_control, __ATOMIC_ACQUIRE);
+    if (control != NULL && __atomic_load_n(&control[0], __ATOMIC_ACQUIRE) != 0) {
+        runtime_kos_exit_raw();
+        for (;;) {}
+    }
 }
 
 static runtime_m* runtime_m_by_slot_load(uint32_t slot) {
@@ -2654,9 +2817,11 @@ static void runtime_ready(runtime_g* g) {
     }
     uint32_t parking = runtime_atomic_load_u32(&g->parking);
     if (parking == 1u) {
-        runtime_atomic_store_u32(&g->parking, 0);
-        g->status = RUNTIME_G_RUNNING;
-        return;
+        if (runtime_atomic_cas_u32(&g->parking, 1, 0)) {
+            g->status = RUNTIME_G_RUNNING;
+            return;
+        }
+        parking = runtime_atomic_load_u32(&g->parking);
     }
     if (parking == 2u) {
         if (runtime_atomic_cas_u32(&g->parking, 2, 3)) {
@@ -2675,6 +2840,10 @@ static void runtime_ready(runtime_g* g) {
 }
 
 static void runtime_gopark_after_unlock(runtime_g* g, runtime_m* m);
+#ifdef KOLIBRI_SCHEDULER_TRACE
+static void runtime_scheduler_trace_park(runtime_g* g);
+static void runtime_scheduler_trace_tick(void);
+#endif
 
 static void runtime_gopark_internal(void) {
     runtime_g* g = runtime_getg();
@@ -2691,6 +2860,9 @@ static void runtime_gopark_after_unlock(runtime_g* g, runtime_m* m) {
     if (g == NULL || m == NULL || g == m->g0) {
         return;
     }
+#ifdef KOLIBRI_SCHEDULER_TRACE
+    runtime_scheduler_trace_park(g);
+#endif
     if (!runtime_atomic_cas_u32(&g->parking, 1, 2)) {
 #if KOLIBRI_RT_DEBUG
         runtime_debug_event("park skip", g, NULL, g->parking);
@@ -2703,6 +2875,49 @@ static void runtime_gopark_after_unlock(runtime_g* g, runtime_m* m) {
 #endif
     m->park_g = g;
     runtime_switch(g, m->g0);
+}
+
+void runtime_kolibri_sleep(int64_t ns) {
+    if (ns <= 0) return;
+    int64_t now = runtime_nanotime();
+    int64_t when = ns > INT64_MAX - now ? INT64_MAX : now + ns;
+    runtime_g* g = runtime_getg();
+    runtime_m* m = runtime_getm();
+    if (g == NULL || m == NULL || g == m->g0) {
+        /* Package initialization runs without an application goroutine. */
+        while (runtime_nanotime() < when) runtime_sleep_ticks(1);
+        return;
+    }
+    runtime_sleep_wait wait = {g, when, NULL};
+    runtime_lock_mutex(&runtime_sched_lock);
+    g->status = RUNTIME_G_WAITING;
+    runtime_atomic_store_u32(&g->parking, 1);
+    wait.next = runtime_sleepers;
+    runtime_sleepers = &wait;
+    runtime_sleepers_count++;
+    runtime_unlock_mutex(&runtime_sched_lock);
+    runtime_gopark_after_unlock(g, m);
+}
+
+static bool runtime_poll_sleepers(void) {
+    for (;;) {
+        int64_t now = runtime_nanotime();
+        runtime_lock_mutex(&runtime_sched_lock);
+        runtime_sleep_wait** link = &runtime_sleepers;
+        while (*link != NULL && (*link)->when > now) link = &(*link)->next;
+        runtime_sleep_wait* due = *link;
+        runtime_g* g = due == NULL ? NULL : due->g;
+        if (due != NULL) *link = due->next;
+        bool pending = runtime_sleepers_count != 0;
+        runtime_unlock_mutex(&runtime_sched_lock);
+        if (g == NULL) return pending;
+        /* The parked stack record is no longer used after ready: the
+         * goroutine may immediately resume and return on another M. */
+        runtime_ready(g);
+        runtime_lock_mutex(&runtime_sched_lock);
+        runtime_sleepers_count--;
+        runtime_unlock_mutex(&runtime_sched_lock);
+    }
 }
 
 static void runtime_gosched_internal(void) {
@@ -2766,6 +2981,8 @@ static void runtime_go_start(void) {
 
 static void (*runtime_app_init_fn)(void) = NULL;
 static void (*runtime_app_main_fn)(void) = NULL;
+extern void runtime_report_child_exit(int32_t code)
+    __asm__("kos.ChildProcessExit") __attribute__((weak));
 
 static void runtime_app_entry(void* arg) {
     (void)arg;
@@ -2775,6 +2992,11 @@ static void runtime_app_entry(void* arg) {
     if (runtime_app_main_fn != NULL) {
         runtime_app_main_fn();
     }
+    if (runtime_report_child_exit != NULL) runtime_report_child_exit(0);
+    /* libgo runtime.main exits the process when main.main returns. Other
+     * goroutines may remain parked forever (database/sql connection opener,
+     * native lock owners, timers); they must not enter deadlock detection. */
+    runtime_exit_process();
 }
 
 typedef struct {
@@ -2886,6 +3108,9 @@ static runtime_m* runtime_spawn_m_with_start(runtime_g* start_g, uint32_t stack_
     uint32_t stack_len = stack_size;
     int32_t raw_id;
 
+    uint32_t* control = __atomic_load_n(&runtime_process_thread_control, __ATOMIC_ACQUIRE);
+    if (control != NULL && __atomic_load_n(&control[0], __ATOMIC_ACQUIRE) != 0) return NULL;
+
     runtime_lock_mutex(&runtime_m_lock);
     runtime_m_pending++;
     runtime_unlock_mutex(&runtime_m_lock);
@@ -2983,7 +3208,10 @@ static runtime_m* runtime_spawn_m_with_start(runtime_g* start_g, uint32_t stack_
         return NULL;
     }
 
-    m->tid = (uint32_t)raw_id;
+    /* The child may already have installed the actual slot. Do not overwrite
+       it with the creation syscall's PID/TID after it starts running. */
+    uint32_t empty_tid = 0;
+    __atomic_compare_exchange_n(&m->tid, &empty_tid, (uint32_t)raw_id, false, __ATOMIC_RELEASE, __ATOMIC_RELAXED);
     return m;
 }
 
@@ -3046,6 +3274,83 @@ static runtime_g* runtime_newg(void (*entry)(void*), void* arg) {
     return g;
 }
 
+/* Go 1.23 runtime/coro.go scheduler transitions adapted to the existing
+ * gccgo context-switch ABI. The user function and defer/coroexit sequence
+ * live in runtime/coro_kolibrios.go; no iterator source is rewritten. */
+typedef struct {
+    runtime_g* gp;
+    void* f;
+    runtime_m* mp;
+} runtime_kolibri_coro;
+
+void runtime_kolibri_coronew(runtime_kolibri_coro* c, uintptr_t entry) {
+    runtime_g* caller = runtime_getg();
+    if (c == NULL || caller == NULL || entry == 0) {
+        runtime_fail_simple("invalid coroutine creation");
+    }
+    runtime_g* gp = runtime_newg((void (*)(void*))entry, c);
+    /* A coroutine starts parked, rather than entering the run queue. */
+    gp->status = RUNTIME_G_WAITING;
+    if (caller->lockedm != NULL) {
+        c->mp = caller->lockedm;
+    }
+    c->gp = gp;
+}
+
+static runtime_g* runtime_kolibri_coro_exchange(runtime_kolibri_coro* c, bool exit) {
+    runtime_g* gp = runtime_getg();
+    runtime_m* mp = runtime_getm();
+    if (c == NULL || gp == NULL || mp == NULL || gp == mp->g0) {
+        runtime_fail_simple("invalid coroutine switch");
+    }
+    bool locked = gp->lockedm != NULL;
+    if (c->mp != NULL || locked) {
+        if (mp != c->mp || !locked) {
+            runtime_fail_simple("coro: OS thread locking must match locking at coroutine creation");
+        }
+    }
+    runtime_g* next;
+    for (;;) {
+        next = runtime_atomic_load_g(&c->gp);
+        if (next == NULL) {
+            runtime_fail_simple("coroswitch on exited coro");
+        }
+        if (next == gp) {
+            runtime_fail_simple("coroswitch of a goroutine to itself");
+        }
+        if (runtime_atomic_cas_g(&c->gp, next, exit ? NULL : gp)) {
+            break;
+        }
+    }
+    if (locked) {
+        gp->lockedm = NULL;
+        next->lockedm = mp;
+    }
+    if (!exit) {
+        gp->status = RUNTIME_G_WAITING;
+    }
+    return next;
+}
+
+void runtime_kolibri_coroswitch(runtime_kolibri_coro* c) {
+    runtime_g* gp = runtime_getg();
+    runtime_g* next = runtime_kolibri_coro_exchange(c, false);
+    next->status = RUNTIME_G_RUNNING;
+    runtime_switch(gp, next);
+}
+
+__attribute__((noreturn)) void runtime_kolibri_coroexit(runtime_kolibri_coro* c) {
+    runtime_g* next = runtime_kolibri_coro_exchange(c, true);
+    /* The ordinary scheduler owns stack reclamation. Wake the waiting
+     * partner, then retire this goroutine through its existing exit path. */
+    runtime_ready(next);
+    runtime_goexit_internal();
+}
+
+/* iter's upstream go:linkname declaration names runtime.coroswitch. */
+__asm__(".global runtime.coroswitch");
+__asm__(".set runtime.coroswitch, runtime_kolibri_coroswitch");
+
 #ifndef KOLIBRI_USE_LIBGO_RUNTIME
 runtime_g* __go_go(uintptr_t fn, void* arg) {
     runtime_g* g = runtime_newg((void (*)(void*))(uintptr_t)fn, arg);
@@ -3058,6 +3363,9 @@ static void runtime_schedule(void) {
     runtime_m* m = runtime_getm();
     runtime_g* g0 = (m != NULL && m->g0 != NULL) ? m->g0 : &runtime_g0;
     for (;;) {
+#ifdef KOLIBRI_SCHEDULER_TRACE
+        runtime_scheduler_trace_tick();
+#endif
         runtime_g* next = NULL;
         if (m != NULL) {
             if (m != &runtime_m0) {
@@ -3080,18 +3388,19 @@ static void runtime_schedule(void) {
             if (m->park_g != NULL) {
                 runtime_g* pg = m->park_g;
                 m->park_g = NULL;
-                uint32_t parking = runtime_atomic_load_u32(&pg->parking);
+                /* Commit the parked goroutine with a single exchange. A
+                 * concurrent ready either leaves a pending wakeup (3), or
+                 * observes zero and enqueues the already parked goroutine. */
+                uint32_t parking = __atomic_exchange_n(&pg->parking, 0, __ATOMIC_ACQ_REL);
                 if (parking == 3u) {
-                    runtime_atomic_store_u32(&pg->parking, 0);
                     if (pg->status == RUNTIME_G_WAITING) {
                         pg->status = RUNTIME_G_RUNNABLE;
                         runtime_runq_enqueue(pg);
                     }
-                } else {
-                    runtime_atomic_store_u32(&pg->parking, 0);
                 }
             }
         }
+        bool sleepers_pending = runtime_poll_sleepers();
         if (next != NULL) {
             next->status = RUNTIME_G_RUNNING;
             runtime_switch(g0, next);
@@ -3099,6 +3408,7 @@ static void runtime_schedule(void) {
         }
         runtime_free_dead();
         runtime_poll_world_stop();
+        runtime_finalizer_maybe_start();
         next = runtime_runq_dequeue_for_m(m);
         if (next == NULL) {
             if (m != &runtime_m0) {
@@ -3120,10 +3430,15 @@ static void runtime_schedule(void) {
                 } else if (scan->status == RUNTIME_G_RUNNING) {
                     any_running = true;
                 } else if (scan->status == RUNTIME_G_WAITING) {
-                    any_waiting = true;
+                    if (runtime_atomic_load_u32(&scan->parking) == 3u) {
+                        any_running = true; // wakeup pending on its scheduler
+                    } else {
+                        any_waiting = true;
+                    }
                 }
                 scan = scan->all_next;
             }
+        sleepers_pending = runtime_sleepers_count != 0;
         runtime_unlock_mutex(&runtime_sched_lock);
         if (any_runnable || any_running) {
             if (any_runnable) {
@@ -3131,6 +3446,10 @@ static void runtime_schedule(void) {
             } else {
                 runtime_sleep_ticks(1);
             }
+            continue;
+        }
+        if (sleepers_pending) {
+            runtime_sleep_ticks(1);
             continue;
         }
         if (any_waiting) {
@@ -3678,6 +3997,17 @@ static void runtime_gc_scan_hchan(runtime_gc_header* header) {
     runtime_gc_mark_pointer(c->buf);
 }
 
+/* GCC libgo runtime/chan.go reflect_chanlen and reflect_chancap. */
+int32_t runtime_reflect_chanlen(runtime_hchan* c) __asm__("reflect.chanlen");
+int32_t runtime_reflect_chanlen(runtime_hchan* c) {
+    return c == NULL ? 0 : (int32_t)c->qcount;
+}
+
+int32_t runtime_reflect_chancap(runtime_hchan* c) __asm__("reflect.chancap");
+int32_t runtime_reflect_chancap(runtime_hchan* c) {
+    return c == NULL ? 0 : (int32_t)c->dataqsiz;
+}
+
 runtime_hchan* runtime_makechan(go_chan_type_descriptor* t, int32_t size) __asm__("runtime.makechan");
 runtime_hchan* runtime_makechan(go_chan_type_descriptor* t, int32_t size) {
     runtime_hchan* c;
@@ -4065,7 +4395,10 @@ struct runtime_gc_page_entry {
     runtime_gc_page_entry* next_in_header;
 };
 
-struct runtime_gc_header {
+/* Go heap objects need at least eight-byte alignment on 386, including
+ * sync/atomic's typed 64-bit values. Keep the payload following this header
+ * aligned even when metadata fields would otherwise leave a four-byte tail. */
+struct __attribute__((aligned(8))) runtime_gc_header {
     runtime_gc_header* next;
     runtime_gc_header* prev;
     uintptr_t size;
@@ -4078,6 +4411,9 @@ struct runtime_gc_header {
     uint8_t marked;
     uint8_t reserved;
 };
+
+_Static_assert(sizeof(runtime_gc_header) % 8u == 0,
+               "Go heap payload must be eight-byte aligned");
 
 static void runtime_gc_small_cache_slot(void* slot, struct runtime_gc_small_chunk* chunk) {
     if (slot == NULL || chunk == NULL) {
@@ -4192,20 +4528,7 @@ uintptr_t runtime_memhash64(const void* value, uintptr_t seed);
 
 static const char runtime_hex_digits[] = "0123456789ABCDEF";
 static uint32_t runtime_fastrand_state = 1;
-static const go_type_descriptor RUNTIME_USED runtime_unsafe_pointer_descriptor = {
-    sizeof(void*),
-    sizeof(void*),
-    0,
-    0,
-    0,
-    0,
-    GO_TYPE_KIND_DIRECT_IFACE,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-};
+#include "runtime_unsafe_pointer.h"
 
 static int kos_memcmp(const void* left, const void* right, size_t size);
 static uint32_t runtime_read_unaligned32(const void* value);
@@ -4552,6 +4875,61 @@ static void runtime_debug_write_newline(void) {
     runtime_debug_file_flush();
 #endif
 }
+
+#ifdef KOLIBRI_SCHEDULER_TRACE
+/* Opt-in diagnostics for the single-M bootstrap scheduler. Capture real DWARF
+ * frames before suspension; never unwind another thread's running stack. */
+static struct {
+    runtime_g* g;
+    uintptr_t pcs[20];
+    int count;
+} runtime_scheduler_traces[128];
+
+static void runtime_scheduler_trace_park(runtime_g* g) {
+    if (runtime_max_threads != 1 || runtime_getm() != &runtime_m0) return;
+    for (unsigned i = 0; i < 128; i++) {
+        if (runtime_scheduler_traces[i].g == NULL || runtime_scheduler_traces[i].g == g) {
+            runtime_scheduler_traces[i].g = g;
+            runtime_scheduler_traces[i].count = runtime_kolibri_collect_callers(runtime_scheduler_traces[i].pcs, 20);
+            return;
+        }
+    }
+}
+
+static void runtime_scheduler_trace_tick(void) {
+    static int64_t deadline;
+    static unsigned remaining = 6;
+    if (remaining == 0 || runtime_max_threads != 1 || runtime_getm() != &runtime_m0) return;
+    int64_t now = runtime_nanotime();
+    if (deadline == 0) deadline = now + 30000000000LL;
+    if (now < deadline) return;
+    deadline = now + 30000000000LL;
+    remaining--;
+    runtime_debug_mark("SDK_SCHEDULER_SNAPSHOT");
+    runtime_lock_mutex(&runtime_sched_lock);
+    for (runtime_g* g = runtime_allg; g != NULL; g = g->all_next) {
+        runtime_debug_write_cstring("SDK_G ");
+        runtime_debug_write_hex32((uint32_t)(uintptr_t)g);
+        runtime_debug_write_cstring(" status=");
+        runtime_debug_write_hex32(g->status);
+        runtime_debug_write_cstring(" parking=");
+        runtime_debug_write_hex32(g->parking);
+        runtime_debug_write_cstring(" entry=");
+        runtime_debug_write_hex32((uint32_t)(uintptr_t)g->entry);
+        runtime_debug_write_cstring(" frames=");
+        for (unsigned i = 0; i < 128; i++) {
+            if (runtime_scheduler_traces[i].g != g) continue;
+            for (int j = 0; j < runtime_scheduler_traces[i].count; j++) {
+                runtime_debug_write_hex32((uint32_t)runtime_scheduler_traces[i].pcs[j]);
+                runtime_debug_write_byte(' ');
+            }
+            break;
+        }
+        runtime_debug_write_newline();
+    }
+    runtime_unlock_mutex(&runtime_sched_lock);
+}
+#endif
 
 #if KOLIBRI_RT_DEBUG
 static uint32_t runtime_debug_budget = 1200u;
@@ -5045,12 +5423,105 @@ struct dwarf_eh_bases {
     void* func;
 };
 
+extern char __eh_frame_hdr_start;
+extern char __eh_frame_hdr_end;
+
+/* GCC 15.2 libgcc/unwind-dw2-fde-dip.c find_fde_tail's sorted table search,
+   adapted to a single flat native image instead of ELF program headers.
+   GCC Runtime Library Exception applies to the upstream algorithm.
+   BFD's usual header encodings are handled here; other encodings retain the
+   bounded linear decoder below. Never cap the number of valid FDE records. */
+static const struct dwarf_fde* runtime_indexed_fde(_Unwind_Ptr pc,
+                                                struct dwarf_eh_bases* bases,
+                                                bool* indexed) {
+    const uint8_t* hdr = (const uint8_t*)&__eh_frame_hdr_start;
+    const uint8_t* hdr_end = (const uint8_t*)&__eh_frame_hdr_end;
+    const uint8_t* start = (const uint8_t*)&__eh_frame_start;
+    const uint8_t* end = (const uint8_t*)&__eh_frame_end;
+    struct fde_table {
+        int32_t initial_loc;
+        int32_t fde;
+    };
+    const struct fde_table* table;
+    const struct dwarf_fde* f;
+    const struct dwarf_cie* cie;
+    const uint8_t* cie_ptr;
+    const unsigned char* p;
+    uint32_t count;
+    size_t lo, hi, mid;
+    _Unwind_Ptr data_base = (_Unwind_Ptr)hdr;
+    _Unwind_Ptr begin, range;
+    int encoding;
+
+    *indexed = false;
+    if (hdr_end < hdr || (size_t)(hdr_end - hdr) < 12 || hdr[0] != 1 ||
+        hdr[1] != (DW_EH_PE_sdata4 | DW_EH_PE_pcrel) ||
+        hdr[2] != DW_EH_PE_udata4 ||
+        hdr[3] != (DW_EH_PE_datarel | DW_EH_PE_sdata4)) {
+        return NULL;
+    }
+    *indexed = true;
+    memcpy(&count, hdr + 8, sizeof(count));
+    if (count == 0 || count > (size_t)(hdr_end - hdr - 12) / sizeof(*table)) {
+        return NULL;
+    }
+    table = (const struct fde_table*)(hdr + 12);
+    mid = count - 1;
+    if (pc < table[0].initial_loc + data_base) {
+        return NULL;
+    } else if (pc < table[mid].initial_loc + data_base) {
+        lo = 0;
+        hi = mid;
+        while (lo < hi) {
+            mid = (lo + hi) / 2;
+            if (pc < table[mid].initial_loc + data_base) {
+                hi = mid;
+            } else if (pc >= table[mid + 1].initial_loc + data_base) {
+                lo = mid + 1;
+            } else {
+                break;
+            }
+        }
+        if (lo >= hi) {
+            return NULL;
+        }
+    }
+
+    f = (const struct dwarf_fde*)(table[mid].fde + data_base);
+    if ((const uint8_t*)f < start || (const uint8_t*)f > end ||
+        (size_t)(end - (const uint8_t*)f) < sizeof(*f) ||
+        f->length < sizeof(*f) - sizeof(uword) ||
+        f->length > (size_t)(end - (const uint8_t*)f) - sizeof(uword) ||
+        f->CIE_delta == 0) {
+        return NULL;
+    }
+    cie = runtime_get_cie(f);
+    cie_ptr = (const uint8_t*)cie;
+    if (cie_ptr < start || cie_ptr > end || (size_t)(end - cie_ptr) < sizeof(uword) ||
+        cie->length > (size_t)(end - cie_ptr) - sizeof(uword)) {
+        return NULL;
+    }
+    encoding = runtime_get_cie_encoding(cie);
+    if (encoding == DW_EH_PE_omit) {
+        return NULL;
+    }
+    p = runtime_read_encoded_value_with_base(encoding, 0, f->pc_begin, &begin);
+    runtime_read_encoded_value_with_base(encoding & 0x0f, 0, p, &range);
+    if (pc >= begin && pc - begin < range) {
+        bases->tbase = NULL;
+        bases->dbase = NULL;
+        bases->func = (void*)begin;
+        return f;
+    }
+    return NULL;
+}
+
 const struct dwarf_fde* _Unwind_Find_FDE(void* pc, struct dwarf_eh_bases* bases) {
     const uint8_t* start = (const uint8_t*)&__eh_frame_start;
     const uint8_t* end = (const uint8_t*)&__eh_frame_end;
     const struct dwarf_fde* fde;
     _Unwind_Ptr pc_val;
-    uint32_t iterations = 0;
+    bool indexed;
 #if KOLIBRI_UNWIND_DEBUG
     static uint32_t fde_debug_calls = 0;
     uint8_t debug_now = 0;
@@ -5066,8 +5537,10 @@ const struct dwarf_fde* _Unwind_Find_FDE(void* pc, struct dwarf_eh_bases* bases)
         return NULL;
     }
     pc_val = (_Unwind_Ptr)pc;
-    if (pc_val > 0) {
-        pc_val -= 1;
+    /* libgcc already adjusts a return address before calling this entrypoint. */
+    fde = runtime_indexed_fde(pc_val, bases, &indexed);
+    if (indexed) {
+        return fde;
     }
 
 #if KOLIBRI_UNWIND_DEBUG
@@ -5100,10 +5573,6 @@ const struct dwarf_fde* _Unwind_Find_FDE(void* pc, struct dwarf_eh_bases* bases)
     while ((const uint8_t*)fde + sizeof(uword) <= end) {
         uword length = fde->length;
         size_t remaining = (size_t)(end - (const uint8_t*)fde);
-        iterations++;
-        if (iterations > 0x4000u) {
-            return NULL;
-        }
         if (length == 0) {
             return NULL;
         }
@@ -5520,6 +5989,28 @@ static uintptr_t runtime_hash_value_seeded(const go_type_descriptor* descriptor,
         return runtime_hash_float64_seeded(parts[1], runtime_hash_float64_seeded(parts[0], seed));
     }
 
+    /* Adapt libgo runtime/alg.go typehash: recurse through comparable
+       composites, skipping blank fields and scalar padding. */
+    if ((descriptor->tflag & (1u << 3)) == 0 && kind == 17) {
+        const go_array_type_descriptor* array = (const go_array_type_descriptor*)descriptor;
+        for (uintptr_t index = 0; index < array->len; index++) {
+            seed = runtime_hash_value_seeded(array->elem,
+                (const unsigned char*)data + index * array->elem->size, seed);
+        }
+        return seed;
+    }
+    if ((descriptor->tflag & (1u << 3)) == 0 && kind == 25) {
+        const go_struct_type_descriptor* structure = (const go_struct_type_descriptor*)descriptor;
+        const go_struct_field_descriptor* fields = (const go_struct_field_descriptor*)structure->fields.values;
+        for (intptr_t index = 0; index < structure->fields.len; index++) {
+            const go_struct_field_descriptor* field = fields + index;
+            if (field->name != NULL && field->name->len == 1 && field->name->str[0] == '_') continue;
+            seed = runtime_hash_value_seeded(field->type,
+                (const unsigned char*)data + (field->offset_embed >> 1), seed);
+        }
+        return seed;
+    }
+
     return runtime_memhash(data, seed, (uintptr_t)descriptor->size);
 }
 
@@ -5784,6 +6275,49 @@ void runtime_printint(int64_t value) {
     runtime_debug_write_int64(value);
 }
 
+/* libgo/go/runtime/print.go: printsp, printnl and printbool, using
+ * the KolibriOS debug writer already used by printstring. */
+void runtime_printsp(void) __asm__("runtime.printsp");
+void runtime_printsp(void) {
+    runtime_printstring(" ", 1);
+}
+
+void runtime_printnl(void) __asm__("runtime.printnl");
+void runtime_printnl(void) {
+    runtime_printstring("\n", 1);
+}
+
+void runtime_printbool(bool value) __asm__("runtime.printbool");
+void runtime_printbool(bool value) {
+    runtime_printstring(value ? "true" : "false", value ? 4 : 5);
+}
+
+/* libgo/go/runtime/print.go: printpointer and printeface, with the
+ * upstream (type,data) representation and minimal hexadecimal digits. */
+void runtime_printpointer(const void* value) __asm__("runtime.printpointer");
+void runtime_printpointer(const void* value) {
+    static const char digits[] = "0123456789abcdef";
+    char buffer[2 + sizeof(uintptr_t) * 2];
+    size_t index = sizeof(buffer);
+    uintptr_t remaining = (uintptr_t)value;
+    do {
+        buffer[--index] = digits[remaining % 16];
+        remaining /= 16;
+    } while (remaining != 0);
+    buffer[--index] = 'x';
+    buffer[--index] = '0';
+    runtime_printstring(buffer + index, (intptr_t)(sizeof(buffer) - index));
+}
+
+void runtime_printeface(go_empty_interface value) __asm__("runtime.printeface");
+void runtime_printeface(go_empty_interface value) {
+    runtime_printstring("(", 1);
+    runtime_printpointer(value.type);
+    runtime_printstring(",", 1);
+    runtime_printpointer(value.data);
+    runtime_printstring(")", 1);
+}
+
 __attribute__((noreturn)) void throw(go_string message) {
     runtime_debug_write_cstring("runtime panic: ");
     if (message.str != NULL && message.len > 0) {
@@ -5794,81 +6328,7 @@ __attribute__((noreturn)) void throw(go_string message) {
     runtime_exit_process();
 }
 
-void runtime_Semacquire(uint32_t* semaphore) {
-    uint32_t spins = 0;
-
-    if (semaphore == NULL) {
-        return;
-    }
-
-    for (;;) {
-        uint32_t value = runtime_atomic_load_u32(semaphore);
-        if (value > 0 && runtime_atomic_cas_u32(semaphore, value, value - 1)) {
-            return;
-        }
-        runtime_wait_pause(spins++);
-    }
-}
-
-void runtime_SemacquireMutex(uint32_t* semaphore, bool lifo, int32_t skipframes) {
-    (void)lifo;
-    (void)skipframes;
-    runtime_Semacquire(semaphore);
-}
-
-void runtime_Semrelease(uint32_t* semaphore, bool handoff, int32_t skipframes) {
-    (void)handoff;
-    (void)skipframes;
-    if (semaphore == NULL) {
-        return;
-    }
-    runtime_atomic_xadd_u32(semaphore, 1);
-}
-
-static inline bool runtime_notify_less(uint32_t left, uint32_t right) {
-    return ((int32_t)(left - right)) < 0;
-}
-
-uint32_t runtime_notifyListAdd(runtime_notify_list* list) {
-    if (list == NULL) {
-        return 0;
-    }
-    return runtime_atomic_xadd_u32(&list->wait, 1);
-}
-
-void runtime_notifyListWait(runtime_notify_list* list, uint32_t ticket) {
-    uint32_t spins = 0;
-
-    if (list == NULL) {
-        return;
-    }
-    while (!runtime_notify_less(ticket, runtime_atomic_load_u32(&list->notify))) {
-        runtime_wait_pause(spins++);
-    }
-}
-
-void runtime_notifyListNotifyAll(runtime_notify_list* list) {
-    if (list == NULL) {
-        return;
-    }
-    runtime_atomic_store_u32(&list->notify, runtime_atomic_load_u32(&list->wait));
-}
-
-void runtime_notifyListNotifyOne(runtime_notify_list* list) {
-    if (list == NULL) {
-        return;
-    }
-    for (;;) {
-        uint32_t notify = runtime_atomic_load_u32(&list->notify);
-        uint32_t wait = runtime_atomic_load_u32(&list->wait);
-        if (notify == wait) {
-            return;
-        }
-        if (runtime_atomic_cas_u32(&list->notify, notify, notify + 1)) {
-            return;
-        }
-    }
-}
+#include "runtime_sync.h"
 
 void runtime_notifyListCheck(uintptr_t size) {
     if (size != sizeof(runtime_notify_list)) {
@@ -5905,6 +6365,11 @@ void runtime_registerPoolCleanup(runtime_func_val* cleanup) {
 int runtime_procPin(void) {
     return 0;
 }
+
+__asm__(".global sync_1atomic.runtime__procPin");
+__asm__(".set sync_1atomic.runtime__procPin, runtime_procPin");
+__asm__(".global sync_1atomic.runtime__procUnpin");
+__asm__(".set sync_1atomic.runtime__procUnpin, runtime_procUnpin");
 
 void runtime_procUnpin(void) {
 }
@@ -6607,6 +7072,26 @@ static void runtime_gc_scan_precise_words(const void* base, uintptr_t size, uint
     }
 }
 
+extern uintptr_t runtime_run_gc_program(const uint8_t*, const uint8_t*, uint8_t*, intptr_t)
+    __asm__("runtime.runGCProg");
+
+static void runtime_gc_scan_typed_words(const void* base, uintptr_t size, const go_type_descriptor* descriptor) {
+    const uint8_t* bitmap = (const uint8_t*)descriptor->gcdata;
+    uint8_t* temporary = NULL;
+    if ((descriptor->kind & (1u << 6)) != 0 && descriptor->ptrdata != 0) {
+        /* libgo materializeGCProg: unpack the program into one bit per
+           pointer word. C allocation cannot recursively invoke Go GC. */
+        uintptr_t bitmap_size = descriptor->ptrdata / (8u * sizeof(void*));
+        if (descriptor->ptrdata % (8u * sizeof(void*)) != 0) bitmap_size++;
+        temporary = (uint8_t*)malloc(bitmap_size);
+        if (temporary == NULL) runtime_panicmem();
+        runtime_run_gc_program(bitmap + 4, NULL, temporary, 1);
+        bitmap = temporary;
+    }
+    runtime_gc_scan_precise_words(base, size, descriptor->ptrdata, bitmap);
+    if (temporary != NULL) free(temporary);
+}
+
 static void runtime_gc_mark_header(runtime_gc_header* header) {
     if (header == NULL || header->marked == runtime_gc_mark_token) {
         return;
@@ -6639,7 +7124,7 @@ static void runtime_gc_scan_descriptor_object(runtime_gc_header* header) {
         return;
     }
 
-    runtime_gc_scan_precise_words(runtime_gc_payload(header), header->size, descriptor->ptrdata, (const uint8_t*)descriptor->gcdata);
+    runtime_gc_scan_typed_words(runtime_gc_payload(header), header->size, descriptor);
 }
 
 static void runtime_gc_scan_descriptor_array(runtime_gc_header* header) {
@@ -6660,7 +7145,7 @@ static void runtime_gc_scan_descriptor_array(runtime_gc_header* header) {
     base = (unsigned char*)runtime_gc_payload(header);
     element_size = descriptor->size;
     for (index = 0; index < header->aux; index++) {
-        runtime_gc_scan_precise_words(base + index * element_size, element_size, descriptor->ptrdata, (const uint8_t*)descriptor->gcdata);
+        runtime_gc_scan_typed_words(base + index * element_size, element_size, descriptor);
     }
 }
 
@@ -6711,16 +7196,11 @@ static void runtime_gc_scan_runtime_map_storage(runtime_gc_header* header) {
 
         base = storage + index * scan->entry_stride;
         if (scan->type->key_type != NULL && scan->type->key_type->ptrdata != 0 && scan->type->key_type->size != 0) {
-            runtime_gc_scan_precise_words(base,
-                                          scan->type->key_type->size,
-                                          scan->type->key_type->ptrdata,
-                                          (const uint8_t*)scan->type->key_type->gcdata);
+            runtime_gc_scan_typed_words(base, scan->type->key_type->size, scan->type->key_type);
         }
         if (scan->type->value_type != NULL && scan->type->value_type->ptrdata != 0 && scan->type->value_type->size != 0) {
-            runtime_gc_scan_precise_words(base + scan->value_offset,
-                                          scan->type->value_type->size,
-                                          scan->type->value_type->ptrdata,
-                                          (const uint8_t*)scan->type->value_type->gcdata);
+            runtime_gc_scan_typed_words(base + scan->value_offset,
+                                        scan->type->value_type->size, scan->type->value_type);
         }
     }
 }
@@ -7051,7 +7531,9 @@ static void runtime_gc_collect_impl_locked(void) {
     runtime_gc_mark_token = (runtime_gc_mark_token == 1u) ? 2u : 1u;
     runtime_gc_flush_m_tiny_caches_locked();
 
+    runtime_finalizer_mark_roots();
     runtime_gc_mark_roots_and_stack();
+    runtime_finalizer_prepare_queue();
     current = runtime_gc_objects;
     while (current != NULL) {
         next = current->next;
@@ -7520,6 +8002,55 @@ static void runtime_freedefer(runtime_defer* d) {
     if (header != NULL) {
         runtime_gc_free_exact(d);
     }
+}
+
+/* Adapted from GCC 13.3.0 libgo/go/runtime/panic.go, Goexit.
+   The defer/panic bookkeeping stays upstream; the final switch uses this
+   runtime's KolibriOS scheduler rather than libgo's goexit1. */
+__attribute__((noreturn)) void runtime_Goexit(void) __asm__("runtime.Goexit");
+__attribute__((noreturn)) void runtime_Goexit(void) {
+    runtime_g* gp = runtime_getg();
+    runtime_panic p = {0};
+    if (gp == NULL) {
+        runtime_fail_simple("Goexit without goroutine");
+    }
+    gp->goexiting = 1;
+    p.goexit = 1;
+    p.link = gp->_panic;
+    gp->_panic = &p;
+    for (;;) {
+        runtime_defer* d = gp->_defer;
+        uintptr_t pfn;
+        runtime_defer_fn fn;
+        if (d == NULL) {
+            break;
+        }
+        pfn = d->pfn;
+        if (pfn == 0) {
+            if (d->panic != NULL) {
+                d->panic->aborted = 1;
+                d->panic = NULL;
+            }
+            gp->_defer = d->link;
+            runtime_freedefer(d);
+            continue;
+        }
+        d->pfn = 0;
+        fn = (runtime_defer_fn)(uintptr_t)pfn;
+        gp->deferring = 1;
+        fn(d->arg);
+        gp->deferring = 0;
+        if (gp->_defer != d) {
+            runtime_fail_simple("bad defer entry in Goexit");
+        }
+        d->panic = NULL;
+        gp->_defer = d->link;
+        runtime_freedefer(d);
+        /* Goexit is not recoverable. A panic raised inside a defer is
+           still handled by the existing panic/unwind implementation. */
+    }
+    gp->goexiting = 0;
+    runtime_goexit_internal();
 }
 
 void runtime_deferprocStack(runtime_defer* d, uint8_t* frame, runtime_defer_fn fn, void* arg) {
@@ -8424,7 +8955,7 @@ static uint32_t runtime_map_hash_generic(const go_map_type_descriptor* map_type,
 
     seed = (uintptr_t)runtime_map_hash_seed(map);
     if (map_type != NULL && map_type->hasher != NULL) {
-        return (uint32_t)(*map_type->hasher)(key, seed);
+        return (uint32_t)__builtin_call_with_static_chain((*map_type->hasher)(key, seed), map_type->hasher);
     }
     if (map_type != NULL && map_type->key_type != NULL) {
         return (uint32_t)runtime_hash_value_seeded(map_type->key_type, key, seed);
@@ -8438,7 +8969,7 @@ static uint32_t runtime_map_hash_fast32(const go_map_type_descriptor* map_type, 
 
     seed = (uintptr_t)runtime_map_hash_seed(map);
     if (map_type != NULL && map_type->hasher != NULL) {
-        return (uint32_t)(*map_type->hasher)(&key, seed);
+        return (uint32_t)__builtin_call_with_static_chain((*map_type->hasher)(&key, seed), map_type->hasher);
     }
 
     return (uint32_t)runtime_memhash32(&key, seed);
@@ -8449,7 +8980,7 @@ static uint32_t runtime_map_hash_fast64(const go_map_type_descriptor* map_type, 
 
     seed = (uintptr_t)runtime_map_hash_seed(map);
     if (map_type != NULL && map_type->hasher != NULL) {
-        return (uint32_t)(*map_type->hasher)(&key, seed);
+        return (uint32_t)__builtin_call_with_static_chain((*map_type->hasher)(&key, seed), map_type->hasher);
     }
 
     return (uint32_t)runtime_memhash64(&key, seed);
@@ -8463,7 +8994,7 @@ static uint32_t runtime_map_hash_faststr(const go_map_type_descriptor* map_type,
     key.len = key_len;
     seed = (uintptr_t)runtime_map_hash_seed(map);
     if (map_type != NULL && map_type->hasher != NULL) {
-        return (uint32_t)(*map_type->hasher)(&key, seed);
+        return (uint32_t)__builtin_call_with_static_chain((*map_type->hasher)(&key, seed), map_type->hasher);
     }
 
     return (uint32_t)runtime_strhash(&key, seed);
@@ -8563,7 +9094,13 @@ static bool runtime_map_bind_type(runtime_map* map, const go_map_type_descriptor
         runtime_map_compute_layout(map, map_type);
     }
 
-    return map->type == map_type;
+    /* Like libgo mapassign, operate on the key/element layout, not the
+     * identity of the map descriptor. gccgo may allocate a named map but
+     * use its unnamed underlying map descriptor for compiler helpers.
+     * Legal map conversions preserve the key and element types. */
+    return map->type == map_type ||
+        (map->type->key_type == map_type->key_type &&
+         map->type->value_type == map_type->value_type);
 }
 
 static void* runtime_map_zero_value_for_type(const go_map_type_descriptor* map_type) {
@@ -8855,6 +9392,11 @@ uintptr_t runtime_memhash64(const void* value, uintptr_t seed) {
     return (uintptr_t)(a ^ b);
 }
 
+/* libgo runtime/alg.go: memhash128(p, h) delegates to memhash(p, h, 16). */
+uintptr_t runtime_memhash128(const void* value, uintptr_t seed) {
+    return runtime_memhash(value, seed, 16);
+}
+
 static uint32_t RUNTIME_USED runtime_strhash_impl(const void* value) {
     return (uint32_t)runtime_strhash(value, 0);
 }
@@ -8965,7 +9507,7 @@ static bool runtime_map_key_equal(const go_type_descriptor* descriptor, const vo
         if (equal == NULL) {
             runtime_fail_simple("map key not comparable");
         }
-        return equal(left, right);
+        return __builtin_call_with_static_chain(equal(left, right), descriptor->equal);
     }
     if (key_size == 0) {
         return true;
@@ -9856,6 +10398,33 @@ void* runtime_makemap(const go_map_type_descriptor* map_type, intptr_t hint, voi
     return map;
 }
 
+/* Go 1.23 runtime/map.go mapclone2, adapted to the bootstrap's map table.
+ * Clone each occupied key/value into independent map storage, preserving
+ * shallow pointer values and non-reflexive keys such as distinct NaNs.
+ * Native map operations do not yield in the cooperative bootstrap runtime. */
+void* runtime_clone_map_table(const go_map_type_descriptor*, runtime_map*)
+    __asm__("runtime.cloneMapTable");
+void* runtime_clone_map_table(const go_map_type_descriptor* map_type, runtime_map* source) {
+    runtime_map* destination;
+    if (source == NULL) {
+        return NULL;
+    }
+    destination = runtime_makemap(map_type, source->len, NULL);
+    if (destination == NULL) {
+        runtime_panicmem();
+    }
+    for (intptr_t index = 0; index < source->cap; ++index) {
+        runtime_map_entry* entry = &source->entries[index];
+        void* value;
+        if (entry->state != 1) {
+            continue;
+        }
+        value = runtime_mapassign(map_type, destination, entry->key_data);
+        runtime_typedmemmove(map_type->value_type, value, entry->value_data);
+    }
+    return destination;
+}
+
 void* __go_construct_map(const go_map_type_descriptor* map_type,
                          uintptr_t count,
                          uintptr_t entry_size,
@@ -10475,6 +11044,63 @@ void* runtime_makeslice(const go_type_descriptor* descriptor, intptr_t len, intp
         return NULL;
     }
     return memory;
+}
+
+void runtime_panicmakeslicelen(void) __asm__("runtime.panicmakeslicelen");
+void runtime_panicmakeslicecap(void) __asm__("runtime.panicmakeslicecap");
+void runtime_panicunsafeslicelen(void) __asm__("runtime.panicunsafeslicelen");
+void runtime_panicunsafeslicenilptr(void) __asm__("runtime.panicunsafeslicenilptr");
+
+/* GCC 13.3.0 runtime/slice.go checkMakeSlice and Go 1.23 runtime/unsafe.go
+   checks, adapted to this runtime's type descriptor and 32-bit maxAlloc.
+   Recoverable error values come from the original Go panic helpers. */
+uintptr_t runtime_checkMakeSlice(const go_type_descriptor* et, intptr_t len, intptr_t cap)
+    __asm__("runtime.checkMakeSlice");
+uintptr_t runtime_checkMakeSlice(const go_type_descriptor* et, intptr_t len, intptr_t cap) {
+    uintptr_t size = et->size;
+    uintptr_t mem = size * (uintptr_t)cap;
+    bool overflow = size != 0 && (uintptr_t)cap > UINTPTR_MAX / size;
+    if (overflow || len < 0 || len > cap) {
+        mem = size * (uintptr_t)len;
+        overflow = size != 0 && (uintptr_t)len > UINTPTR_MAX / size;
+        if (overflow || len < 0) {
+            runtime_panicmakeslicelen();
+        }
+        runtime_panicmakeslicecap();
+    }
+    return mem;
+}
+
+void runtime_unsafeslice(const go_type_descriptor* et, void* ptr, intptr_t len)
+    __asm__("runtime.unsafeslice");
+void runtime_unsafeslice(const go_type_descriptor* et, void* ptr, intptr_t len) {
+    uintptr_t size = et->size;
+    uintptr_t mem;
+    bool overflow;
+    if (len < 0) {
+        runtime_panicunsafeslicelen();
+    }
+    if (size == 0 && ptr == NULL && len > 0) {
+        runtime_panicunsafeslicenilptr();
+    }
+    mem = size * (uintptr_t)len;
+    overflow = size != 0 && (uintptr_t)len > UINTPTR_MAX / size;
+    if (overflow || mem > -(uintptr_t)ptr) {
+        if (ptr == NULL) {
+            runtime_panicunsafeslicenilptr();
+        }
+        runtime_panicunsafeslicelen();
+    }
+}
+
+void runtime_unsafeslice64(const go_type_descriptor* et, void* ptr, int64_t len64)
+    __asm__("runtime.unsafeslice64");
+void runtime_unsafeslice64(const go_type_descriptor* et, void* ptr, int64_t len64) {
+    intptr_t len = (intptr_t)len64;
+    if ((int64_t)len != len64) {
+        runtime_panicunsafeslicelen();
+    }
+    runtime_unsafeslice(et, ptr, len);
 }
 
 void* runtime_makeslice64(const go_type_descriptor* descriptor, int64_t len, int64_t cap) {
@@ -11117,7 +11743,7 @@ static bool runtime_value_equal(const go_type_descriptor* descriptor, const void
         runtime_fail_simple("equality on non-comparable type");
     }
 
-    return equal(left_data, right_data);
+    return __builtin_call_with_static_chain(equal(left_data, right_data), descriptor->equal);
 }
 
 bool runtime_efaceeq(const go_type_descriptor* left_type, const void* left_data, const go_type_descriptor* right_type, const void* right_data) {
@@ -11126,6 +11752,16 @@ bool runtime_efaceeq(const go_type_descriptor* left_type, const void* left_data,
     }
 
     return runtime_value_equal(left_type, left_data, right_data);
+}
+
+/* libgo runtime/alg.go ifaceefaceeq, using the bootstrap type/equality helpers.
+   In particular, a nil non-empty interface equals a nil empty interface. */
+bool runtime_ifaceefaceeq(const go_interface_method_table* left_methods, const void* left_data,
+                         const go_type_descriptor* right_type, const void* right_data) {
+    if (left_methods == NULL) {
+        return right_type == NULL;
+    }
+    return runtime_efaceeq(left_methods->type, left_data, right_type, right_data);
 }
 
 bool RUNTIME_USED runtime_nilinterequal(const void* left_value, const void* right_value) {
@@ -11206,6 +11842,10 @@ bool runtime_ifaceT2Ip(const go_type_descriptor* target_type, const go_type_desc
     return runtime_get_interface_method_table((const go_interface_type_descriptor*)target_type, source_type, NULL) != NULL;
 }
 
+extern __attribute__((noreturn)) void runtime_panic_interface_assertion(
+    const go_type_descriptor*, const go_type_descriptor*, go_string)
+    __asm__("runtime.panicInterfaceAssertion");
+
 go_interface_method_table* runtime_assertitab(const go_type_descriptor* target_type, const go_type_descriptor* source_type) {
     go_interface_method_table* methods;
 
@@ -11216,12 +11856,24 @@ go_interface_method_table* runtime_assertitab(const go_type_descriptor* target_t
         runtime_fail_simple("assertitab target is not an interface");
     }
     if (source_type == NULL) {
-        runtime_fail_simple("interface assertion on nil value");
+        go_string missing = {NULL, 0};
+        runtime_panic_interface_assertion(target_type, source_type, missing);
     }
 
     methods = runtime_get_interface_method_table((const go_interface_type_descriptor*)target_type, source_type, NULL);
     if (methods == NULL) {
-        runtime_fail_pair("interface assertion failed", "want", runtime_pointer_value((void*)target_type), "have", runtime_pointer_value((void*)source_type));
+        const go_interface_type_descriptor* inter = (const go_interface_type_descriptor*)target_type;
+        const go_interface_method_descriptor* target_methods = (const go_interface_method_descriptor*)inter->methods;
+        const go_uncommon_type* uncommon = (const go_uncommon_type*)source_type->uncommon;
+        go_string missing = {NULL, 0};
+        for (uintptr_t index = 0; index < inter->method_count; index++) {
+            const go_named_type_method_descriptor* method = runtime_find_named_method(uncommon, target_methods + index);
+            if (method == NULL || method->function == NULL) {
+                if (target_methods[index].name != NULL) missing = *target_methods[index].name;
+                break;
+            }
+        }
+        runtime_panic_interface_assertion(target_type, source_type, missing);
     }
 
     return methods;
@@ -11233,6 +11885,30 @@ go_interface_method_table* runtime_requireitab(const go_type_descriptor* target_
     }
 
     return runtime_assertitab(target_type, source_type);
+}
+
+/* libgo runtime/iface.go reflectlite_ifaceE2I, using the existing gccgo
+   descriptors and native itab cache. assignTo checks nil and assignability. */
+void runtime_reflectlite_ifaceE2I(const go_type_descriptor* target_type,
+                                go_empty_interface source, go_interface* target)
+    __asm__("internal_1reflectlite.ifaceE2I");
+void runtime_reflectlite_ifaceE2I(const go_type_descriptor* target_type,
+                                go_empty_interface source, go_interface* target) {
+    target->methods = runtime_assertitab(target_type, source.type);
+    target->data = source.data;
+}
+
+/* libgo reflection Len entrypoints adapted to the native channel/map tables. */
+int32_t runtime_reflectlite_chanlen(runtime_hchan* channel)
+    __asm__("internal_1reflectlite.chanlen");
+int32_t runtime_reflectlite_chanlen(runtime_hchan* channel) {
+    return runtime_reflect_chanlen(channel);
+}
+
+intptr_t runtime_reflectlite_maplen(runtime_map* map)
+    __asm__("internal_1reflectlite.maplen");
+intptr_t runtime_reflectlite_maplen(runtime_map* map) {
+    return map == NULL ? 0 : map->len;
 }
 
 go_interface_assert_result runtime_ifaceE2I2(const go_type_descriptor* target_type, const go_type_descriptor* source_type, const void* source_data) {
@@ -11265,6 +11941,19 @@ go_interface_assert_result runtime_ifaceI2I2(const go_type_descriptor* target_ty
     }
 
     return runtime_ifaceE2I2(target_type, source_type, source_data);
+}
+
+typedef struct {
+    go_empty_interface value;
+    bool ok;
+} go_empty_interface_assert_result;
+
+/* libgo runtime/iface.go: ifaceE2E2 returns e, e._type != nil. */
+go_empty_interface_assert_result runtime_ifaceE2E2(go_empty_interface source) {
+    go_empty_interface_assert_result result;
+    result.value = source;
+    result.ok = source.type != NULL;
+    return result;
 }
 
 bool runtime_ifaceeq(const go_interface_method_table* left_methods, const void* left_data, const go_interface_method_table* right_methods, const void* right_data) {
@@ -11476,10 +12165,11 @@ runtime_decoderune_result runtime_decoderune(go_string s, intptr_t k) {
     return out;
 }
 
-__attribute__((noreturn)) void runtime_panicdottype(const go_type_descriptor* target_type, const go_type_descriptor* source_type, const go_type_descriptor* interface_type) {
-    (void)interface_type;
-
-    runtime_fail_pair("type assertion failed", "want", runtime_pointer_value((void*)target_type), "have", runtime_pointer_value((void*)source_type));
+/* libgo reflect.typehash uses the same seeded type hash as native maps. */
+uintptr_t runtime_reflect_typehash(const go_type_descriptor* type, const void* value, uintptr_t seed)
+    __asm__("reflect.typehash");
+uintptr_t runtime_reflect_typehash(const go_type_descriptor* type, const void* value, uintptr_t seed) {
+    return runtime_hash_value_seeded(type, value, seed);
 }
 
 void runtime_goPanicIndex(int32_t index, int32_t bound) {
@@ -11546,8 +12236,11 @@ void runtime_goPanicSlice3CU(uint32_t low, uint32_t high) {
     runtime_fail_pair("invalid 3-index slice range", "low", low, "high", high);
 }
 
+extern __attribute__((noreturn)) void runtime_panic_slice_convert(int32_t index, int32_t bound)
+    __asm__("runtime.panicSliceConvert");
+
 void runtime_goPanicSliceConvert(int32_t index, int32_t bound) {
-    runtime_fail_pair("slice conversion out of range", "index", (uint32_t)index, "bound", (uint32_t)bound);
+    runtime_panic_slice_convert(index, bound);
 }
 
 void runtime_goPanicExtendIndex(int32_t index, int32_t bound) {
@@ -11864,15 +12557,73 @@ void runtime_register_gcroots(void* roots) {
     runtime_gc_roots = block;
 }
 
-void runtime_register_type_descriptors(const void* typelists, int count) {
-    (void)typelists;
-    (void)count;
+/* libgo/go/runtime/type.go typeDescriptorList and registerTypeDescriptors.
+ * GCC's runtime.def specifies arguments (int, pointer), in that order. */
+typedef struct {
+    intptr_t count;
+    const go_type_descriptor* types[1]; /* compiler-generated variable length */
+} runtime_type_descriptor_list;
+
+static const runtime_type_descriptor_list* const* runtime_type_lists;
+static intptr_t runtime_type_list_count;
+
+#include "runtime_finalizer.h"
+#include "runtime_memstats.h"
+
+void runtime_register_type_descriptors(intptr_t count, const void* typelists) {
+    runtime_type_lists = (const runtime_type_descriptor_list* const*)typelists;
+    runtime_type_list_count = count;
+}
+
+/* Upstream reflect_lookupType uses a lazily populated string map. These
+ * compiler tables are immutable after init; scanning them needs neither
+ * allocation nor a lock in the bootstrap runtime. Last matching entry wins,
+ * preserving the upstream map's behavior for duplicate descriptor strings. */
+const go_type_descriptor* runtime_reflect_lookup_type(go_string name)
+    __asm__("reflect.lookupType");
+const go_type_descriptor* runtime_reflect_lookup_type(go_string name) {
+    intptr_t list_index;
+    if (runtime_type_lists == NULL || name.len < 0) {
+        return NULL;
+    }
+    for (list_index = runtime_type_list_count; list_index > 0; --list_index) {
+        const runtime_type_descriptor_list* list = runtime_type_lists[list_index - 1];
+        intptr_t type_index;
+        if (list == NULL) {
+            continue;
+        }
+        for (type_index = list->count; type_index > 0; --type_index) {
+            const go_type_descriptor* type = list->types[type_index - 1];
+            if (type != NULL && type->name != NULL) {
+                /* libgo runtime._type.string trims quoted prefix/suffix
+                 * metadata. Interior quotes remain part of the cache key. */
+                intptr_t index, start = 0, end = -1;
+                bool quoted = false, started = false;
+                for (index = 0; index < type->name->len; ++index) {
+                    if (type->name->str[index] == '\t') {
+                        quoted = !quoted;
+                    } else if (!quoted) {
+                        if (!started) {
+                            start = index;
+                            started = true;
+                        }
+                        end = index;
+                    }
+                }
+                if (end - start + 1 == name.len
+                    && (name.len == 0 || memcmp(type->name->str + start, name.str, (size_t)name.len) == 0)) {
+                    return type;
+                }
+            }
+        }
+    }
+    return NULL;
 }
 
 static void RUNTIME_USED runtime_noop_import(void) {
 }
 
-static const unsigned char RUNTIME_USED runtime_empty_types[1] = {0};
+static const intptr_t RUNTIME_USED runtime_empty_types[1] = {0};
 
 void* runtime_memmove_export(void* dest, const void* src, size_t size) {
     if (dest == NULL || src == NULL) {
@@ -12141,6 +12892,9 @@ __asm__(".set runtime.memhash16..f, runtime_memhash16_descriptor");
 __asm__(".global runtime.memhash64..f");
 static go_seeded_hash_function RUNTIME_USED runtime_memhash64_descriptor = runtime_memhash64;
 __asm__(".set runtime.memhash64..f, runtime_memhash64_descriptor");
+__asm__(".global runtime.memhash128..f");
+static go_seeded_hash_function RUNTIME_USED runtime_memhash128_descriptor = runtime_memhash128;
+__asm__(".set runtime.memhash128..f, runtime_memhash128_descriptor");
 
 __asm__(".global runtime.strhash..f");
 static go_seeded_hash_function RUNTIME_USED runtime_strhash_descriptor = runtime_strhash;
@@ -12157,6 +12911,8 @@ __asm__(".set runtime.memhash16, runtime_memhash16");
 
 __asm__(".global runtime.memhash64");
 __asm__(".set runtime.memhash64, runtime_memhash64");
+__asm__(".global runtime.memhash128");
+__asm__(".set runtime.memhash128, runtime_memhash128");
 
 __asm__(".global runtime.memhash");
 __asm__(".set runtime.memhash, runtime_memhash");
@@ -12322,6 +13078,9 @@ __asm__(".set runtime.mapiternext, runtime_mapiternext");
 __asm__(".global runtime.ifaceeq");
 __asm__(".set runtime.ifaceeq, runtime_ifaceeq");
 
+__asm__(".global runtime.ifaceefaceeq");
+__asm__(".set runtime.ifaceefaceeq, runtime_ifaceefaceeq");
+
 __asm__(".global runtime.ifacevaleq");
 __asm__(".set runtime.ifacevaleq, runtime_ifacevaleq");
 
@@ -12356,6 +13115,8 @@ __asm__(".set runtime.ifaceE2I2, runtime_ifaceE2I2");
 
 __asm__(".global runtime.ifaceI2I2");
 __asm__(".set runtime.ifaceI2I2, runtime_ifaceI2I2");
+__asm__(".global runtime.ifaceE2E2");
+__asm__(".set runtime.ifaceE2E2, runtime_ifaceE2E2");
 
 __asm__(".global runtime.interequal");
 __asm__(".set runtime.interequal, runtime_interequal");
@@ -12373,6 +13134,10 @@ __asm__(".set runtime.nilinterequal..f, runtime_nilinterequal_descriptor");
 
 __asm__(".global runtime.newobject");
 __asm__(".set runtime.newobject, runtime_newobject");
+__asm__(".global runtime.GC");
+__asm__(".set runtime.GC, runtime_force_gc");
+__asm__(".global internal_1reflectlite.unsafe__New");
+__asm__(".set internal_1reflectlite.unsafe__New, runtime_newobject");
 
 __asm__(".global runtime.makeslice");
 __asm__(".set runtime.makeslice, runtime_makeslice");
@@ -12385,6 +13150,8 @@ __asm__(".set runtime.growslice, runtime_growslice");
 
 __asm__(".global runtime.typedmemmove");
 __asm__(".set runtime.typedmemmove, runtime_typedmemmove");
+__asm__(".global internal_1reflectlite.typedmemmove");
+__asm__(".set internal_1reflectlite.typedmemmove, runtime_typedmemmove");
 
 __asm__(".global runtime.typedslicecopy");
 __asm__(".set runtime.typedslicecopy, runtime_typedslicecopy");
@@ -12428,6 +13195,8 @@ __asm__(".set runtime.printint, runtime_printint");
 
 __asm__(".global runtime.fastrand");
 __asm__(".set runtime.fastrand, runtime_fastrand");
+__asm__(".global runtime.nanotime");
+__asm__(".set runtime.nanotime, runtime_nanotime");
 
 __asm__(".global runtime.getOverflowError");
 __asm__(".set runtime.getOverflowError, runtime_getOverflowError");
@@ -12435,8 +13204,6 @@ __asm__(".set runtime.getOverflowError, runtime_getOverflowError");
 __asm__(".global runtime.getDivideError");
 __asm__(".set runtime.getDivideError, runtime_getDivideError");
 
-__asm__(".global runtime.panicdottype");
-__asm__(".set runtime.panicdottype, runtime_panicdottype");
 
 __asm__(".global runtime.goPanicIndex");
 __asm__(".set runtime.goPanicIndex, runtime_goPanicIndex");
@@ -12516,8 +13283,6 @@ __asm__(".set runtime.panicshift, runtime_panicshift");
 __asm__(".global runtime.decoderune");
 __asm__(".set runtime.decoderune, runtime_decoderune");
 
-__asm__(".global unsafe.Pointer..d");
-__asm__(".set unsafe.Pointer..d, runtime_unsafe_pointer_descriptor");
 
 __asm__(".global runtime.registerGCRoots");
 __asm__(".set runtime.registerGCRoots, runtime_register_gcroots");

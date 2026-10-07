@@ -1,0 +1,14 @@
+[
+  {"at": 20, "keys": ["backspace"]},
+  {"at": 22, "keys": ["backspace"]},
+  {"at": 24, "keys": ["backspace"]},
+  {"at": 26, "keys": ["ctrl", "h"]},
+  {"at": 28, "keys": ["delete"]},
+  {"at": 30, "keys": ["shift", "backspace"]},
+  {"at": 32, "keys": ["ret"]},
+  {"at": 34, "keys": ["a"]},
+  {"at": 35, "keys": ["b"]},
+  {"at": 36, "keys": ["c"]},
+  {"at": 37, "keys": ["backspace"]},
+  {"at": 38, "keys": ["ret"]}
+]

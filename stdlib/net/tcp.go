@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"internal/poll"
 	"io"
 	"runtime"
 	"strconv"
@@ -25,9 +26,10 @@ const (
 	socketSendOp         = 6
 	socketReceiveOp      = 7
 
-	socketFlagDontWait   = 0x40
-	socketErrWouldBlock  = 11
-	socketErrWouldBlock2 = 6
+	socketFlagDontWait = 0x40
+	// KolibriOS network/stack.inc defines EWOULDBLOCK as 6;
+	// errno 11 is EINVAL and must not be silently retried.
+	socketErrWouldBlock = 6
 )
 
 type socketError struct {
@@ -42,7 +44,7 @@ func (e *socketError) Error() string {
 func (e *socketError) Timeout() bool { return false }
 
 func (e *socketError) Temporary() bool {
-	return e != nil && (e.code == socketErrWouldBlock || e.code == socketErrWouldBlock2)
+	return e != nil && e.code == socketErrWouldBlock
 }
 
 // TCPAddr represents the address of a TCP end point.
@@ -93,10 +95,13 @@ func (a *UnixAddr) String() string {
 
 // TCPConn implements a TCP connection using KolibriOS socket syscalls.
 type TCPConn struct {
-	fd     int
-	laddr  *TCPAddr
-	raddr  *TCPAddr
-	closed bool
+	mu            sync.Mutex
+	readDeadline  time.Time
+	writeDeadline time.Time
+	fd            int
+	laddr         *TCPAddr
+	raddr         *TCPAddr
+	closed        bool
 }
 
 // TCPListener implements a TCP listener using KolibriOS socket syscalls.
@@ -113,6 +118,9 @@ func (c *TCPConn) Read(b []byte) (int, error) {
 	}
 	spins := 0
 	for {
+		if err := c.checkIO(false); err != nil {
+			return 0, err
+		}
 		n, err := socketRecv(c.fd, b, socketFlagDontWait)
 		if err == nil {
 			if n == 0 {
@@ -134,6 +142,9 @@ func (c *TCPConn) Write(b []byte) (int, error) {
 	written := 0
 	spins := 0
 	for written < len(b) {
+		if err := c.checkIO(true); err != nil {
+			return written, err
+		}
 		n, err := socketSend(c.fd, b[written:], socketFlagDontWait)
 		if err != nil {
 			if isWouldBlock(err) {
@@ -153,10 +164,16 @@ func (c *TCPConn) Write(b []byte) (int, error) {
 }
 
 func (c *TCPConn) Close() error {
-	if c == nil || c.closed {
+	if c == nil {
+		return ErrClosed
+	}
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
 		return nil
 	}
 	c.closed = true
+	c.mu.Unlock()
 	return socketCloseCall(c.fd)
 }
 
@@ -174,9 +191,56 @@ func (c *TCPConn) RemoteAddr() Addr {
 	return c.raddr
 }
 
-func (c *TCPConn) SetDeadline(t time.Time) error      { return nil }
-func (c *TCPConn) SetReadDeadline(t time.Time) error  { return nil }
-func (c *TCPConn) SetWriteDeadline(t time.Time) error { return nil }
+func (c *TCPConn) SetDeadline(t time.Time) error {
+	return c.setDeadline(t, true, true)
+}
+func (c *TCPConn) SetReadDeadline(t time.Time) error {
+	return c.setDeadline(t, true, false)
+}
+func (c *TCPConn) SetWriteDeadline(t time.Time) error {
+	return c.setDeadline(t, false, true)
+}
+
+// The SDK polls KolibriOS nonblocking sockets. Check the same absolute
+// deadline on each retry so a deadline change also affects pending I/O.
+func (c *TCPConn) setDeadline(t time.Time, read, write bool) error {
+	if c == nil {
+		return ErrClosed
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return &OpError{Op: "set", Net: "tcp", Addr: c.raddr, Err: ErrClosed}
+	}
+	if read {
+		c.readDeadline = t
+	}
+	if write {
+		c.writeDeadline = t
+	}
+	return nil
+}
+
+func (c *TCPConn) checkIO(write bool) error {
+	if c == nil {
+		return ErrClosed
+	}
+	c.mu.Lock()
+	closed := c.closed
+	deadline := c.readDeadline
+	op := "read"
+	if write {
+		deadline, op = c.writeDeadline, "write"
+	}
+	c.mu.Unlock()
+	if closed {
+		return &OpError{Op: op, Net: "tcp", Addr: c.raddr, Err: ErrClosed}
+	}
+	if !deadline.IsZero() && !time.Now().Before(deadline) {
+		return &OpError{Op: op, Net: "tcp", Addr: c.raddr, Err: poll.ErrDeadlineExceeded}
+	}
+	return nil
+}
 
 func (l *TCPListener) Accept() (Conn, error) {
 	if l == nil {
@@ -432,13 +496,14 @@ func listenTCPAddr(laddr *TCPAddr) (*TCPListener, error) {
 		return nil, errors.New("only IPv4 addresses are supported")
 	}
 
-	fd, err := socketOpenCall(uint32(kos.NetworkFamilyIPv4), uint32(kos.NetworkSockStream), 0)
+	fd, err := socketOpenCall(uint32(kos.NetworkFamilyIPv4), uint32(kos.NetworkSockStream|kos.NetworkSockNonBlock), 0)
 	if err != nil {
 		return nil, err
 	}
 
-	sa := sockaddrIPv4(ip4, laddr.Port)
-	if err := socketBindCall(fd, &sa); err != nil {
+	boundAddr := cloneTCPAddr(laddr)
+	err = bindTCPListener(fd, ip4, boundAddr)
+	if err != nil {
 		_ = socketCloseCall(fd)
 		return nil, err
 	}
@@ -449,8 +514,35 @@ func listenTCPAddr(laddr *TCPAddr) (*TCPListener, error) {
 
 	return &TCPListener{
 		fd:   fd,
-		addr: cloneTCPAddr(laddr),
+		addr: boundAddr,
 	}, nil
+}
+
+func runtimeFastrand() uint32 __asm__("runtime.fastrand")
+
+// Syscall 75/2 can choose a port internally, but the documented ABI cannot
+// retrieve it. Bind a candidate explicitly so Addr reports the real port.
+// The kernel's bind operation arbitrates collisions across all processes.
+func bindTCPListener(fd int, ip IP, addr *TCPAddr) error {
+	if addr.Port != 0 {
+		sa := sockaddrIPv4(ip, addr.Port)
+		return socketBindCall(fd, &sa)
+	}
+	start := int(runtimeFastrand() & 16383)
+	for attempt := 0; attempt < 16384; attempt++ {
+		port := 49152 + ((start + attempt) & 16383)
+		sa := sockaddrIPv4(ip, port)
+		err := socketBindCall(fd, &sa)
+		if err == nil {
+			addr.Port = port
+			return nil
+		}
+		// kernel/trunk/network/stack.inc: EADDRINUSE = 20.
+		if e, ok := err.(*socketError); !ok || e.code != 20 {
+			return err
+		}
+	}
+	return &socketError{op: "bind", code: 20}
 }
 
 type sockaddr struct {
@@ -618,7 +710,7 @@ func socketRecv(fd int, buf []byte, flags uint32) (int, error) {
 
 func isWouldBlock(err error) bool {
 	socketErr, ok := err.(*socketError)
-	return ok && (socketErr.code == socketErrWouldBlock || socketErr.code == socketErrWouldBlock2)
+	return ok && socketErr.code == socketErrWouldBlock
 }
 
 func yieldSocketWait(spins int) int {

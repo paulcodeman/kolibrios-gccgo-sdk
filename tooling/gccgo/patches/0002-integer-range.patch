@@ -1,0 +1,179 @@
+--- a/gcc/go/gofrontend/gogo.cc
++++ b/gcc/go/gofrontend/gogo.cc
+@@ -7721,6 +7721,14 @@
+       else
+ 	return t->map_type()->val_type();
+     }
++  else if (t->integer_type() != NULL)
++    {
++      if (get_index_type)
++        return t->is_abstract() ? t->make_non_abstract_type() : t;
++      if (report_error)
++        go_error_at(this->location(), "too many variables for integer range");
++      return Type::make_error_type();
++    }
+   else if (t->channel_type() != NULL)
+     {
+       if (get_index_type)
+--- a/gcc/go/gofrontend/statements.h
++++ b/gcc/go/gofrontend/statements.h
+@@ -1766,6 +1766,10 @@
+   call_builtin(Gogo*, const char* funcname, Expression* arg, Location);
+ 
+   void
++  lower_range_integer(Gogo*, Block*, Named_object*, Temporary_statement*,
++                      Temporary_statement*, Block**, Expression**, Block**);
++
++  void
+   lower_range_array(Gogo*, Block*, Block*, Named_object*, Temporary_statement*,
+ 		    Temporary_statement*, Temporary_statement*,
+ 		    Block**, Expression**, Block**, Block**);
+--- a/gcc/go/gofrontend/statements.cc
++++ b/gcc/go/gofrontend/statements.cc
+@@ -6809,7 +6809,26 @@
+     this->index_var_->determine_type_no_context(gogo);
+   if (this->value_var_ != NULL)
+     this->value_var_->determine_type_no_context(gogo);
+-  this->range_->determine_type_no_context(gogo);
++  // An untyped integer bound takes the type of an existing index variable.
++  Type_context range_context(NULL, true);
++  this->range_->determine_type(gogo, &range_context);
++  if (this->range_->type()->integer_type() != NULL)
++    {
++      Type* type = this->range_->type();
++      if (type->is_abstract())
++        type = type->make_non_abstract_type();
++      if (this->index_var_ != NULL && !this->index_var_->is_sink_expression())
++        type = this->index_var_->type();
++      // Untyped operators cache their abstract type. A conversion supplies
++      // the bound's final integer type and checks constant representability.
++      if (this->range_->type()->is_abstract())
++        this->range_ = Expression::make_cast(type, this->range_,
++                                            this->location());
++      Type_context context(type, false);
++      this->range_->determine_type(gogo, &context);
++    }
++  else
++    this->range_->determine_type_no_context(gogo);
+   this->statements_->determine_types(gogo);
+ }
+ 
+@@ -6840,6 +6859,15 @@
+     {
+       index_type = range_type->map_type()->key_type();
+       value_type = range_type->map_type()->val_type();
++    }
++  else if (range_type->integer_type() != NULL)
++    {
++      index_type = range_type;
++      if (this->value_var_ != NULL)
++        {
++          this->report_error(_("too many variables for integer range"));
++          return;
++        }
+     }
+   else if (range_type->channel_type() != NULL)
+     {
+@@ -6907,6 +6935,11 @@
+     {
+       index_type = range_type->map_type()->key_type();
+       value_type = range_type->map_type()->val_type();
++    }
++  else if (range_type->integer_type() != NULL)
++    {
++      index_type = range_type;
++      go_assert(this->value_var_ == NULL);
+     }
+   else if (range_type->channel_type() != NULL)
+     {
+@@ -7011,7 +7044,13 @@
+   //           original statements
+   //   }
+ 
+-  if (range_type->is_slice_type())
++  if (range_type->integer_type() != NULL)
++    {
++      this->lower_range_integer(gogo, temp_block, range_object, range_temp,
++                                index_temp, &init, &cond, &post);
++      iter_init = NULL;
++    }
++  else if (range_type->is_slice_type())
+     this->lower_range_slice(gogo, temp_block, body, range_object, range_temp,
+ 			    index_temp, value_temp, &init, &cond, &iter_init,
+ 			    &post);
+@@ -7039,6 +7078,28 @@
+ 
+   if (this->index_var_ != NULL)
+     {
++      // A := integer range has a distinct variable on each iteration.
++      // Redeclaring it here allocates fresh storage when its address escapes.
++      Var_expression* ve = this->index_var_->var_expression();
++      if (range_type->integer_type() != NULL && ve != NULL
++          && enclosing->bindings()->lookup_local(ve->named_object()->name())
++             == ve->named_object())
++        {
++          const std::vector<Statement*>* statements = enclosing->statements();
++          for (size_t i = 0; i < statements->size(); ++i)
++            {
++              Variable_declaration_statement* decl =
++                statements->at(i)->variable_declaration_statement();
++              if (decl != NULL && decl->var() == ve->named_object())
++                {
++                  body->add_statement(decl);
++                  Block* empty = new Block(enclosing, loc);
++                  enclosing->replace_statement(
++                      i, Statement::make_block_statement(empty, loc));
++                  break;
++                }
++            }
++        }
+       Statement* assign;
+       Expression* index_ref =
+ 	Expression::make_temporary_reference(index_temp, loc);
+@@ -7103,6 +7164,46 @@
+   Expression_list* params = new Expression_list();
+   params->push_back(arg);
+   return Expression::make_call(func, params, false, loc);
++}
++
++// Lower an integer range. Snapshot the bound even when it is a variable;
++// changing that variable in the loop must not change the iteration count.
++
++void
++For_range_statement::lower_range_integer(Gogo* gogo, Block* enclosing,
++                                        Named_object* range_object,
++                                        Temporary_statement* range_temp,
++                                        Temporary_statement* index_temp,
++                                        Block** pinit, Expression** pcond,
++                                        Block** ppost)
++{
++  Location loc = this->location();
++  Block* init = new Block(enclosing, loc);
++  Expression* range = this->make_range_ref(range_object, range_temp, loc);
++  Temporary_statement* bound = Statement::make_temporary(index_temp->type(),
++                                                        range, loc);
++  bound->determine_types(gogo);
++  init->add_statement(bound);
++  Temporary_reference_expression* lhs =
++    Expression::make_temporary_reference(index_temp, loc);
++  lhs->set_is_lvalue();
++  Expression* zero = Expression::make_integer_ul(0, index_temp->type(), loc);
++  Statement* assign = Statement::make_assignment(lhs, zero, loc);
++  assign->determine_types(gogo);
++  init->add_statement(assign);
++  *pinit = init;
++
++  Expression* index = Expression::make_temporary_reference(index_temp, loc);
++  Expression* limit = Expression::make_temporary_reference(bound, loc);
++  *pcond = Expression::make_binary(OPERATOR_LT, index, limit, loc);
++
++  Block* post = new Block(enclosing, loc);
++  lhs = Expression::make_temporary_reference(index_temp, loc);
++  lhs->set_is_lvalue();
++  Statement* inc = Statement::make_inc_statement(lhs);
++  inc->determine_types(gogo);
++  post->add_statement(inc);
++  *ppost = post;
+ }
+ 
+ // Lower a for range over an array.

@@ -2,6 +2,7 @@ package phpctx
 
 import (
 	"net"
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -86,7 +87,11 @@ func (g *Global) populateServerRequestData(target *phpv.ZArray) {
 		g.setServerArrayValue(target, "REMOTE_PORT", remotePort)
 	}
 
-	localHost, localPort := splitHostPortValue(g.req.LocalAddr)
+	localAddress := ""
+	if address, ok := g.req.Context().Value(http.LocalAddrContextKey).(net.Addr); ok && address != nil {
+		localAddress = address.String()
+	}
+	localHost, localPort := splitHostPortValue(localAddress)
 	if localHost != "" {
 		g.setServerArrayValue(target, "SERVER_ADDR", localHost)
 		if host == "" {

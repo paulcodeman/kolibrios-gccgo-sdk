@@ -1,0 +1,6 @@
+{
+  "reason": "KolibriOS CONSOLE.OBJ raw and canonical input mode, saved mode state, password reading and actual terminal size",
+  "replace": {
+    "term_other.go": "term_kolibrios.go"
+  }
+}

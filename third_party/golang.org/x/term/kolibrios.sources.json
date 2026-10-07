@@ -1,0 +1,4 @@
+{
+  "reason": "Native console terminal operations share the already ported upstream Charm terminal backend; preserve golang.org/x/term's original portable API and password algorithm.",
+  "replace": {"term_unsupported.go": "term_kolibrios.go"}
+}

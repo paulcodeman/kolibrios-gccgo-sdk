@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import json
 import re
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Sequence, Set
@@ -24,6 +25,7 @@ KNOWN_GOOS = {
     "solaris",
     "wasip1",
     "windows",
+    "zos",
 }
 
 KNOWN_GOARCH = {
@@ -54,7 +56,6 @@ UNIX_GOOS = {
     "hurd",
     "illumos",
     "ios",
-    "kolibrios",
     "linux",
     "netbsd",
     "openbsd",
@@ -234,10 +235,10 @@ def filename_matches(name: str, goos: str, goarch: str, tags: Set[str]) -> bool:
     os_tag = None
     arch_tag = None
 
-    if prev in KNOWN_GOOS.union({"unix"}) and tail in KNOWN_GOARCH:
+    if prev in KNOWN_GOOS and tail in KNOWN_GOARCH:
         os_tag = prev
         arch_tag = tail
-    elif tail in KNOWN_GOOS.union({"unix"}):
+    elif tail in KNOWN_GOOS:
         os_tag = tail
     elif tail in KNOWN_GOARCH:
         arch_tag = tail
@@ -278,12 +279,29 @@ def list_package_go_files(
     pkg_dir: str, goos: str, goarch: str, extra_tags: Optional[Iterable[str]] = None
 ) -> List[str]:
     tags = default_tag_set(goos, goarch, extra_tags)
+    excluded = set()
+    config = os.path.join(pkg_dir, 'kolibrios.sources.json')
+    if goos == 'kolibrios' and os.path.isfile(config):
+        with open(config, encoding='utf-8') as source:
+            selection = json.load(source)
+        if not selection.get('reason'):
+            raise ValueError('platform source selection needs a reason: ' + config)
+        tags.update(selection.get('tags', []))
+        for original, replacement in selection.get('replace', {}).items():
+            for name in (original, replacement):
+                if os.path.basename(name) != name or not name.endswith('.go'):
+                    raise ValueError('invalid platform source filename: ' + name)
+                if not os.path.isfile(os.path.join(pkg_dir, name)):
+                    raise ValueError('missing platform source: ' + os.path.join(pkg_dir, name))
+            if not file_matches(os.path.join(pkg_dir, replacement), goos, goarch, tags):
+                raise ValueError('platform replacement is not selected: ' + replacement)
+            excluded.add(os.path.join(pkg_dir, original))
     files: List[str] = []
     for source_dir in package_source_dirs(pkg_dir):
         if not os.path.isdir(source_dir):
             continue
         for name in sorted(os.listdir(source_dir)):
             path = os.path.join(source_dir, name)
-            if file_matches(path, goos, goarch, tags):
+            if path not in excluded and file_matches(path, goos, goarch, tags):
                 files.append(path)
     return files

@@ -1,0 +1,148 @@
+{
+  "adapters": {
+    "github.com/ncruces/go-sqlite3/vfs/kolibrios.sources.json": {
+      "module": "github.com/ncruces/go-sqlite3",
+      "sha256": "56dd874d5f354616458c3199a5e1bbdc511dceac7590310e4b8211d6b7262452",
+      "kind": "selection",
+      "origin": "kolibrios-compat/github.com/ncruces/go-sqlite3/vfs/kolibrios.sources.json"
+    },
+    "golang.org/x/term/kolibrios.sources.json": {
+      "module": "golang.org/x/term",
+      "sha256": "20f0224bb344badb4561c45ec443157d18e5504fda1186221b3579d40ef2da6c",
+      "kind": "selection",
+      "origin": "golang.org/x/term/kolibrios.sources.json"
+    },
+    "github.com/mattn/go-isatty/isatty_kolibrios.go": {
+      "module": "github.com/mattn/go-isatty",
+      "sha256": "179d24612dad44508407ab880c572a4bb8d5207f7779104166ccee05681547b0",
+      "kind": "platform",
+      "origin": "kolibrios-compat/github.com/mattn/go-isatty/isatty_kolibrios.go"
+    },
+    "github.com/fsnotify/fsnotify/kolibrios.sources.json": {
+      "module": "github.com/fsnotify/fsnotify",
+      "sha256": "0d698e0e5145b38699607cb02eef7bb7d042d6ea916303b0c950f101cba020a9",
+      "kind": "selection",
+      "origin": "kolibrios-compat/github.com/fsnotify/fsnotify/kolibrios.sources.json"
+    },
+    "golang.org/x/net/dns/dnsmessage/message_kolibrios.go": {
+      "module": "golang.org/x/net",
+      "sha256": "c302f9831401be3eff0c00c1576436c92182e9ba9f1af94ca782d506eb4ecd74",
+      "kind": "upstream",
+      "upstream_file": "dns/dnsmessage/message.go",
+      "origin": "kolibrios-compat/golang.org/x/net/dns/dnsmessage/message_kolibrios.go"
+    },
+    "github.com/charmbracelet/x/term/kolibrios.sources.json": {
+      "module": "github.com/charmbracelet/x/term",
+      "sha256": "53ef81970b1c4e3efaf94e1d47ee6c670bd0ad22c0e5a3e72d449e73669f9412",
+      "kind": "selection",
+      "origin": "github.com/charmbracelet/x/term/kolibrios.sources.json"
+    },
+    "github.com/muesli/cancelreader/cancelreader_kolibrios.go": {
+      "module": "github.com/muesli/cancelreader",
+      "sha256": "4fe6868520dab965148179822d37bef3c7bb0977c41a14f8f1158e50f3598e36",
+      "kind": "platform",
+      "origin": "github.com/muesli/cancelreader/cancelreader_kolibrios.go"
+    },
+    "github.com/charmbracelet/x/term/term_kolibrios.go": {
+      "module": "github.com/charmbracelet/x/term",
+      "sha256": "28fd4ad7d86925bb1d16441d461eef8a6381960457a3cdc72871060b8823a90c",
+      "kind": "platform",
+      "origin": "github.com/charmbracelet/x/term/term_kolibrios.go"
+    },
+    "github.com/atotto/clipboard/clipboard_kolibrios.go": {
+      "module": "github.com/atotto/clipboard",
+      "sha256": "8de91ff26a2bc4e603f01a2787de994e1af17813d5c59349cc8f8c7e71158072",
+      "kind": "platform",
+      "origin": "kolibrios-compat/github.com/atotto/clipboard/clipboard_kolibrios.go"
+    },
+    "github.com/charmbracelet/bubbletea/signals_kolibrios.go": {
+      "module": "github.com/charmbracelet/bubbletea",
+      "sha256": "728f40573cebdd68897a62ba56223c392f9facd92670462d6021111669cfd3fc",
+      "kind": "platform",
+      "origin": "kolibrios-compat/github.com/charmbracelet/bubbletea/signals_kolibrios.go"
+    },
+    "github.com/charmbracelet/bubbletea/tty_kolibrios.go": {
+      "module": "github.com/charmbracelet/bubbletea",
+      "sha256": "0d0140e9eea20205cbb4861fa3eebe975075203bb2ae5453e71d33f934f0b8fe",
+      "kind": "platform",
+      "origin": "kolibrios-compat/github.com/charmbracelet/bubbletea/tty_kolibrios.go"
+    },
+    "github.com/muesli/cancelreader/kolibrios.sources.json": {
+      "module": "github.com/muesli/cancelreader",
+      "sha256": "b204072d8e362ad62397c4eb3ee60f108ce7a5a7225cc8d013924c98a54842eb",
+      "kind": "selection",
+      "origin": "github.com/muesli/cancelreader/kolibrios.sources.json"
+    },
+    "github.com/ncruces/go-sqlite3/internal/dotlk/kolibrios.sources.json": {
+      "module": "github.com/ncruces/go-sqlite3",
+      "sha256": "1bd0747162c6548151a19828ae6d6d96fd7a14553f97e5071d34907e6a8d5381",
+      "kind": "selection",
+      "origin": "kolibrios-compat/github.com/ncruces/go-sqlite3/internal/dotlk/kolibrios.sources.json"
+    },
+    "golang.org/x/text/encoding/charmap/charmap_kolibrios.go": {
+      "module": "golang.org/x/text",
+      "sha256": "8f2418e924ccf719fcef0ec4ca1895657c1b98dcb7df4bfeba204970ebd98b33",
+      "kind": "upstream",
+      "upstream_file": "encoding/charmap/charmap.go",
+      "origin": "kolibrios-compat/golang.org/x/text/encoding/charmap/charmap_kolibrios.go"
+    },
+    "github.com/fsnotify/fsnotify/backend_kolibrios.go": {
+      "module": "github.com/fsnotify/fsnotify",
+      "sha256": "62c85ba6399159c1cb4f6c738007d49f9e9709b679b23910aa961d2ad3202900",
+      "kind": "platform",
+      "origin": "kolibrios-compat/github.com/fsnotify/fsnotify/backend_kolibrios.go"
+    },
+    "golang.org/x/text/encoding/charmap/tables_kolibrios.go": {
+      "module": "golang.org/x/text",
+      "sha256": "63a3da1a54945679073726ca71567cc7402eba352005c983866c8c0ae6b55afd",
+      "kind": "upstream",
+      "upstream_file": "encoding/charmap/tables.go",
+      "origin": "kolibrios-compat/golang.org/x/text/encoding/charmap/tables_kolibrios.go"
+    },
+    "github.com/ncruces/go-sqlite3/internal/dotlk/lock_kolibrios.go": {
+      "module": "github.com/ncruces/go-sqlite3",
+      "sha256": "96dda03f6ac1f17d86ee010d07ba018d18b5a0b55053525966432c25f1905d43",
+      "kind": "platform",
+      "origin": "kolibrios-compat/github.com/ncruces/go-sqlite3/internal/dotlk/lock_kolibrios.go"
+    },
+    "github.com/muesli/termenv/termenv_kolibrios.go": {
+      "module": "github.com/muesli/termenv",
+      "sha256": "58435bf21c9327a260f3113c770e749f9a3ddb106ad208bdabd14024da624354",
+      "kind": "platform",
+      "origin": "kolibrios-compat/github.com/muesli/termenv/termenv_kolibrios.go"
+    },
+    "golang.org/x/term/term_kolibrios.go": {
+      "module": "golang.org/x/term",
+      "sha256": "27bfd8b02ccc63319f2ed640a62b0c9393d3fced5d3c911abacf0a2db34be37a",
+      "kind": "platform",
+      "origin": "golang.org/x/term/term_kolibrios.go"
+    }
+  },
+  "description": "Shared KolibriOS platform files applied alongside unmodified upstream dependencies.",
+  "tested_modules": {
+    "github.com/muesli/cancelreader": "v0.2.2",
+    "golang.org/x/text": "v0.24.0",
+    "github.com/charmbracelet/x/term": "v0.2.1",
+    "github.com/atotto/clipboard": "v0.1.4",
+    "github.com/muesli/termenv": "v0.16.0",
+    "github.com/charmbracelet/bubbletea": "v1.3.5",
+    "github.com/fsnotify/fsnotify": "v1.8.0",
+    "golang.org/x/net": "v0.39.0",
+    "github.com/ncruces/go-sqlite3": "v0.25.0",
+    "github.com/mattn/go-isatty": "v0.0.20",
+    "golang.org/x/term": "v0.31.0"
+  },
+  "licenses": {
+    "licenses/github.com/charmbracelet/bubbletea/LICENSE": "9ca49aaf6748976a8f0a9d7448f34a5f5edf1f363385f1a789e09e328c3d3f84",
+    "licenses/golang.org/x/text/LICENSE": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+    "licenses/github.com/muesli/cancelreader/LICENSE": "8c139dbbc83b4fb055b4100b6b9402f7de3dd6bbca05015bdfcc4b392c8cfd5f",
+    "licenses/github.com/atotto/clipboard/LICENSE": "2c4bac8e2a97180d6e7758c37de85d1cda1859aaf85b56da15d935d2d9a5564f",
+    "licenses/github.com/charmbracelet/x/term/LICENSE": "0baa4a5942a801d93f4050d2bc0039d8c037105fcd335230d118eec99a11782b",
+    "licenses/github.com/fsnotify/fsnotify/LICENSE": "2dfbe6d2b5eb18b55148f3805d88648a09e0d17e38428123259afb08c8996e37",
+    "licenses/golang.org/x/net/LICENSE": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+    "licenses/github.com/mattn/go-isatty/LICENSE": "08eab1118c80885fa1fa6a6dd7303f65a379fcb3733e063d20d1bbc2c76e6fa1",
+    "licenses/github.com/ncruces/go-sqlite3/LICENSE": "8929c89a593807bf0c042272adc7301376a661050876bd702ebdd36cd7c55d2b",
+    "licenses/github.com/muesli/termenv/LICENSE": "233e8cf9a812999ccee4d3edb270b0f11ab3539658e680bcb873604915ca5038",
+    "licenses/golang.org/x/term/LICENSE": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"
+  }
+}

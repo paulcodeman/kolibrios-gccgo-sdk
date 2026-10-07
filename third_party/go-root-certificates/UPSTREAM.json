@@ -1,0 +1,13 @@
+{
+  "version": "Go 1.23.0",
+  "files": {
+    "root_unix.go": {
+      "url": "https://raw.githubusercontent.com/golang/go/go1.23.0/src/crypto/x509/root_unix.go",
+      "sha256": "421c066f193250dc1adaf13fce4779fc3dc576e20faa86e43bc22af6c9536a14"
+    },
+    "LICENSE": {
+      "url": "https://raw.githubusercontent.com/golang/go/go1.23.0/LICENSE",
+      "sha256": "2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067"
+    }
+  }
+}

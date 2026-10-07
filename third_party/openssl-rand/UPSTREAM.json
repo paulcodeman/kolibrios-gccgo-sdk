@@ -1,0 +1,13 @@
+{
+  "version": "OpenSSL 3.0.15",
+  "base_url": "https://raw.githubusercontent.com/openssl/openssl/openssl-3.0.15/",
+  "files": {
+    "crypto/x86cpuid.pl": "6be95d48461780890ae5e6585743404e40e5a43930c9de97b606db8fa6414172",
+    "crypto/perlasm/x86asm.pl": "475cdd2f8c548d424325f5d5be2de76ca1f93f588cf464a2e286dfc03cbfad5e",
+    "crypto/perlasm/x86gas.pl": "678dd07793aa9ff5b80e216f63484863f75f33ffd5a8f10f270473242111fe0e",
+    "crypto/perlasm/x86nasm.pl": "28aa494b695de65e12caaf3e7581347f502bde5a54cdd26517614b8c0814d491",
+    "crypto/perlasm/x86masm.pl": "efd7ea54bff928a141f6c3ebae35e95963b0b9479e47d71bb6b2c45b56c751c8",
+    "LICENSE.txt": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a"
+  },
+  "purpose": "upstream 386 RDRAND/RDSEED generation; no OpenSSL library dependency"
+}

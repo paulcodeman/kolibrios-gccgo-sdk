@@ -6,9 +6,14 @@ package runtime
 
 const GOOS = "kolibrios"
 const GOARCH = "386"
+const Compiler = "gccgo"
 
 // Gosched yields the processor, allowing other goroutines to run.
 func Gosched() __asm__("runtime.Gosched")
+
+// Goexit terminates the calling goroutine after running its deferred calls.
+// Recover in those calls returns nil because Goexit is not a panic.
+func Goexit() __asm__("runtime.Goexit")
 
 // LockOSThread wires the calling goroutine to its current OS thread.
 func LockOSThread() __asm__("runtime.LockOSThread")

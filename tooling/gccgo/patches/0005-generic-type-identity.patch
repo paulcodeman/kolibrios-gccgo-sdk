@@ -1,0 +1,176 @@
+--- a/gcc/go/gofrontend/types.h
++++ b/gcc/go/gofrontend/types.h
+@@ -3473,6 +3473,15 @@
+   const Named_object*
+   named_object() const
+   { return this->named_object_; }
++
++  // Compiler-generated generic specializations carry their original Go
++  // identity across separately compiled consumer packages. The reserved
++  // name encodes identity, defining pkgpath, package name and display name.
++  bool
++  compat_generic_metadata(std::string* identity = NULL,
++                          std::string* pkgpath = NULL,
++                          std::string* pkgname = NULL,
++                          std::string* display = NULL) const;
+ 
+   // Set the Named_object.  This is used when we see a type
+   // declaration followed by a type.
+--- a/gcc/go/gofrontend/types.cc
++++ b/gcc/go/gofrontend/types.cc
+@@ -404,9 +404,16 @@
+       return false;
+     }
+ 
+-  // A named type is only identical to itself.
++  // Ordinary named types are only identical to themselves. Generic
++  // specializations generated in different packages retain one Go identity.
+   if (t1->named_type() != NULL || t2->named_type() != NULL)
+-    return false;
++    {
++      std::string identity1, identity2;
++      return (t1->named_type() != NULL && t2->named_type() != NULL
++              && t1->named_type()->compat_generic_metadata(&identity1)
++              && t2->named_type()->compat_generic_metadata(&identity2)
++              && identity1 == identity2);
++    }
+ 
+   // Check type shapes.
+   if (t1->classification() != t2->classification())
+@@ -1410,7 +1417,7 @@
+     {
+       // We create the descriptor for a builtin type whenever we need
+       // it.
+-      is_common = nt->is_builtin();
++      is_common = nt->is_builtin() || nt->compat_generic_metadata();
+     }
+   else
+     {
+@@ -3509,6 +3516,8 @@
+     {
+       Named_object* no = name->named_object();
+       std::string n = Gogo::unpack_hidden_name(no->name());
++      std::string generic_pkgpath;
++      name->compat_generic_metadata(NULL, &generic_pkgpath, NULL, &n);
+       Expression* s = Expression::make_string(n, bloc);
+       vals->push_back(Expression::make_unary(OPERATOR_AND, s, bloc));
+ 
+@@ -3520,7 +3529,7 @@
+ 	  const std::string& pkgpath(package == NULL
+ 				     ? gogo->pkgpath()
+ 				     : package->pkgpath());
+-	  s = Expression::make_string(pkgpath, bloc);
++	  s = Expression::make_string(generic_pkgpath.empty() ? pkgpath : generic_pkgpath, bloc);
+ 	  vals->push_back(Expression::make_unary(OPERATOR_AND, s, bloc));
+ 	}
+     }
+@@ -11284,6 +11293,54 @@
+   return ret;
+ }
+ 
++// Decode the reserved compiler specialization name. Hex fields are used
++// so arbitrary import paths, struct tags and Unicode names are lossless.
++bool
++Named_type::compat_generic_metadata(std::string* identity, std::string* pkgpath,
++                                    std::string* pkgname, std::string* display) const
++{
++  std::string name = Gogo::unpack_hidden_name(this->named_object_->name());
++  const std::string prefix = "GccgoCompatType_";
++  if (name.compare(0, prefix.size(), prefix) != 0)
++    return false;
++  std::string* targets[] = { identity, pkgpath, pkgname, display };
++  size_t start = prefix.size();
++  for (unsigned int field = 0; field < 4; ++field)
++    {
++      size_t end = name.find('_', start);
++      if (field == 3)
++        {
++          if (end != std::string::npos)
++            return false;
++          end = name.size();
++        }
++      else if (end == std::string::npos)
++        return false;
++      if (end == start || (end - start) % 2 != 0)
++        return false;
++      std::string value;
++      for (size_t pos = start; pos < end; pos += 2)
++        {
++          unsigned int byte = 0;
++          for (unsigned int digit = 0; digit < 2; ++digit)
++            {
++              char c = name[pos + digit];
++              if (c >= '0' && c <= '9')
++                byte = byte * 16 + (c - '0');
++              else if (c >= 'a' && c <= 'f')
++                byte = byte * 16 + (c - 'a' + 10);
++              else
++                return false;
++            }
++          value.push_back(static_cast<char>(byte));
++        }
++      if (targets[field] != NULL)
++        *targets[field] = value;
++      start = end + 1;
++    }
++  return true;
++}
++
+ // Return a hash code.  This is used for method lookup.  We simply
+ // hash on the name itself.
+ 
+@@ -11295,6 +11352,10 @@
+ 
+   // Aliases are handled in Type::hash_for_method.
+   go_assert(!this->is_alias_);
++
++  std::string identity;
++  if (this->compat_generic_metadata(&identity))
++    return Gogo::hash_string(identity, 0);
+ 
+   const std::string& name(this->named_object()->name());
+   unsigned int ret = Gogo::hash_string(name, 0);
+@@ -11694,6 +11755,19 @@
+       this->seen_alias_ = true;
+       this->append_reflection(this->type_, gogo, ret);
+       this->seen_alias_ = false;
++      return;
++    }
++  std::string identity, pkgpath, pkgname, display;
++  if (this->compat_generic_metadata(&identity, &pkgpath, &pkgname, &display))
++    {
++      // Keep the canonical identity in the hidden part of the reflection
++      // string, and expose the same package and type spelling as Go.
++      ret->push_back('	');
++      ret->append(identity);
++      ret->push_back('	');
++      ret->append(pkgname);
++      ret->push_back('.');
++      ret->append(display);
+       return;
+     }
+   if (!this->is_builtin())
+--- a/gcc/go/gofrontend/names.cc
++++ b/gcc/go/gofrontend/names.cc
+@@ -1103,6 +1103,21 @@
+     }
+   else
+     {
++      std::string identity;
++      if (nt->compat_generic_metadata(&identity))
++        {
++          static const char hex[] = "0123456789abcdef";
++          std::string symbol = "gccgo.generic.";
++          for (std::string::const_iterator p = identity.begin(); p != identity.end(); ++p)
++            {
++              unsigned char c = static_cast<unsigned char>(*p);
++              symbol.push_back(hex[c >> 4]);
++              symbol.push_back(hex[c & 15]);
++            }
++          symbol.append(is_pointer ? "..p" : "..d");
++          bname->set_asm_name(symbol);
++          return;
++        }
+       nt->backend_name(this, bname);
+       bname->set_suffix(is_pointer ? "..p" : "..d");
+     }

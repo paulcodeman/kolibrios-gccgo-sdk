@@ -1,0 +1,19 @@
+{
+  "source": "KolibriOS contrib/sdk/sources/newlib/libc/string",
+  "files": {
+    "memcpy.c": "e1f58f2ff4cdc33833ef7dcb9ccd5fce305dc0a0cd2c5888142966cefed9739c",
+    "memmove.c": "fd48ba9b782a59146d4339e8d378e2aacee9f3e83df6ffe5ad0b3217d2b80366",
+    "memset.c": "9b5804044097dd627a375e7e005caf82dab443ad6084becc3b203fd9fccd5b5f",
+    "strlen.c": "712fb45e2be849992d5aaa2278964f55f4b531cb7cbb638fa0bef1ad5cb1b9ed",
+    "strncpy.c": "c96fa0536f2b9558df97a84289a857c83622c16b6b2a4ca2764f1fb4cdbe4f1a",
+    "strncmp.c": "fbc69e8cece14591aaec56f0e86588765143377625cc5cca8451cada3261976f",
+    "abs.c": "d17db760e7864036e0965a8dc27f6d15f2168a3a6b28a69210521cbe5a3cae81",
+    "COPYING.NEWLIB": "9a59b4ee3af067045fe0ea78786201c42d54756fe48cbccf44f3dfc398474717",
+    "memcmp.c": "95e70fe89cc37d596de86b74975e4e92a5d7d3a2ea1468ee1e754d6f493a89fb"
+  },
+  "adaptations": "sources unchanged; tooling/console/newlib-compat provides native compiler macros",
+  "source_paths": {
+    "abs.c": "KolibriOS contrib/sdk/sources/newlib/libc/stdlib/abs.c"
+  },
+  "license_url": "https://sourceware.org/newlib/COPYING.NEWLIB"
+}

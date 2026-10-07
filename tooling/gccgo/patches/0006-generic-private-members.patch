@@ -1,0 +1,69 @@
+--- a/gcc/go/gofrontend/gogo.h
++++ b/gcc/go/gofrontend/gogo.h
+@@ -292,10 +292,17 @@
+   std::string
+   pack_hidden_name(const std::string& name, bool is_exported) const
+   {
++    std::string packed;
++    if (Gogo::compat_member_name(name, &packed))
++      return packed;
+     return (is_exported
+ 	    ? name
+ 	    : '.' + this->pkgpath() + '.' + name);
+   }
++
++  // Restore original package ownership for checked generic templates.
++  static bool
++  compat_member_name(const std::string&, std::string*);
+ 
+   // Unpack a name which may have been hidden.  Returns the
+   // user-visible name of the object.
+--- a/gcc/go/gofrontend/names.cc
++++ b/gcc/go/gofrontend/names.cc
+@@ -1058,6 +1058,46 @@
+ // Given a name which may or may not have been hidden, append the
+ // appropriate version of the name to the result string.
+ 
++// Generic template bodies are type checked in their defining package
++// before lowering. Their private selectors must still name that package,
++// including assignable fields, method values and embedded members.
++bool
++Gogo::compat_member_name(const std::string& name, std::string* packed)
++{
++  const std::string prefix = "GccgoCompatMember_";
++  if (name.compare(0, prefix.size(), prefix) != 0)
++    return false;
++  size_t separator = name.find('_', prefix.size());
++  if (separator == std::string::npos)
++    return false;
++  std::string values[2];
++  size_t start = prefix.size();
++  for (unsigned int field = 0; field < 2; ++field)
++    {
++      size_t end = field == 0 ? separator : name.size();
++      if (end == start || (end - start) % 2 != 0)
++        return false;
++      for (size_t pos = start; pos < end; pos += 2)
++        {
++          unsigned int byte = 0;
++          for (unsigned int digit = 0; digit < 2; ++digit)
++            {
++              char c = name[pos + digit];
++              if (c >= '0' && c <= '9')
++                byte = byte * 16 + (c - '0');
++              else if (c >= 'a' && c <= 'f')
++                byte = byte * 16 + (c - 'a' + 10);
++              else
++                return false;
++            }
++          values[field].push_back(static_cast<char>(byte));
++        }
++      start = end + 1;
++    }
++  *packed = '.' + values[0] + '.' + values[1];
++  return true;
++}
++
+ void
+ Gogo::append_possibly_hidden_name(std::string *result, const std::string& name)
+ {

@@ -212,38 +212,15 @@ func CopyBuffer(dst Writer, src Reader, buffer []byte) (written int64, err error
 }
 
 func CopyN(dst Writer, src Reader, n int64) (written int64, err error) {
-	if n <= 0 {
-		return 0, nil
+	written, err = Copy(dst, LimitReader(src, n))
+	if written == n {
+		return n, nil
 	}
-	buffer := make([]byte, 512)
-	for n > 0 {
-		toRead := len(buffer)
-		if int64(toRead) > n {
-			toRead = int(n)
-		}
-		read, readErr := src.Read(buffer[:toRead])
-		if read > 0 {
-			wrote, writeErr := dst.Write(buffer[:read])
-			written += int64(wrote)
-			if writeErr != nil {
-				return written, writeErr
-			}
-			if wrote != read {
-				return written, ErrShortWrite
-			}
-			n -= int64(wrote)
-		}
-		if readErr != nil {
-			if readErr == EOF && n == 0 {
-				return written, nil
-			}
-			if readErr == EOF {
-				return written, ErrUnexpectedEOF
-			}
-			return written, readErr
-		}
+	if written < n && err == nil {
+		// src stopped early; must have been EOF.
+		err = EOF
 	}
-	return written, nil
+	return
 }
 
 func WriteString(w Writer, s string) (n int, err error) {

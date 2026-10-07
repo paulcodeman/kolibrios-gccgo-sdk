@@ -2,6 +2,7 @@ package net
 
 import (
 	"errors"
+	"os"
 	"time"
 )
 
@@ -48,20 +49,34 @@ func (e UnknownNetworkError) Error() string {
 
 // OpError is the error type usually returned by I/O operations.
 type OpError struct {
-	Op   string
-	Net  string
-	Addr Addr
-	Err  error
+	Source Addr
+	Op     string
+	Net    string
+	Addr   Addr
+	Err    error
 }
 
 func (e *OpError) Error() string {
 	if e == nil {
 		return "<nil>"
 	}
-	if e.Addr != nil {
-		return e.Op + " " + e.Net + " " + e.Addr.String() + ": " + e.Err.Error()
+	s := e.Op
+	if e.Net != "" {
+		s += " " + e.Net
 	}
-	return e.Op + " " + e.Net + ": " + e.Err.Error()
+	if e.Source != nil {
+		s += " " + e.Source.String()
+	}
+	if e.Addr != nil {
+		if e.Source != nil {
+			s += "->"
+		} else {
+			s += " "
+		}
+		s += e.Addr.String()
+	}
+	s += ": " + e.Err.Error()
+	return s
 }
 
 func (e *OpError) Unwrap() error {
@@ -71,22 +86,40 @@ func (e *OpError) Unwrap() error {
 	return e.Err
 }
 
+type timeout interface {
+	Timeout() bool
+}
+
 func (e *OpError) Timeout() bool {
-	if e == nil {
-		return false
+	if ne, ok := e.Err.(*os.SyscallError); ok {
+		t, ok := ne.Err.(timeout)
+		return ok && t.Timeout()
 	}
-	if err, ok := e.Err.(Error); ok {
-		return err.Timeout()
-	}
-	return false
+	t, ok := e.Err.(timeout)
+	return ok && t.Timeout()
+}
+
+type temporary interface {
+	Temporary() bool
 }
 
 func (e *OpError) Temporary() bool {
-	if e == nil {
-		return false
+	// Treat ECONNRESET and ECONNABORTED as temporary errors when
+	// they come from calling accept. See issue 6163.
+	if e.Op == "accept" && isConnError(e.Err) {
+		return true
 	}
-	if err, ok := e.Err.(Error); ok {
-		return err.Temporary()
+
+	if ne, ok := e.Err.(*os.SyscallError); ok {
+		t, ok := ne.Err.(temporary)
+		return ok && t.Temporary()
 	}
-	return false
+	t, ok := e.Err.(temporary)
+	return ok && t.Temporary()
+}
+
+// KolibriOS errno values come from kernel/trunk/network/stack.inc.
+func isConnError(err error) bool {
+	e, ok := err.(*socketError)
+	return ok && (e.code == 52 || e.code == 53)
 }

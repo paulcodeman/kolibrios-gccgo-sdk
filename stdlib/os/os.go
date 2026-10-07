@@ -2,23 +2,19 @@ package os
 
 import (
 	"io"
+	"io/fs"
 	"kos"
 	"path"
 	"syscall"
 	"time"
 )
 
-type FileMode uint32
+type FileMode = fs.FileMode
 
 const (
-	PathSeparator              = '/'
-	PathListSeparator          = ':'
-	ModeDir           FileMode = 1 << 31
+	PathSeparator     = '/'
+	PathListSeparator = ':'
 )
-
-func (mode FileMode) IsDir() bool {
-	return mode&ModeDir != 0
-}
 
 const (
 	O_RDONLY int = 0
@@ -26,8 +22,10 @@ const (
 	O_RDWR   int = 2
 
 	O_CREATE int = 0x40
+	O_EXCL   int = 0x80
 	O_TRUNC  int = 0x200
 	O_APPEND int = 0x400
+	O_SYNC   int = syscall.O_SYNC
 )
 
 type osError struct {
@@ -37,12 +35,6 @@ type osError struct {
 func (err *osError) Error() string {
 	return err.text
 }
-
-var ErrInvalid = &osError{text: "invalid argument"}
-var ErrPermission = &osError{text: "permission denied"}
-var ErrExist = &osError{text: "file already exists"}
-var ErrNotExist = &osError{text: "file does not exist"}
-var ErrClosed = &osError{text: "file already closed"}
 
 var Stdin = &File{
 	name:     "stdin",
@@ -118,54 +110,6 @@ func DefaultStderr() *File {
 	return Stderr
 }
 
-type PathError struct {
-	Op   string
-	Path string
-	Err  error
-}
-
-func (err *PathError) Error() string {
-	if err == nil {
-		return ""
-	}
-	if err.Err == nil {
-		return err.Op + " " + err.Path
-	}
-
-	return err.Op + " " + err.Path + ": " + err.Err.Error()
-}
-
-func (err *PathError) Unwrap() error {
-	if err == nil {
-		return nil
-	}
-
-	return err.Err
-}
-
-func (err *PathError) As(target interface{}) bool {
-	if err == nil {
-		return false
-	}
-
-	switch typed := target.(type) {
-	case **PathError:
-		if typed == nil {
-			return false
-		}
-		*typed = err
-		return true
-	case *error:
-		if typed == nil {
-			return false
-		}
-		*typed = err
-		return true
-	}
-
-	return false
-}
-
 type LinkError struct {
 	Op  string
 	Old string
@@ -224,14 +168,7 @@ func (err *statusError) Error() string {
 	return err.text
 }
 
-type FileInfo interface {
-	Name() string
-	Size() int64
-	Mode() FileMode
-	ModTime() time.Time
-	IsDir() bool
-	Sys() interface{}
-}
+type FileInfo = fs.FileInfo
 
 type fileInfo struct {
 	name string
@@ -248,9 +185,12 @@ func (info fileInfo) Size() int64 {
 }
 
 func (info fileInfo) Mode() FileMode {
-	mode := FileMode(0)
+	mode := FileMode(0666)
+	if info.raw.Attributes&kos.FileAttributeReadOnly != 0 {
+		mode = 0444
+	}
 	if info.raw.Attributes&kos.FileAttributeDirectory != 0 || isVolumeRootPath(info.path) {
-		mode |= ModeDir
+		mode |= ModeDir | 0111
 	}
 
 	return mode
@@ -269,16 +209,19 @@ func (info fileInfo) Sys() interface{} {
 }
 
 type File struct {
-	name     string
-	fd       int
-	offset   uint64
-	readable bool
-	writable bool
-	append   bool
-	closed   bool
-	fdBacked bool
-	pending  []byte
-	pipe     *pipeState
+	displayName    string
+	name           string
+	fd             int
+	offset         uint64
+	sharedPosition *nativeFilePosition
+	readable       bool
+	writable       bool
+	append         bool
+	closed         bool
+	fdBacked       bool
+	pending        []byte
+	pipe           *pipeState
+	localStream    *nativeLocalStream
 }
 
 const activeConsoleReadBufferSize = 256
@@ -289,17 +232,55 @@ type pipeState struct {
 	writers uint32
 }
 
-type envEntry struct {
-	key   string
-	value string
-}
-
 var Args = []string{""}
 
-var envEntries []envEntry
-var errInvalidEnv = &osError{text: "invalid environment variable"}
-
 func bootstrapArgs() {
+	if startup := kos.CurrentProcessStartup(); startup != nil {
+		Args = startup.Args
+		streams := make(map[uint32]*File)
+		for index, name := range startup.StandardFiles {
+			if index > 2 {
+				panic("unsupported child standard descriptor")
+			}
+			file := &File{name: name, fd: -1, readable: index == 0, writable: index != 0}
+			if descriptor, ok := kos.LocalSocketStartupDescriptor(name); ok {
+				if previous := streams[descriptor]; previous != nil {
+					var err error
+					file, err = previous.cloneNativeLocal()
+					if err != nil {
+						panic(err)
+					}
+				} else {
+					file = newNativeLocalFile(name, descriptor, index == 0, index != 0)
+					streams[descriptor] = file
+				}
+			}
+			if name == "" {
+				file.name = "closed standard descriptor"
+				file.fdBacked = true
+			}
+			switch index {
+			case 0:
+				Stdin = file
+			case 1:
+				Stdout = file
+			case 2:
+				Stderr = file
+			}
+		}
+		standardFiles := []*File{Stdin, Stdout, Stderr}
+		kos.ChildProcessCloseStreams = func() {
+			for _, file := range standardFiles {
+				if file != nil && file.localStream != nil {
+					_ = file.Close()
+				}
+			}
+		}
+		if err := Chdir(startup.Dir); err != nil {
+			panic(err)
+		}
+		return
+	}
 	Args = loaderArgs(kos.LoaderPath(), kos.LoaderParameters())
 }
 
@@ -412,77 +393,21 @@ func Getppid() int {
 }
 
 func Exit(code int) {
-	kos.Exit()
-}
-
-func Getenv(key string) string {
-	value, _ := LookupEnv(key)
-	return value
-}
-
-func LookupEnv(key string) (string, bool) {
-	index := findEnvEntry(key)
-	if index < 0 {
-		return "", false
-	}
-
-	return envEntries[index].value, true
-}
-
-func Setenv(key string, value string) error {
-	if !validEnvKey(key) || containsNUL(value) {
-		return errInvalidEnv
-	}
-
-	index := findEnvEntry(key)
-	if index >= 0 {
-		envEntries[index].value = value
-		return nil
-	}
-
-	envEntries = append(envEntries, envEntry{
-		key:   key,
-		value: value,
-	})
-	return nil
-}
-
-func Unsetenv(key string) error {
-	if !validEnvKey(key) {
-		return errInvalidEnv
-	}
-
-	index := findEnvEntry(key)
-	if index < 0 {
-		return nil
-	}
-
-	for current := index; current+1 < len(envEntries); current++ {
-		envEntries[current] = envEntries[current+1]
-	}
-	envEntries = envEntries[:len(envEntries)-1]
-	return nil
-}
-
-func Clearenv() {
-	envEntries = nil
-}
-
-func Environ() []string {
-	values := make([]string, len(envEntries))
-	for index := 0; index < len(envEntries); index++ {
-		values[index] = envEntries[index].key + "=" + envEntries[index].value
-	}
-
-	return values
+	kos.ChildProcessExit(code)
+	nativeProcessExit()
 }
 
 func Stat(name string) (FileInfo, error) {
 	info, status := kos.GetPathInfo(name)
 	if status == kos.FileSystemOK {
+		// The native volume-root metadata leaves the directory attribute
+		// unset. Successful root lookup still denotes a directory.
+		if isVolumeRootPath(name) {
+			info.Attributes |= kos.FileAttributeDirectory
+		}
 		return fileInfo{
 			name: baseName(name),
-			path: path.Clean(name),
+			path: fileInfoPath(name),
 			raw:  info,
 		}, nil
 	}
@@ -507,7 +432,7 @@ func statVolumeRoot(name string) (FileInfo, bool) {
 
 	return fileInfo{
 		name: baseName(name),
-		path: name,
+		path: fileInfoPath(name),
 		raw: kos.FileInfo{
 			Attributes: kos.FileAttributeDirectory,
 		},
@@ -602,18 +527,6 @@ func isASCIIUnsignedDecimal(value string) bool {
 	return true
 }
 
-func IsNotExist(err error) bool {
-	return errorMatches(err, ErrNotExist)
-}
-
-func IsExist(err error) bool {
-	return errorMatches(err, ErrExist)
-}
-
-func IsPermission(err error) bool {
-	return errorMatches(err, ErrPermission)
-}
-
 func TempDir() string {
 	if value, ok := LookupEnv("TMPDIR"); ok && value != "" {
 		return value
@@ -646,7 +559,10 @@ func WriteFile(name string, data []byte, perm FileMode) error {
 }
 
 func Mkdir(name string, perm FileMode) error {
-	status := kos.CreateDirectory(name)
+	status := kos.CreateExclusiveDirectory(name)
+	if status == kos.FileSystemUnsupported {
+		return &PathError{Op: "mkdir", Path: name, Err: ErrExclusiveCreateUnsupported}
+	}
 	if status != kos.FileSystemOK {
 		return wrapPathError("mkdir", name, status)
 	}
@@ -656,33 +572,6 @@ func Mkdir(name string, perm FileMode) error {
 
 // MkdirAll creates a directory named path, along with any necessary parents,
 // and returns nil, or else returns an error. The permission bits are ignored.
-func MkdirAll(name string, perm FileMode) error {
-	if name == "" {
-		return &PathError{Op: "mkdir", Path: name, Err: ErrInvalid}
-	}
-	name = path.Clean(name)
-	if name == "." || name == "/" {
-		return nil
-	}
-
-	if info, err := Stat(name); err == nil {
-		if info.IsDir() {
-			return nil
-		}
-		return &PathError{Op: "mkdir", Path: name, Err: ErrExist}
-	} else if !IsNotExist(err) {
-		return err
-	}
-
-	parent := path.Dir(name)
-	if parent != "." && parent != "/" && parent != name {
-		if err := MkdirAll(parent, perm); err != nil {
-			return err
-		}
-	}
-
-	return Mkdir(name, perm)
-}
 
 func Remove(name string) error {
 	status := kos.DeletePath(name)
@@ -716,22 +605,26 @@ func Create(name string) (*File, error) {
 }
 
 func Pipe() (reader *File, writer *File, err error) {
-	var pipefd [2]int
-
-	if err = syscall.Pipe(pipefd[:]); err != nil {
-		return nil, nil, err
+	first, second, code := kos.CreateLocalSocketPair()
+	if code != 0 {
+		return nil, nil, NewSyscallError("pipe", syscall.ENOMEM)
 	}
-
-	pipe := &pipeState{
-		readers: 1,
-		writers: 1,
-	}
-	reader = newPipeFile("pipe[0]", pipefd[0], true, false, pipe)
-	writer = newPipeFile("pipe[1]", pipefd[1], false, true, pipe)
-	return reader, writer, nil
+	return newNativeLocalFile("|0", first, true, false), newNativeLocalFile("|1", second, false, true), nil
 }
 
 func OpenFile(name string, flag int, perm FileMode) (*File, error) {
+	if name == DevNull {
+		return &File{name: DevNull, fd: -1, readable: flag&3 != O_WRONLY, writable: flag&3 != O_RDONLY}, nil
+	}
+	originalName := name
+	if name != "" && !path.IsAbs(name) {
+		wd, err := Getwd()
+		if err != nil {
+			return nil, err
+		}
+		name = path.Join(wd, name)
+	}
+
 	accessMode := flag & 3
 	readable := accessMode == O_RDONLY || accessMode == O_RDWR
 	writable := accessMode == O_WRONLY || accessMode == O_RDWR
@@ -743,7 +636,16 @@ func OpenFile(name string, flag int, perm FileMode) (*File, error) {
 		return nil, &PathError{Op: "open", Path: name, Err: ErrInvalid}
 	}
 
-	if flag&O_CREATE != 0 {
+	exclusive := flag&(O_CREATE|O_EXCL) == O_CREATE|O_EXCL
+	if exclusive {
+		_, status := kos.CreateExclusiveFile(name, nil)
+		if status == kos.FileSystemUnsupported {
+			return nil, &PathError{Op: "open", Path: originalName, Err: ErrExclusiveCreateUnsupported}
+		}
+		if status != kos.FileSystemOK {
+			return nil, wrapPathError("open", originalName, status)
+		}
+	} else if flag&O_CREATE != 0 {
 		_, status := kos.GetPathInfo(name)
 		if status == kos.FileSystemNotFound {
 			_, status = kos.CreateOrRewriteFile(name, nil)
@@ -755,7 +657,7 @@ func OpenFile(name string, flag int, perm FileMode) (*File, error) {
 		}
 	}
 
-	if flag&O_TRUNC != 0 {
+	if flag&O_TRUNC != 0 && !exclusive {
 		_, status := kos.CreateOrRewriteFile(name, nil)
 		if status != kos.FileSystemOK {
 			return nil, wrapPathError("open", name, status)
@@ -768,10 +670,11 @@ func OpenFile(name string, flag int, perm FileMode) (*File, error) {
 	}
 
 	file := &File{
-		name:     name,
-		readable: readable,
-		writable: writable,
-		append:   flag&O_APPEND != 0,
+		name:        name,
+		displayName: originalName,
+		readable:    readable,
+		writable:    writable,
+		append:      flag&O_APPEND != 0,
 	}
 	if file.append {
 		file.offset = info.Size
@@ -785,6 +688,9 @@ func (file *File) Name() string {
 		return ""
 	}
 
+	if file.displayName != "" {
+		return file.displayName
+	}
 	return file.name
 }
 
@@ -836,24 +742,27 @@ func (file *File) Readdir(n int) ([]FileInfo, error) {
 
 		read, status := kos.ReadFolder(file.name, uint32(file.offset), batchSize)
 		if status != kos.FileSystemOK && status != kos.FileSystemEOF {
-			if len(result) > 0 {
-				return result, nil
-			}
-			return nil, wrapPathError("readdir", file.name, status)
+			return result, wrapPathError("readdir", file.name, status)
 		}
 
+		before := len(result)
 		for index := 0; index < len(read.Entries); index++ {
 			entry := read.Entries[index]
+			// Match upstream os/dir_gccgo.go: special entries consume the
+			// native directory cursor but not the caller's requested count.
+			if entry.Name == "." || entry.Name == ".." {
+				continue
+			}
 			result = append(result, fileInfo{
 				name: entry.Name,
-				path: path.Join(file.name, entry.Name),
+				path: fileInfoPath(path.Join(file.name, entry.Name)),
 				raw:  entry.Info,
 			})
 		}
 		file.offset += uint64(len(read.Entries))
 
 		if !readAll {
-			remaining -= len(read.Entries)
+			remaining -= len(result) - before
 			if remaining <= 0 {
 				return result, nil
 			}
@@ -880,6 +789,9 @@ func (file *File) Close() error {
 	if file.closed {
 		return &PathError{Op: "close", Path: file.name, Err: ErrClosed}
 	}
+	if file.localStream != nil {
+		return file.closeNativeLocal()
+	}
 
 	file.releasePipeEndpoint()
 	file.closed = true
@@ -893,9 +805,11 @@ func (file *File) Seek(offset int64, whence int) (int64, error) {
 	if file.closed {
 		return 0, &PathError{Op: "seek", Path: file.name, Err: ErrClosed}
 	}
-	if file.fdBacked {
+	if file.fdBacked || file.localStream != nil {
 		return 0, &PathError{Op: "seek", Path: file.name, Err: ErrInvalid}
 	}
+	unlock := file.lockSharedPosition()
+	defer unlock()
 
 	base := int64(0)
 	switch whence {
@@ -932,7 +846,7 @@ func (file *File) ReadAt(buffer []byte, off int64) (int, error) {
 	if len(buffer) == 0 {
 		return 0, nil
 	}
-	if file.fdBacked {
+	if file.fdBacked || file.localStream != nil {
 		return 0, &PathError{Op: "read", Path: file.name, Err: ErrInvalid}
 	}
 
@@ -956,6 +870,15 @@ func (file *File) ReadAt(buffer []byte, off int64) (int, error) {
 func (file *File) Read(buffer []byte) (int, error) {
 	if err := file.ensureReadable("read"); err != nil {
 		return 0, err
+	}
+	if file.localStream != nil {
+		return file.readNativeLocal(buffer)
+	}
+	if file.name == DevNull {
+		if len(buffer) == 0 {
+			return 0, nil
+		}
+		return 0, io.EOF
 	}
 	if len(buffer) == 0 {
 		return 0, nil
@@ -981,6 +904,8 @@ func (file *File) Read(buffer []byte) (int, error) {
 		return read, nil
 	}
 
+	unlock := file.lockSharedPosition()
+	defer unlock()
 	read, status := kos.ReadFile(file.name, buffer, file.offset)
 	file.offset += uint64(read)
 
@@ -1003,6 +928,12 @@ func (file *File) Read(buffer []byte) (int, error) {
 func (file *File) Write(buffer []byte) (int, error) {
 	if err := file.ensureWritable("write"); err != nil {
 		return 0, err
+	}
+	if file.localStream != nil {
+		return file.writeNativeLocal(buffer)
+	}
+	if file.name == DevNull {
+		return len(buffer), nil
 	}
 	if len(buffer) == 0 {
 		return 0, nil
@@ -1036,6 +967,8 @@ func (file *File) Write(buffer []byte) (int, error) {
 		return written, nil
 	}
 
+	unlock := file.lockSharedPosition()
+	defer unlock()
 	if file.append {
 		info, status := kos.GetPathInfo(file.name)
 		if status != kos.FileSystemOK {
@@ -1072,6 +1005,9 @@ func (file *File) Sync() error {
 }
 
 func (file *File) readActiveConsole(buffer []byte) (int, error) {
+	if kos.ConsoleInputRaw() {
+		return file.ReadCancelable(buffer, nil)
+	}
 	if len(file.pending) == 0 {
 		line := make([]byte, activeConsoleReadBufferSize)
 		read, err := kos.ReadActiveConsoleLine(line)
@@ -1142,6 +1078,8 @@ func statusToError(status kos.FileSystemStatus) error {
 	switch status {
 	case kos.FileSystemOK:
 		return nil
+	case kos.FileSystemAlreadyExists:
+		return ErrExist
 	case kos.FileSystemNotFound:
 		return ErrNotExist
 	case kos.FileSystemAccessDenied:
@@ -1219,57 +1157,6 @@ func (pipe *pipeState) consume(count uint64) {
 	}
 
 	pipe.pending -= count
-}
-
-func errorMatches(err error, target error) bool {
-	for err != nil {
-		if err == target {
-			return true
-		}
-
-		unwrapper, ok := interface{}(err).(interface{ Unwrap() error })
-		if !ok {
-			return false
-		}
-
-		err = unwrapper.Unwrap()
-	}
-
-	return target == nil
-}
-
-func validEnvKey(key string) bool {
-	if key == "" {
-		return false
-	}
-
-	for index := 0; index < len(key); index++ {
-		if key[index] == '=' || key[index] == 0 {
-			return false
-		}
-	}
-
-	return true
-}
-
-func containsNUL(value string) bool {
-	for index := 0; index < len(value); index++ {
-		if value[index] == 0 {
-			return true
-		}
-	}
-
-	return false
-}
-
-func findEnvEntry(key string) int {
-	for index := 0; index < len(envEntries); index++ {
-		if envEntries[index].key == key {
-			return index
-		}
-	}
-
-	return -1
 }
 
 func baseName(name string) string {

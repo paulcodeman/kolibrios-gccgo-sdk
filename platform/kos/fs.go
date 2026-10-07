@@ -98,7 +98,7 @@ type FolderReadResult struct {
 }
 
 func ReadFile(path string, buffer []byte, offset uint64) (read uint32, status FileSystemStatus) {
-	pathPtr, pathAddr := stringAddress(path)
+	pathPtr, pathAddr := fsStringAddress(path)
 	if pathPtr == nil {
 		return 0, FileSystemNeedsMoreMemory
 	}
@@ -143,11 +143,11 @@ func ReadAllFile(path string) (data []byte, status FileSystemStatus) {
 
 func ReadFolder(path string, start uint32, count uint32) (result FolderReadResult, status FileSystemStatus) {
 	const folderHeaderSize = 32
-	const folderNamesEncoding = EncodingCP866
+	const folderNamesEncoding = EncodingUTF8
 
 	entrySize := folderEntrySize(folderNamesEncoding)
 	buffer := make([]byte, folderHeaderSize+int(count)*entrySize)
-	pathPtr, pathAddr := stringAddress(path)
+	pathPtr, pathAddr := fsStringAddress(path)
 	if pathPtr == nil {
 		return FolderReadResult{}, FileSystemNeedsMoreMemory
 	}
@@ -228,6 +228,16 @@ func CurrentFolder() string {
 }
 
 func CurrentFolderWithEncoding(encoding StringEncoding) string {
+	applicationDirectory.RLock()
+	current := applicationDirectory.path
+	applicationDirectory.RUnlock()
+	if current != "" {
+		return current
+	}
+	return nativeCurrentFolderWithEncoding(encoding)
+}
+
+func nativeCurrentFolderWithEncoding(encoding StringEncoding) string {
 	var stack [256]byte
 
 	size := GetCurrentFolderRaw(&stack[0], uint32(len(stack)), encoding)
@@ -259,7 +269,7 @@ func WriteFile(path string, data []byte, offset uint64) (written uint32, status 
 }
 
 func SetFileSize(path string, size uint64) FileSystemStatus {
-	pathPtr, pathAddr := stringAddress(path)
+	pathPtr, pathAddr := fsStringAddress(path)
 	if pathPtr == nil {
 		return FileSystemNeedsMoreMemory
 	}
@@ -280,7 +290,7 @@ func SetFileSize(path string, size uint64) FileSystemStatus {
 func GetFileInfo(path string) (info FileInfo, status FileSystemStatus) {
 	var buffer [40]byte
 
-	pathPtr, pathAddr := stringAddress(path)
+	pathPtr, pathAddr := fsStringAddress(path)
 	if pathPtr == nil {
 		return FileInfo{}, FileSystemNeedsMoreMemory
 	}
@@ -320,7 +330,7 @@ func SetFileInfo(path string, info FileInfo) FileSystemStatus {
 	encodeFileTime(buffer[:], 24, info.ModifiedTime)
 	encodeFileDate(buffer[:], 28, info.ModifiedDate)
 
-	pathPtr, pathAddr := stringAddress(path)
+	pathPtr, pathAddr := fsStringAddress(path)
 	if pathPtr == nil {
 		return FileSystemNeedsMoreMemory
 	}
@@ -342,7 +352,7 @@ func SetPathInfo(path string, info FileInfo) FileSystemStatus {
 }
 
 func StartApp(path string, params string, debugged bool) int {
-	pathPtr, pathAddr := stringAddress(path)
+	pathPtr, pathAddr := fsStringAddress(path)
 	if pathPtr == nil {
 		return -int(FileSystemNeedsMoreMemory)
 	}
@@ -379,7 +389,7 @@ func StartApp(path string, params string, debugged bool) int {
 }
 
 func StartApplication(path string, params string, debugged bool) (pid int, status FileSystemStatus) {
-	pid = StartApp(path, params, debugged)
+	pid = withApplicationDirectory(func() int { return StartApp(path, params, debugged) })
 	if pid < 0 {
 		return 0, FileSystemStatus(-pid)
 	}
@@ -400,7 +410,7 @@ func CreateDirectory(path string) FileSystemStatus {
 }
 
 func RenameOrMove(path string, newPath string) FileSystemStatus {
-	pathPtr, pathAddr := stringAddress(path)
+	pathPtr, pathAddr := fsStringAddress(path)
 	if pathPtr == nil {
 		return FileSystemNeedsMoreMemory
 	}
@@ -434,7 +444,7 @@ func RenamePath(path string, newPath string) FileSystemStatus {
 }
 
 func writeFile(path string, data []byte, offset uint64, subfunction uint32) (written uint32, status FileSystemStatus) {
-	pathPtr, pathAddr := stringAddress(path)
+	pathPtr, pathAddr := fsStringAddress(path)
 	if pathPtr == nil {
 		return 0, FileSystemNeedsMoreMemory
 	}
@@ -456,7 +466,7 @@ func writeFile(path string, data []byte, offset uint64, subfunction uint32) (wri
 }
 
 func fileSystemPathOnly(path string, subfunction uint32) FileSystemStatus {
-	pathPtr, pathAddr := stringAddress(path)
+	pathPtr, pathAddr := fsStringAddress(path)
 	if pathPtr == nil {
 		return FileSystemNeedsMoreMemory
 	}

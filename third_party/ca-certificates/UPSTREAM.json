@@ -1,0 +1,15 @@
+{
+  "source": "curl conversion of Mozilla certificate store",
+  "date": "2026-09-25",
+  "files": {
+    "ca-bundle.crt": {
+      "url": "https://curl.se/ca/cacert-2026-09-25.pem",
+      "sha256": "a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505"
+    },
+    "MPL-2.0.txt": {
+      "url": "https://www.mozilla.org/media/MPL/2.0/index.txt",
+      "sha256": "3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04"
+    }
+  },
+  "certificates": 121
+}

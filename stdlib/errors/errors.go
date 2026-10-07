@@ -1,199 +1,87 @@
+// Copyright 2011 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+// Package errors implements functions to manipulate errors.
+//
+// The [New] function creates errors whose only content is a text message.
+//
+// An error e wraps another error if e's type has one of the methods
+//
+//	Unwrap() error
+//	Unwrap() []error
+//
+// If e.Unwrap() returns a non-nil error w or a slice containing w,
+// then we say that e wraps w. A nil error returned from e.Unwrap()
+// indicates that e does not wrap any error. It is invalid for an
+// Unwrap method to return an []error containing a nil error value.
+//
+// An easy way to create wrapped errors is to call [fmt.Errorf] and apply
+// the %w verb to the error argument:
+//
+//	wrapsErr := fmt.Errorf("... %w ...", ..., err, ...)
+//
+// Successive unwrapping of an error creates a tree. The [Is] and [As]
+// functions inspect an error's tree by examining first the error
+// itself followed by the tree of each of its children in turn
+// (pre-order, depth-first traversal).
+//
+// [Is] examines the tree of its first argument looking for an error that
+// matches the second. It reports whether it finds a match. It should be
+// used in preference to simple equality checks:
+//
+//	if errors.Is(err, fs.ErrExist)
+//
+// is preferable to
+//
+//	if err == fs.ErrExist
+//
+// because the former will succeed if err wraps [io/fs.ErrExist].
+//
+// [As] examines the tree of its first argument looking for an error that can be
+// assigned to its second argument, which must be a pointer. If it succeeds, it
+// performs the assignment and returns true. Otherwise, it returns false. The form
+//
+//	var perr *fs.PathError
+//	if errors.As(err, &perr) {
+//		fmt.Println(perr.Path)
+//	}
+//
+// is preferable to
+//
+//	if perr, ok := err.(*fs.PathError); ok {
+//		fmt.Println(perr.Path)
+//	}
+//
+// because the former will succeed if err wraps an [*io/fs.PathError].
 package errors
 
-type errorString struct {
-	text string
-}
-
-func (err *errorString) Error() string {
-	return err.text
-}
-
-type unwrapper interface {
-	Unwrap() error
-}
-
-type multiUnwrapper interface {
-	Unwrap() []error
-}
-
-type matcher interface {
-	Is(error) bool
-}
-
-type aser interface {
-	As(interface{}) bool
-}
-
+// New returns an error that formats as the given text.
+// Each call to New returns a distinct error value even if the text is identical.
 func New(text string) error {
-	return &errorString{text: text}
+	return &errorString{text}
 }
 
-func Unwrap(err error) error {
-	if err == nil {
-		return nil
-	}
-
-	var value interface{} = err
-	unwrapped, ok := value.(unwrapper)
-	if !ok {
-		return nil
-	}
-
-	return unwrapped.Unwrap()
+// errorString is a trivial implementation of error.
+type errorString struct {
+	s string
 }
 
-func Join(errs ...error) error {
-	count := 0
-	for index := 0; index < len(errs); index++ {
-		if errs[index] != nil {
-			count++
-		}
-	}
-	if count == 0 {
-		return nil
-	}
-
-	joined := &joinError{
-		errs: make([]error, 0, count),
-	}
-	for index := 0; index < len(errs); index++ {
-		if errs[index] != nil {
-			joined.errs = append(joined.errs, errs[index])
-		}
-	}
-
-	return joined
+func (e *errorString) Error() string {
+	return e.s
 }
 
-func Is(err error, target error) bool {
-	if target == nil {
-		return err == nil
-	}
-
-	return is(err, target)
-}
-
-func is(err error, target error) bool {
-	for err != nil {
-		if err == target {
-			return true
-		}
-
-		var value interface{} = err
-		if matched, ok := value.(matcher); ok && matched.Is(target) {
-			return true
-		}
-		if unwrapped, ok := value.(unwrapper); ok {
-			err = unwrapped.Unwrap()
-			continue
-		}
-		if unwrapped, ok := value.(multiUnwrapper); ok {
-			return anyIs(unwrapped.Unwrap(), target)
-		}
-
-		return false
-	}
-
-	return false
-}
-
-func anyIs(errs []error, target error) bool {
-	for index := 0; index < len(errs); index++ {
-		err := errs[index]
-		if err != nil && is(err, target) {
-			return true
-		}
-	}
-
-	return false
-}
-
-func As(err error, target interface{}) bool {
-	if err == nil || target == nil {
-		return false
-	}
-
-	return as(err, target)
-}
-
-func as(err error, target interface{}) bool {
-	for err != nil {
-		if assignAsTarget(err, target) {
-			return true
-		}
-
-		var value interface{} = err
-		if matched, ok := value.(aser); ok && matched.As(target) {
-			return true
-		}
-		if unwrapped, ok := value.(unwrapper); ok {
-			err = unwrapped.Unwrap()
-			continue
-		}
-		if unwrapped, ok := value.(multiUnwrapper); ok {
-			return anyAs(unwrapped.Unwrap(), target)
-		}
-
-		return false
-	}
-
-	return false
-}
-
-func anyAs(errs []error, target interface{}) bool {
-	for index := 0; index < len(errs); index++ {
-		err := errs[index]
-		if err != nil && as(err, target) {
-			return true
-		}
-	}
-
-	return false
-}
-
-func assignAsTarget(err error, target interface{}) bool {
-	switch typed := target.(type) {
-	case *error:
-		if typed == nil {
-			return false
-		}
-		*typed = err
-		return true
-	case *interface{}:
-		if typed == nil {
-			return false
-		}
-		*typed = err
-		return true
-	}
-
-	return false
-}
-
-type joinError struct {
-	errs []error
-}
-
-func (err *joinError) Error() string {
-	if err == nil || len(err.errs) == 0 {
-		return ""
-	}
-	if len(err.errs) == 1 {
-		return err.errs[0].Error()
-	}
-
-	text := err.errs[0].Error()
-	for index := 1; index < len(err.errs); index++ {
-		text += "\n" + err.errs[index].Error()
-	}
-
-	return text
-}
-
-func (err *joinError) Unwrap() []error {
-	if err == nil {
-		return nil
-	}
-
-	return err.errs
-}
+// ErrUnsupported indicates that a requested operation cannot be performed,
+// because it is unsupported. For example, a call to [os.Link] when using a
+// file system that does not support hard links.
+//
+// Functions and methods should not return this error but should instead
+// return an error including appropriate context that satisfies
+//
+//	errors.Is(err, errors.ErrUnsupported)
+//
+// either by directly wrapping ErrUnsupported or by implementing an [Is] method.
+//
+// Functions and methods should document the cases in which an error
+// wrapping this will be returned.
+var ErrUnsupported = New("unsupported operation")

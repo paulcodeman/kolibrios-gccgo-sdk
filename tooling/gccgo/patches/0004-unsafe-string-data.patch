@@ -1,0 +1,297 @@
+--- a/gcc/go/gofrontend/expressions.h
++++ b/gcc/go/gofrontend/expressions.h
+@@ -2801,7 +2801,10 @@
+       BUILTIN_ALIGNOF,
+       BUILTIN_OFFSETOF,
+       BUILTIN_SIZEOF,
+-      BUILTIN_SLICE
++      BUILTIN_SLICE,
++      BUILTIN_STRING,
++      BUILTIN_STRINGDATA,
++      BUILTIN_SLICEDATA
+     };
+ 
+   Builtin_function_code
+--- a/gcc/go/gofrontend/unsafe.cc
++++ b/gcc/go/gofrontend/unsafe.cc
+@@ -120,6 +120,15 @@
+   fntype->set_is_builtin();
+   bindings->add_function_declaration("Slice", package, fntype, bloc);
+ 
++  // Go 1.20 unsafe string and backing-store operations.
++  const char* modern[] = {"String", "StringData", "SliceData"};
++  for (unsigned int i = 0; i < 3; ++i)
++    {
++      fntype = Type::make_function_type(NULL, NULL, NULL, bloc);
++      fntype->set_is_builtin();
++      bindings->add_function_declaration(modern[i], package, fntype, bloc);
++    }
++
+   if (!this->imported_unsafe_)
+     {
+       go_imported_unsafe();
+--- a/gcc/go/gofrontend/runtime.def
++++ b/gcc/go/gofrontend/runtime.def
+@@ -495,6 +495,12 @@
+ DEF_GO_RUNTIME(UNSAFESLICE64, "runtime.unsafeslice64",
+ 	       P3(TYPE, POINTER, INT64), R0())
+ 
++// Check the length of an unsafe string, following upstream runtime/unsafe.go.
++DEF_GO_RUNTIME(UNSAFESTRING, "runtime.unsafestring",
++               P2(POINTER, INT), R0())
++DEF_GO_RUNTIME(UNSAFESTRING64, "runtime.unsafestring64",
++               P2(POINTER, INT64), R0())
++
+ // Panic reporting a division by zero.
+ DEF_GO_RUNTIME(PANIC_DIVIDE, "runtime.panicdivide", P0(), R0())
+ 
+--- a/gcc/go/gofrontend/expressions.cc
++++ b/gcc/go/gofrontend/expressions.cc
+@@ -2618,8 +2618,13 @@
+   { return Type::make_string_type(); }
+ 
+   void
+-  do_determine_type(Gogo*, const Type_context*)
+-  { go_unreachable(); }
++  do_determine_type(Gogo* gogo, const Type_context*)
++  {
++    Type_context pointer(Type::make_pointer_type(Type::lookup_integer_type("uint8")), false);
++    this->valptr_->determine_type(gogo, &pointer);
++    Type_context length(Type::lookup_integer_type("int"), false);
++    this->len_->determine_type(gogo, &length);
++  }
+ 
+   Expression*
+   do_copy()
+@@ -9333,6 +9338,12 @@
+     this->code_ = BUILTIN_SIZEOF;
+   else if (name == "Slice")
+     this->code_ = BUILTIN_SLICE;
++  else if (name == "String")
++    this->code_ = BUILTIN_STRING;
++  else if (name == "StringData")
++    this->code_ = BUILTIN_STRINGDATA;
++  else if (name == "SliceData")
++    this->code_ = BUILTIN_SLICEDATA;
+   else
+     go_unreachable();
+ }
+@@ -9910,6 +9921,42 @@
+ 	return ret;
+       }
+ 
++    case BUILTIN_STRINGDATA:
++    case BUILTIN_SLICEDATA:
++      {
++        Expression* arg = this->args()->front();
++        Expression* ret = this->code_ == BUILTIN_STRINGDATA
++          ? Expression::make_string_info(arg, Expression::STRING_INFO_DATA, loc)
++          : Expression::make_slice_info(arg, Expression::SLICE_INFO_VALUE_POINTER, loc);
++        ret->determine_type_no_context(gogo);
++        return ret;
++      }
++
++    case BUILTIN_STRING:
++      {
++        // Keep pointer and length evaluation in source order and exactly once.
++        Expression* ptr = this->args()->front();
++        Expression* len = this->args()->back();
++        Temporary_statement* p = Statement::make_temporary(
++          Type::make_pointer_type(Type::lookup_integer_type("uint8")), ptr, loc);
++        Temporary_statement* n = Statement::make_temporary(NULL, len, loc);
++        inserter->insert(p);
++        inserter->insert(n);
++        bool small = len->type()->integer_type()->bits()
++          <= Type::lookup_integer_type("int")->integer_type()->bits();
++        Runtime::Function code = small ? Runtime::UNSAFESTRING : Runtime::UNSAFESTRING64;
++        Expression* check = Runtime::make_call(gogo, code, loc, 2,
++          Expression::make_temporary_reference(p, loc),
++          Expression::make_temporary_reference(n, loc));
++        Expression* length = Expression::make_cast(Type::lookup_integer_type("int"),
++          Expression::make_temporary_reference(n, loc), loc);
++        Expression* value = Expression::make_string_value(
++          Expression::make_temporary_reference(p, loc), length, loc);
++        Expression* ret = Expression::make_compound(check, value, loc);
++        ret->determine_type_no_context(gogo);
++        return ret;
++      }
++
+     case BUILTIN_SLICE:
+       {
+ 	Expression* ptr = this->args()->front();
+@@ -11238,6 +11285,9 @@
+     case BUILTIN_ALIGNOF:
+     case BUILTIN_OFFSETOF:
+     case BUILTIN_SIZEOF:
++    case BUILTIN_STRING:
++    case BUILTIN_STRINGDATA:
++    case BUILTIN_SLICEDATA:
+     case BUILTIN_SLICE:
+       this->unused_value_error();
+       return false;
+@@ -11359,6 +11409,18 @@
+ 
+     case BUILTIN_ADD:
+       return Type::make_pointer_type(Type::make_void_type());
++
++    case BUILTIN_STRING:
++      return Type::lookup_string_type();
++    case BUILTIN_STRINGDATA:
++      return Type::make_pointer_type(Type::lookup_integer_type("uint8"));
++    case BUILTIN_SLICEDATA:
++      {
++        const Expression_list* args = this->args();
++        if (args == NULL || args->size() != 1 || !args->front()->type()->is_slice_type())
++          return Type::make_error_type();
++        return Type::make_pointer_type(args->front()->type()->array_type()->element_type());
++      }
+ 
+     case BUILTIN_SLICE:
+       const Expression_list* args = this->args();
+@@ -11553,13 +11615,34 @@
+       is_print = false;
+       break;
+ 
++    case BUILTIN_STRINGDATA:
++      {
++        Type_context subcontext(Type::lookup_string_type(), false);
++        if (args != NULL)
++          for (Expression_list::const_iterator p = args->begin(); p != args->end(); ++p)
++            (*p)->determine_type(gogo, &subcontext);
++        return;
++      }
++    case BUILTIN_SLICEDATA:
++      if (args != NULL)
++        for (Expression_list::const_iterator p = args->begin(); p != args->end(); ++p)
++          (*p)->determine_type_no_context(gogo);
++      return;
++
+     case BUILTIN_ADD:
++    case BUILTIN_STRING:
+     case BUILTIN_SLICE:
+-      // Both unsafe.Add and unsafe.Slice take two arguments, and the
+-      // second arguments defaults to "int".
++      // unsafe.Add, unsafe.Slice and unsafe.String take two arguments, and the
++      // second argument defaults to "int".
+       if (args != NULL && args->size() == 2)
+-	{
+-	  if (this->code_ == BUILTIN_SLICE)
++        {
++          if (this->code_ == BUILTIN_STRING)
++            {
++              Type* pointer = Type::make_pointer_type(Type::lookup_integer_type("uint8"));
++              Type_context subcontext(pointer, false);
++              args->front()->determine_type(gogo, &subcontext);
++            }
++          else if (this->code_ == BUILTIN_SLICE)
+ 	    args->front()->determine_type_no_context(gogo);
+ 	  else
+ 	    {
+@@ -12157,6 +12240,19 @@
+       }
+       break;
+ 
++    case BUILTIN_STRINGDATA:
++    case BUILTIN_SLICEDATA:
++      if (this->check_one_arg())
++        {
++          Type* t = this->args()->front()->type();
++          if ((this->code_ == BUILTIN_STRINGDATA
++               && !Type::are_assignable(Type::lookup_string_type(), t, NULL))
++              || (this->code_ == BUILTIN_SLICEDATA && !t->is_slice_type()))
++            this->report_error("argument has incompatible type");
++        }
++      break;
++
++    case BUILTIN_STRING:
+     case BUILTIN_ADD:
+     case BUILTIN_SLICE:
+       {
+@@ -12203,7 +12299,10 @@
+ 	  }
+ 	else
+ 	  {
+-	    if (args->front()->type()->points_to() == NULL)
++	    if ((this->code_ != BUILTIN_STRING && args->front()->type()->points_to() == NULL)
++        || (this->code_ == BUILTIN_STRING
++            && !Type::are_assignable(Type::make_pointer_type(Type::lookup_integer_type("uint8")),
++                                    args->front()->type(), NULL)))
+ 	      {
+ 		go_error_at(args->front()->location(),
+ 			    "argument 1 must be a pointer");
+@@ -12220,7 +12319,7 @@
+ 		    || mpz_sizeinbase(ival, 2) >= int_bits)
+ 		  {
+ 		    go_error_at(args->back()->location(),
+-				"slice length out of range");
++				"unsafe length out of range");
+ 		    this->set_is_error();
+ 		  }
+ 		mpz_clear(ival);
+@@ -12276,6 +12375,9 @@
+     case BUILTIN_NEW:
+     case BUILTIN_MAKE:
+     case BUILTIN_ADD:
++    case BUILTIN_STRING:
++    case BUILTIN_STRINGDATA:
++    case BUILTIN_SLICEDATA:
+     case BUILTIN_SLICE:
+       go_unreachable();
+ 
+@@ -12619,11 +12721,16 @@
+ void
+ Builtin_call_expression::do_export(Export_function_body* efb) const
+ {
+-  if (this->code_ == BUILTIN_ADD || this->code_ == BUILTIN_SLICE)
++  if (this->code_ == BUILTIN_ADD || this->code_ == BUILTIN_SLICE
++      || this->code_ == BUILTIN_STRING || this->code_ == BUILTIN_STRINGDATA
++      || this->code_ == BUILTIN_SLICEDATA)
+     {
+       char buf[50];
+       snprintf(buf, sizeof buf, "<p%d>%s", efb->unsafe_package_index(),
+-	       (this->code_ == BUILTIN_ADD ? "Add" : "Slice"));
++	       (this->code_ == BUILTIN_ADD ? "Add" :
++                 this->code_ == BUILTIN_SLICE ? "Slice" :
++                 this->code_ == BUILTIN_STRING ? "String" :
++                 this->code_ == BUILTIN_STRINGDATA ? "StringData" : "SliceData"));
+       efb->write_c_string(buf);
+       this->export_arguments(efb);
+     }
+--- a/gcc/go/gofrontend/escape.cc
++++ b/gcc/go/gofrontend/escape.cc
+@@ -1626,6 +1626,9 @@
+               case Builtin_call_expression::BUILTIN_MIN:
+               case Builtin_call_expression::BUILTIN_MAX:
+               case Builtin_call_expression::BUILTIN_ADD:
++              case Builtin_call_expression::BUILTIN_STRING:
++              case Builtin_call_expression::BUILTIN_STRINGDATA:
++              case Builtin_call_expression::BUILTIN_SLICEDATA:
+               case Builtin_call_expression::BUILTIN_SLICE:
+                 // handled in ::assign.
+                 break;
+@@ -2442,7 +2445,10 @@
+                     }
+                     break;
+ 
+-                  case Builtin_call_expression::BUILTIN_SLICE:
++                  case Builtin_call_expression::BUILTIN_STRING:
++              case Builtin_call_expression::BUILTIN_STRINGDATA:
++              case Builtin_call_expression::BUILTIN_SLICEDATA:
++              case Builtin_call_expression::BUILTIN_SLICE:
+                     {
+                       // unsafe.Slice(p, len).
+                       // The resulting slice has the same backing store as p. Flow p to result.
+--- a/gcc/go/gofrontend/export.cc
++++ b/gcc/go/gofrontend/export.cc
+@@ -271,7 +271,10 @@
+       const Builtin_call_expression* bce = call->builtin_call_expression();
+       if (bce != NULL
+ 	  && (bce->code() == Builtin_call_expression::BUILTIN_ADD
+-	      || bce->code() == Builtin_call_expression::BUILTIN_SLICE))
++	      || bce->code() == Builtin_call_expression::BUILTIN_SLICE
++              || bce->code() == Builtin_call_expression::BUILTIN_STRING
++              || bce->code() == Builtin_call_expression::BUILTIN_STRINGDATA
++              || bce->code() == Builtin_call_expression::BUILTIN_SLICEDATA))
+ 	{
+ 	  // This is a reference to unsafe.Add or unsafe.Slice.  Make
+ 	  // sure we list the "unsafe" package in the imports and give

@@ -1,0 +1,7 @@
+{
+  "reason": "KolibriOS has atomic named-memory creation and OS-thread cleanup; its filesystem does not support atomic O_EXCL creation.",
+  "replace": {
+    "dotlk.go": "lock_kolibrios.go",
+    "dotlk_other.go": "lock_kolibrios.go"
+  }
+}

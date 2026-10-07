@@ -1,0 +1,1246 @@
+{
+  "requested_packages": [
+    "cmp",
+    "encoding/gob",
+    "flag",
+    "html/template",
+    "iter",
+    "log/slog",
+    "maps",
+    "math/rand/v2",
+    "mime/multipart",
+    "net/http/httptest",
+    "net/http/httptrace",
+    "net/http/httputil",
+    "net/netip",
+    "net/rpc",
+    "net/textproto",
+    "os/signal",
+    "runtime/debug",
+    "slices",
+    "testing",
+    "text/template"
+  ],
+  "packages": {
+    "cmp": {
+      "source": "Go 1.23.0",
+      "files": {
+        "cmp.go": "9d8e18366a1a20d2a1981b7f6a0fe53362e801d9ca20eeee56d65536124dd91b"
+      }
+    },
+    "encoding/gob": {
+      "source": "GCC 13.3.0 libgo",
+      "files": {
+        "debug.go": "562420202b9e1c888bf4cdd88f6f45237ab25cdb0b4af68dd9d4a64162c45f4a",
+        "decgen.go": "008a053343fe428d1e4fab27765f9024ade354a8fa02a4d78a41951063efdc84",
+        "decode.go": "2e55c1775cdabf28ec1c4a1996e4f681a8e255893386f164c7880b01a9ecb034",
+        "decoder.go": "be8bccaf04cd6f3484d9deca906468a9832a0ab20de28568b51507eedab60e06",
+        "dec_helpers.go": "288e37cd9a33a606e8404705d931c39bb04cba44767a05df9e20d4307f645a2d",
+        "doc.go": "2230b47618557d304375b4b4fb54113604ccf1d6021e18e1d2d7a61b5fad33bd",
+        "dump.go": "6772813e92625ba6b726be315ecb22381d0bea4e04c942900c8ce0cb8ee3612c",
+        "encgen.go": "4ff06a0aeadb8276e91d36f7130db5d46aef096b50a5e36ee87ceae25daa8344",
+        "encode.go": "1b0d2434b0268a240e78fd6a599a557543bbe4cf67f7825b8303710a85d0994d",
+        "encoder.go": "c33986fe9d5bfc60b6c953b6f64ca522cc225d65abbb6ad4959381a5fcd548cd",
+        "enc_helpers.go": "f9ffe4baa090655c66f23222fc64a43ba4742d31cae252642edef7544afb3b62",
+        "error.go": "4ad27d80488d4dcfdb0df03451d1dd05648845163e96da371a584d04796f715a",
+        "type.go": "c02c5855e7654ea2210afde9b4fde42a350925d44256b73a03fc38ab195db400"
+      }
+    },
+    "flag": {
+      "source": "GCC 13.3.0 libgo",
+      "files": {
+        "flag.go": "4e9a2e9705605d8335935bf1d5842e1515a4ae2b34cd6cfd7f2d4ccc497687b3"
+      }
+    },
+    "html/template": {
+      "source": "GCC 13.3.0 libgo",
+      "files": {
+        "attr.go": "29ec0f227a963c1a3244d3c8fc8508c72be2c89c882d8cb6b6acba01b2647a12",
+        "attr_string.go": "907701452f344f2a90d8121ced9decfd73e74ae6136671d7e4b1d268cb02e909",
+        "content.go": "a33e908ac0d866e7953db7acb50e8508905b2b653f66dabe6dd41b91639d0a40",
+        "context.go": "29aa1f9b28423c6ee520c5a00ab887916d4c784b3b0e22a95b9e65528eacb20f",
+        "css.go": "c76198abb69754ee28197bb81128b9d808c588302442bfb8d40a19c01d493dbf",
+        "delim_string.go": "7f16cbb3eb92f062118b28d6f916eb720cc7c628bc59ca335edacf1927bbd495",
+        "doc.go": "1d8e4a67ec9cb792ee88648b2046d98611ddfe72acd58397ec70c0a909af26d5",
+        "element_string.go": "4c35b65ee5f4f6db66f352c47dacaa55d964d98121ed341b4f5346aa215d9308",
+        "error.go": "d516b1cfd53d6240b3165f4d6dfe3c0939a7aa623039ec048bc1864c7bc73125",
+        "escape.go": "a599e29d959988da30a8abe542f6420e36701bd21b0e2da084af91ea864202da",
+        "html.go": "07e0d497010d38fdd20c4604f88dba0399466411b52583eb7a907ae440f5f213",
+        "js.go": "635e829c5d9f63ad92668bb2bea44ad95014de009b88a621792b5f83e15af6ab",
+        "jsctx_string.go": "9d4ac37c978d52776a239c1f9013fa022122847583eda1d886415ff9904daf08",
+        "state_string.go": "9c661c4a1efa2f26fec41177aeb675b1e5fa612349b078b64b3a98988e1102be",
+        "template.go": "61cb97a825ca548e6887cd6f7a89d64c4772b03312ebce78d8f60b38fed39d24",
+        "transition.go": "34e1101d3a9e6d0895eb9bfaaba4e513484ed0d7aa4fcc6e73465071c8270138",
+        "url.go": "669a5902d54e47ff5ab3e80ba74a583914d848f146d087762dd5420cff6bf831",
+        "urlpart_string.go": "869b404b02beae04ed00687ca8c00b989184e35da1485c3aa2f78c292870f061"
+      }
+    },
+    "iter": {
+      "source": "Go 1.23.0",
+      "files": {
+        "iter.go": "4e5fe7a742327a1ec894788ead2b3f7379286a63a6a895bfc6399a3cabed2bd0"
+      }
+    },
+    "log/slog": {
+      "source": "Go 1.23.0",
+      "files": {
+        "attr.go": "01ad512e99688d5aae17bf51388527d3d500adfc6bc4fb0102bb9ee1adbef03c",
+        "doc.go": "4f23bfd50361d93558325ce4d81b4c38b265d64a22329df331986f788bf505d2",
+        "handler.go": "8299d6d461d7967fa5951142060b064a58d077cfffad842f0b8af59308925b81",
+        "json_handler.go": "5e25091c42f022dca331adc7fb05f3ad37990665f3037f133e117af75722192a",
+        "level.go": "b61cd3fb6518559ee2379834e354e2ee9653e8a785835b1b7a0626d43366c1bf",
+        "logger.go": "dfd13b10cef69a3e2610a50118ee247b12a255bab95dc78434abdbebe2628829",
+        "record.go": "303feaa1abb59bfbb88053cf49cd06f442e592da5eae7cc1ff1b9e15d3d31024",
+        "text_handler.go": "de902b170b237cdfc9904a0a37510e9e25c3f0592d800d0e4383a9ccb4606177",
+        "value.go": "ef42323f3c07bb645a5cf86ce7211fe47b724e32c0898cea7b94c2dba02e4750",
+        "internal/ignorepc.go": "ebc0bd29942e1313a93a7b52eb1578d11ae56d1d5e4a21a87513a5bd2643a5f7",
+        "internal/benchmarks/benchmarks.go": "5cc4a14a130909abd639ba9b1bb1e500a4817d46e641cfbfcbb2b911b18cf68d",
+        "internal/benchmarks/handlers.go": "15c61114ce010d2bcd0dce9b3a373edcc70e122e12ba827eedb01896b9275586",
+        "internal/buffer/buffer.go": "d9a1e570503fafafb16d95429f22b657d5eff456ef48d40bdf5724c5dab5fead",
+        "internal/slogtest/slogtest.go": "f158d22e5de03bc717b38b9b80b37d32c5879d08f751b12f845fdb8926a214ea"
+      }
+    },
+    "maps": {
+      "source": "Go 1.23.0",
+      "files": {
+        "iter.go": "a803b5b1b09aa2dcedf90db32270f9cec310bc7cf8f141f87c2e6567db0c4208",
+        "maps.go": "0f69acac135baa8b644e2479e514835b4d991bcc894916c2e34b8739a171fce2"
+      }
+    },
+    "math/rand/v2": {
+      "source": "Go 1.23.0",
+      "files": {
+        "chacha8.go": "c0b9430d5eb1a446bbc8e2d1ce0388060039e47ef4e30b91062efe9beff72664",
+        "exp.go": "1962b9394fb390cdbbba401ca7bb6c0e10b8597d095890ec6421811d18ff2f23",
+        "normal.go": "355b9570ff06ec4825b4fb8a447e71208ac38ecacde0c289f88bf524fd85fa89",
+        "pcg.go": "a97c0f0fdb6a2a6f93bf3f60b2ff15b7030113baa204b98537d34b0dd574d12c",
+        "rand.go": "fb1bd45dd4d8c113d33726bfa56365daa31004e0e4be14b52c3819622c27245f",
+        "zipf.go": "ee4616e17c8b1d7ff33229b075f2e73c369307be02258f173393508cb2db0357"
+      }
+    },
+    "mime/multipart": {
+      "source": "GCC 13.3.0 libgo",
+      "files": {
+        "formdata.go": "26a0e77661cc9a8155a65fbebb36e7adae512da0fdc936e3f1495d6044326ab3",
+        "multipart.go": "b56d1f1debac96b254f434627b35a14e979ac8b9cba8e1af3278fc62fba2e007",
+        "writer.go": "17648611cdd94cc2fd376957b5ab157b12f74a52dc11ca0a7ee0964c650685a7"
+      }
+    },
+    "net/http/httptest": {
+      "source": "GCC 13.3.0 libgo",
+      "files": {
+        "httptest.go": "7ca4fcc57b6dbaa627b62f9b07c07640800aca5bade30bde51534daf11895de1",
+        "recorder.go": "4ebe6f05f3be2fbf94d46a3efd9905c7c32ad8b983bb14c29fc55519f1aff0e2",
+        "server.go": "ffe6bdc82397d8bdf9d49acbd556aa3813a20def5faac87f6a287004fd7e4596"
+      }
+    },
+    "net/http/httptrace": {
+      "source": "GCC 13.3.0 libgo",
+      "files": {
+        "trace.go": "37ef36a39a078b8782462cfa609ba8a5ec5a275a4736b4323d0c533bdc5cd1b0"
+      }
+    },
+    "net/http/httputil": {
+      "source": "GCC 13.3.0 libgo",
+      "files": {
+        "dump.go": "8d6e40a8653833f6618ee9f411a60ae55b0acddeb498b154ef73061fc65bee94",
+        "httputil.go": "3e9c86e362695b3311214e43aa9d804e954ffabafd8f838a479078b0b0ed345f",
+        "persist.go": "5379019b46b778e61af9d5786439787a4bdabd208a27e7938819236072373b07",
+        "reverseproxy.go": "336d79078c001bc85b86e11dbeb986a3cb76ea967b1ff5be0fddaccf433ccdc1"
+      }
+    },
+    "net/netip": {
+      "source": "GCC 13.3.0 libgo",
+      "files": {
+        "leaf_alts.go": "c67b0005655107826a56120e81d8ce0873dc1c1de29397166ac5bb6aac38047b",
+        "netip.go": "f9c15f63ded82f61fdc44a6edc38c71fbc66d9f68fbba3c9a3c034aecd195412",
+        "uint128.go": "6743178c51c4f15530ca5280b7c9ce653bb8ed50a195da6c35422de9c4634a86"
+      }
+    },
+    "net/rpc": {
+      "source": "GCC 13.3.0 libgo",
+      "files": {
+        "client.go": "7ba44e6060b233167f7503fe9bb77f480627b1dec001c6ed7980723de5e342b3",
+        "debug.go": "c10defe52bd02892dcedd17ce00d1559d178ec9fc95d922516a950321826748c",
+        "server.go": "ec3b38ef260ff18c909e8fa7b5b7f6d0947ff73e1b57bd58e719de71e73a70fa",
+        "jsonrpc/client.go": "7ede90ca5bb9959749f2dd4986380bb8a82e683f991dde91bf2add457436a842",
+        "jsonrpc/server.go": "922e159abaf4c47d51ecb6c54ec0399120cc76f0d0811cb5deafc0cd08ddbcc2"
+      }
+    },
+    "net/textproto": {
+      "source": "GCC 13.3.0 libgo",
+      "files": {
+        "header.go": "036b7b723c0f9b60b35a35e7be407450d6c88b10287105c9946be79d1442aff1",
+        "pipeline.go": "d8b78ffe222aeae796fd97b6feb8eec481fb5325bfcda1448e1f6b1866557e83",
+        "reader.go": "b6a1b7f4a32bef4cb2a25829f877fccba9cc10cb14b6c73c6cbd57308b3439fc",
+        "textproto.go": "5a3228d6ccad9f6d95e92fbd1ad1efb86ff435bb08571267473bef1a7fdccb61",
+        "writer.go": "f3f7fcefbc952322351717edde2e69feaa5b4516558fa862198d119ffd3e337c"
+      }
+    },
+    "os/signal": {
+      "source": "GCC 13.3.0 libgo",
+      "files": {
+        "doc.go": "25ee7c286f3f89bb97c0a62a5b468689d34bd2eb89a566673a8cd2ba28df0ea9",
+        "signal.go": "681d4fe88050657fafe591a1834d4db357c30473dc08c7ac4c310a5ea366e918",
+        "signal_plan9.go": "df89ef03ecdd9a13cc3ed20e5e28648e48a7159ef7f2d9f709483d0adfcca457",
+        "signal_unix.go": "d23d62ef26caa41ec15a06b113fe1175f0858fb078fb71cd6dd9a51b92c2e25a",
+        "internal/pty/pty.go": "ba5a4180c51ed7f4b5ccdc82445cd219f9694de47b80aaf507e278bfb80d8d07"
+      }
+    },
+    "runtime/debug": {
+      "source": "GCC 13.3.0 libgo",
+      "files": {
+        "garbage.go": "8c20c92aefe741f0e055600ae89830c80f521c149362a8ba2cf85632da175454",
+        "mod.go": "5ce9b05e2b501dfd6897169e56502f41d1d5a4209ed9d5a54443ea62ea7b0f05",
+        "stack.go": "b1ff0b02e9c76131c942aed834e4afd5923eb41f691b4960759d770b479e5620",
+        "stubs.go": "1603f080482150665fffd604724da4863edf7df77463d256e099e1e34942c8fa"
+      }
+    },
+    "slices": {
+      "source": "Go 1.23.0",
+      "files": {
+        "iter.go": "bac33a7be07413af41e4784e3935345342d4d771033480fb95e70636968595d4",
+        "slices.go": "6a8dbf30235764fd48bfa13b48944e79186dc1e115502ac579562e30753bdbd1",
+        "sort.go": "40c7a8609ebe7abae54a193d553ff25ae0f0aa11798e6b51c312c28a3bccd7b1",
+        "zsortanyfunc.go": "50398783e085ac9cc1d7c6249ebe75a5cc4425dcdc6a4cc448ea6e7179126492",
+        "zsortordered.go": "f6d8d5df558075ca8299a89f9b5beda3ca7d1ddc7858dc2e52eee44e4dfdd7a9"
+      }
+    },
+    "testing": {
+      "source": "GCC 13.3.0 libgo",
+      "files": {
+        "allocs.go": "8b90256b996f8503c927e099f1fb5f3f4477ebf43fd88656af6454c4f26f0526",
+        "benchmark.go": "662ec428b58c9c659c654859a1ba107e194547772e6ff1ca04f8c7ba88467a11",
+        "cover.go": "3c034f1d279389f5221c05c4a2d54097af2be41d57f798243952a3e0b7190044",
+        "example.go": "07fb73a6fc0ac4553c1f45ce35d296d74cbe24fc869e3fc592ddf819e02a5a6e",
+        "fuzz.go": "c3aedba925a55b11cb69b9ee54058036fe2fc958f2ff3f44e6630f97f13a7035",
+        "match.go": "56479aa82d23c67f2c2ceda0658a1d0c11f3a63129114bd9fccbe65c348935d2",
+        "run_example.go": "2f2fcc5bf067d62d960f357612c27d0ecc69e3bea7f2713ecd67598512320cdb",
+        "run_example_js.go": "b9bbacc610aa5093e699e012929a45211297c595280a73eb11a943ad95a583c9",
+        "testing.go": "ca080c65356c13bf5ffc8bdef21ab08297fca7701ed7ded07e0077c3fe8b79b2",
+        "testing_other.go": "8deb8ca4b7905ec71e319b6f37b3c879517ebd589aee76ddfc70dfe1f756e360",
+        "testing_windows.go": "9695a83c1e929d8e95e4209cad94be273eb9db0870630f9c8157f1929cb0fbbe",
+        "fstest/mapfs.go": "b6927aa08e85c60303a9c3297263ca5265760eb792c1882d699eb9d6ef37a8c1",
+        "fstest/testfs.go": "e7de67598d71962bfdf28cbfffc212b9864649df0b08efb793e0d5ed4877aee2",
+        "iotest/logger.go": "8aca633f56f58daa7cfa3ff1f57c6ec70e5cca9c69d8162e6482bf561b328ca5",
+        "iotest/reader.go": "45629c663b566bf3197408de2e5a7a2ccb928a51123e19eb33e4669bad069cb6",
+        "iotest/writer.go": "5e7b6f3cc49b9fc988a40e03020366af1fd8580b60cbac2ac91d127967039395",
+        "quick/quick.go": "9b6e372b812b3a417558214cb8e28eee92640a503f97deaa9400c2bc71f0f1c7",
+        "internal/testdeps/deps.go": "ebba3cacd101558165c51cb565297f9659bcf713a67b54b4bb95409c06c66ea9"
+      }
+    },
+    "text/template": {
+      "source": "GCC 13.3.0 libgo",
+      "files": {
+        "doc.go": "db49c9b4625d4abfa83a61c65bd07101e3f27aa8ceceeeec8b50aad01af534dd",
+        "exec.go": "84aaf34a335f026eeb8e17679c14f00a6239fa375e26a25807f2f9a5255bf803",
+        "funcs.go": "0c6a7e6e7e4e6ba82881f47def92226d55688e2456f17b7f3f2fc2f1c1b2f0ea",
+        "helper.go": "fc1377baca25cad385d4e1f3b24940cc9f556f058c461aba8653c50009c26a68",
+        "option.go": "cf07f059bad69aae35a3424589f6c22f94f5f7c0d24e548df459e0bb45d02356",
+        "template.go": "aa4f3881099b738080230c8360824ded3bd0e87612e39d7b4f99b9c1812c70df",
+        "parse/lex.go": "e75ed99dfa7318b6e2d5ccc1a081cfd6bb6ad90bf796beeebdb6b1edbe21d188",
+        "parse/node.go": "1a409377db6f9b088bd6ca976671cd7d6d541056c1ed31734e8cbe23343b84c6",
+        "parse/parse.go": "826095d738801debbca766379ec2675143ce2e14e11a8397bc63749052f614fc"
+      }
+    },
+    "golang.org/x/net/http/httpguts": {
+      "source": "GCC 13.3.0 libgo",
+      "files": {
+        "guts.go": "3da54270a625540809f2f767e54e18acf27199aca64b6cf16d6d3fa3999de959",
+        "httplex.go": "a0924eaf14f5aed5771babb3c05e984de1ef42e59882ec34a5e1d748e634e962"
+      }
+    },
+    "internal/byteorder": {
+      "source": "Go 1.23.0",
+      "files": {
+        "byteorder.go": "0139d44cca5316fc83a8e976eb1d9d11ec0882efa46ce540043877429a4a7c0d"
+      }
+    },
+    "internal/chacha8rand": {
+      "source": "Go 1.23.0",
+      "files": {
+        "chacha8.go": "a083589e21ebb94118da93f76c6c9cd4125844371256e68540adb2d8f63bb416",
+        "chacha8_generic.go": "3202dcb9bb0750e7ec3ecff529a09331a9145a090a8c3b5fed57ff5c34e602b2"
+      }
+    },
+    "internal/intern": {
+      "source": "GCC 13.3.0 libgo",
+      "files": {
+        "intern.go": "e92b706690ac7e21be435abb574096e95791f196b81738cc15b625582ad3aec3"
+      }
+    },
+    "log/internal": {
+      "source": "Go 1.23.0",
+      "files": {
+        "internal.go": "8b55b6f684fde5bec66a1717b2475de06a050dca76aa0bdaf914a781e526eea0"
+      }
+    },
+    "net/http/internal": {
+      "source": "GCC 13.3.0 libgo",
+      "files": {
+        "chunked.go": "38172589c41cf6eae1e04057cf8c8c22cb7da163d40d66cfd64d8412636440ae",
+        "ascii/print.go": "e9ed8a172e4f1f5c5863ddb668a58f2d42d794a5b987b1ed33d7adc437063750",
+        "testcert/testcert.go": "6c47823d8d8a2ac05176f5e668ca2be6b95c9550cfabed76f30ecca288e1ef40"
+      }
+    },
+    "runtime/trace": {
+      "source": "GCC 13.3.0 libgo",
+      "files": {
+        "annotation.go": "3ea92f12eeef9ba148ee4b7b3efc6c7365a5bc429cf57a516bbd4bed195fd67f",
+        "trace.go": "4015c0019f56f6ec9fecd485a1425a64d315b2960dc4a3d09d589f7e7b893d48"
+      }
+    },
+    "net/http": {
+      "source": "GCC 13.3.0 libgo",
+      "files": {
+        "client.go": "366620fb696814c029996dc11eddba098b9584633667922ad58f942a109a160b",
+        "clone.go": "bf09dfe0547d982e9215196be9143e5397ce72cb16004b96e7bc85bfa7e2881b",
+        "cookie.go": "58e61d1e76722f53fb156ee62e3a7926543289ebf9ca079f8188e13b46fd109e",
+        "doc.go": "5ae623d3cb0f1d7ba4e11f14a7bf4941438c36e0993137e56d9bc8fad217a973",
+        "filetransport.go": "b2d7daac66b19b6cc821298df8b88a85f41808e1f107b6689b3f3e2bcaf3b07c",
+        "fs.go": "68d0fa1c8b95b9d21754446bd7c697445921c526d083f0dce7a3614f9a0480d5",
+        "h2_bundle.go": "cf1768ff543540d41ee0a0f4a8cd1b739e26ebc5482fcf18d7195310e0a78037",
+        "header.go": "bac6aa82d83894f9664b56ebf4e8405e96e039ebe7568f0eba338c42f05edd83",
+        "http.go": "49faab9d00377757b61ce24765b22646e921747c0af12b9b87dcbad607a88b35",
+        "jar.go": "ce89dafcd7d38806241bc002787c159a578f50097aa23e9e88e3055997356b0c",
+        "method.go": "e0f44099c09a6245c475585347eed68c738e730008700964685a9fc7afe5963b",
+        "omithttp2.go": "0617a901a76261a3ddece89d0b5225de3059553750b3a2402079ae5d937402af",
+        "request.go": "4ddb1bd2c5b8addd74c0db738c82dfee9a9de4f006425876361ccd2d8c7d1e5c",
+        "response.go": "8aca0d634754fc012992f31f482f2904d6b9a91df88cf92f6c556247873c3dc8",
+        "roundtrip.go": "0d9b0b7ccaf0f1ed12765261d28167fc5015440a9a2eaf934d003f1a7615aab6",
+        "roundtrip_js.go": "6649b026bbd9b7a8fd25b275140bf9da39e98e9dd85b69a339a7488ddde9f070",
+        "server.go": "b82a756e00803a1e141762838291664b00e424e6462f6dce0299e0cfec05b1b1",
+        "sniff.go": "7697a8a82e9080e41ede5f1bcc7ea24eb516baa0c796111bf568f4f9062fbee0",
+        "socks_bundle.go": "8197c6b9dba0597f309b8161f6d7853f559f9ca36441f7d1bec23043ecfc7a2c",
+        "status.go": "5590c617a9ae2675cd82a180f37b29ea22f4662329db8854809c6caad88c0df9",
+        "transfer.go": "9ae39d25ca508fad64d03a8cb060bc318ba114e059aaec5db68f30f70ca534f5",
+        "transport.go": "be28a7aa730f77b1036d418b95f0c69f302991d6f8bbe2e37529178f9409b4f1",
+        "transport_default_js.go": "7352aac5110eebd94a32c64a0a98fa0651acc2ee13399dec55b22cfcb6813e8d",
+        "transport_default_other.go": "9b48329c1eae970ea0df43839372e2fb352e5d877aefc4af304e3b0e0880eb10"
+      }
+    },
+    "golang.org/x/net/http/httpproxy": {
+      "source": "GCC 13.3.0 libgo",
+      "files": {
+        "proxy.go": "17d90fcc8c79dc87eb8727a48d993f9de14b49619320c01040da7677206200b8"
+      }
+    },
+    "context": {
+      "source": "Go 1.23.0",
+      "files": {
+        "context.go": "8df66b0717530cd6bad9f42df3009c8f9711cf91e6ba84deddf4144c0e5a5c7d"
+      }
+    },
+    "internal/reflectlite": {
+      "source": "GCC 13.3.0 libgo",
+      "files": {
+        "type.go": "8b38b6e909515568537928ff64060262aea4955c19b47b02771e3fadc0692ee4",
+        "value.go": "174ea4b4c0940f4004b958eb511a4a5fa93186d9942377b2eb25deec93d0495c",
+        "swapper.go": "e6efc9d31474d6d8816ee57c48d2042067fdf4b1e2b13650ba4dd9062d0a20d2",
+        "eqtype_aix_gccgo.go": "fb2417b1405e63547b55d0aa3df0ba2ff44c1571153d518c3227bc8a3abe8e38"
+      }
+    },
+    "errors": {
+      "source": "Go 1.23.0",
+      "files": {
+        "errors.go": "6408682d10324a5f8ed9c64e97bcd6191d4c9d9941247aa902ab6c301ef52038",
+        "wrap.go": "f7c8345e5888de64e8722fcdeefa058ec3b2e86670c7119c2d97431259084f7d",
+        "join.go": "5b6461998017a07232c4e89550d48c5fc21891c4e51c700a69199e133701ec64"
+      }
+    },
+    "os": {
+      "source": "Go 1.23.0 portable error API; GCC 13.3.0 libgo os/env.go",
+      "files": {
+        "error.go": "f073f7fb0bad2cd69df450956b4a267b5ecfb519a9089d44fe6b6e2d6f766e18",
+        "error_errno.go": "ed6fd740dad50c527509f0513a860cac22c3e0fd3fd8fb20da706f3cbeb382f4",
+        "env.go": "e2420fa4b8d7e9a524548c78bc038b9957b8072275e8396b485af4df1055ae4b"
+      }
+    },
+    "syscall": {
+      "source": "GCC 13.3.0 libgo portable network interfaces",
+      "files": {
+        "net.go": "96c7ea22567bb7a64b294ee89f91801f116b336beeabc341d016b37cf840058d",
+        "env_kolibrios.go": "29531fe9685a98b385e873aa85aadec82e91d38b43ea2ae6fdae17c5531c8f41"
+      }
+    },
+    "sync": {
+      "source": "Go 1.23.0",
+      "files": {
+        "mutex.go": "507443584e79a36244c0c1800fe480632822be195f9f59f99fc3d2aef9c9b4a6",
+        "rwmutex.go": "1252488d2494c163a57f148fa21c39f80a43ca4aa20e1a9426d5ea15d3c453a3",
+        "once.go": "5cb3dc3e4b4fec79fe581e10425ed669de9bb775f89051aa9e151f3ae57a48d7",
+        "oncefunc.go": "0fda45d676d00e6baa4b40617837473e69642a9c2dc6c97336f3c0c2820cb672",
+        "waitgroup.go": "8c93cdfd66c456745dba90fa4a0deccbbf76f2deb3a321c891ef642b8254937c",
+        "cond.go": "324314fd3a484897ce540a242f9de85d00407040c8cd2ee7db5d5761f5d14d4f",
+        "map.go": "151cbad740b0c91d3884432c6eded087b20ce7003114f63296c8587519abaf9c",
+        "runtime.go": "76096f4caa16f66860ae9c137050f86dbf5708307425a5de2402cdbc519309e0",
+        "runtime2.go": "5bc4014718a892af6591e26e6c87105a001b7d1d1f93c3ec4c289128c80f6ba4"
+      }
+    },
+    "net": {
+      "source": "GCC 13.3.0 libgo",
+      "files": {
+        "interface.go": "1c1848f890d1e1d48e91590d90d8c950fe7cc82166e54996e7e65ff9b497f6ec",
+        "mac.go": "48b79c13df9d7dec8cc5eb21d413692f0f3154bd8f8ddf59179158ca0ce0d0b5"
+      }
+    },
+    "image/draw": {
+      "source": "GCC 13.3.0 libgo",
+      "files": {
+        "draw.go": "f7a37d30bd9b8287b7371535c6b83069e25ce6511d96d7ebc4691efad2068bab"
+      }
+    },
+    "internal/testlog": {
+      "source": "GCC 13.3.0 libgo",
+      "files": {
+        "log.go": "9b85c27843d4856d49b25ded09cc40756f25affb9a1664f6a08bff10b0f4fef9"
+      }
+    },
+    "log": {
+      "source": "Go 1.23.0",
+      "files": {
+        "log.go": "0af146550e56c46291f37db4518604e0af7a53f3e07c82e24173ec5a61a51cca"
+      }
+    }
+  },
+  "adaptations": {
+    "internal/intern/intern.go": {
+      "sha256": "c9991362458213511f0dc523c37f68abcf41d83b860b6654fd037a7b3b8f59ee",
+      "reason": "Exclude weak-reference backend on KolibriOS until its behavior is validated with the SDK collector; use upstream-derived strong-reference mode."
+    },
+    "os/signal/signal.go": {
+      "sha256": "e1acd13cbe64274ca22e5f856145679c211e1525d2166819c1c27588d5af8ae3",
+      "reason": "Move signalWaitUntilIdle declaration into the upstream-runtime platform file; KolibriOS uses a native console delivery barrier."
+    },
+    "net/http/request.go": {
+      "sha256": "648bfe845c1d12f8efb80937056dc59d818e882e1b62ef3d567306e69ace8f92",
+      "reason": "Retain the SDK Request.Progress callback field; request algorithms remain upstream."
+    },
+    "net/http/roundtrip.go": {
+      "sha256": "489fe2da324af47dfc7b626bff0c1d8432059bf3430375d4beb9cccb48528dd2",
+      "reason": "Attach SDK Progress through upstream HTTP trace callbacks before roundTrip."
+    },
+    "net/http/transport.go": {
+      "sha256": "0b20aaa804c245f049ea385b95a8f24d16bf22b92c29f5fb9839ad380f2e54ed",
+      "reason": "Retain the SDK Transport.Progress callback field; transport algorithms remain upstream."
+    },
+    "syscall/env_kolibrios.go": {
+      "reason": "KolibriOS build tag; external runtime/cgo declarations moved to native sidecar loader backend. All env_unix.go table, synchronization, validation and mutation algorithms unchanged.",
+      "sha256": "a006d33ecb9264d0da6bdc2925cc3fb99849fe892d4a7d3dec0fcbe2fa2f3e74"
+    }
+  },
+  "support_sources": {
+    "internal/goarch/goarch.go": {
+      "source": "Go 1.23.0 src/internal/goarch/goarch.go, unchanged",
+      "sha256": "475c15cb5dfc76495a407b187c399bdd2101b00c9656a17eef142374b21baed8"
+    },
+    "internal/goarch/goarch_386.go": {
+      "source": "Go 1.23.0 src/internal/goarch/goarch_386.go, unchanged",
+      "sha256": "ca770aa8237a9a67318ae4592cfc7ed3412d34f423be981bbd7945788b40d2e1"
+    },
+    "internal/goarch/zgoarch_386.go": {
+      "source": "Go 1.23.0 src/internal/goarch/zgoarch_386.go, unchanged",
+      "sha256": "fddbba792bda44993409222cf48a33800990ce3a3937ce1f891dba3497e871f9"
+    },
+    "path/filepath/match.go": {
+      "source": "GCC 13.3.0 libgo/go/path/filepath/match.go, unchanged",
+      "sha256": "4cab03b0e57d54e5f3b0ceb9d0dcda21ac17fcca8601d895d4acfa7a4dbf25ec"
+    },
+    "io/section.go": {
+      "source": "GCC 13.3.0 libgo/go/io/io.go, NewSectionReader through Size, unchanged function bodies",
+      "sha256": "d29a26afdca4fda9cbe8f1b07e6fd55f19f36058206c8d4b761adff093093d14"
+    },
+    "io/nopcloser.go": {
+      "source": "GCC 13.3.0 libgo/go/io/io.go, NopCloser and its helper types, unchanged function bodies",
+      "sha256": "004688ac43738690ee32a967e136e48b031a28b8004985a9a11251214ca3912a"
+    },
+    "os/tempfile.go": {
+      "source": "GCC 13.3.0 libgo/go/os/tempfile.go; omit MkdirTemp (no atomic mkdir), bind fastrand to existing gccgo runtime ABI",
+      "sha256": "414cdea43b6ccf234d653f0747d13f64f5d069c35918cfbbb3e8cbbc446ca4b4"
+    },
+    "runtime/error_kolibrios.go": {
+      "source": "GCC 13.3.0 libgo/go/runtime/error.go, Error interface",
+      "sha256": "76aa32ad6867ce7a001c8f1374098d1930cbc2ca743e6c91856827b744e130ff"
+    },
+    "runtime/memstats_types.go": {
+      "source": "GCC 13.3.0 libgo/go/runtime/mstats.go, MemStats type (does not implement ReadMemStats)",
+      "sha256": "afff9c761687db105b0ed58b29302789fea8e530c6bde2451e5dc07f43213c4d"
+    },
+    "reflect/template_support.go": {
+      "source": "GCC 13.3.0 libgo reflect traversal/channel algorithms adapted to SDK flags and runtime.chanrecv2 ABI",
+      "sha256": "f8bfad282109c5fbf51382f983c9ff8b3b6fff8de902692fafb9690f62a7ffdb"
+    },
+    "net/ipaddr.go": {
+      "source": "GCC 13.3.0 libgo IPAddr type, String and Network methods, ipEmptyString helper",
+      "sha256": "d4b5b0e8726207e625471e6350559a8df9b86657830b1d8fe73528652e6fb053",
+      "adaptation": "The unchanged ipEmptyString body is now provided by the complete upstream ip.go."
+    },
+    "io/io.go:CopyN": "GCC 13.3.0 libgo/go/io/io.go, original CopyN function body replaces bootstrap short-read behavior",
+    "internal/cpu/cpu.go": {
+      "source": "GCC 13.3.0 libgo/go/internal/cpu/cpu.go",
+      "sha256": "68f24266966835fa2f156df5df99bd2a9145ecf3beff5cec36ce27746bf15aaa",
+      "upstream_sha256": "68f24266966835fa2f156df5df99bd2a9145ecf3beff5cec36ce27746bf15aaa"
+    },
+    "internal/cpu/cpu_x86.go": {
+      "source": "GCC 13.3.0 libgo/go/internal/cpu/cpu_x86.go",
+      "sha256": "812dd8bf0d0cf220bca1d18e3e2326c2f63caee92b4edfe544e16a8c0497d1fe",
+      "upstream_sha256": "812dd8bf0d0cf220bca1d18e3e2326c2f63caee92b4edfe544e16a8c0497d1fe"
+    },
+    "net/pipe.go": {
+      "source": "GCC 13.3.0 libgo/go/net/pipe.go",
+      "sha256": "93d67f29b92890d6c964a3a6d2110946ec0354a5799c7cbee12c47c0459e795e",
+      "upstream_sha256": "93d67f29b92890d6c964a3a6d2110946ec0354a5799c7cbee12c47c0459e795e"
+    },
+    "internal/cpu/cpu_gccgo.c": {
+      "source": "GCC 13.3.0 libgo/go/internal/cpu/cpu_gccgo.c",
+      "sha256": "a9b474e156751473722dcc724c21cd47377ea7df2c74012ee7bc82beb0f51b92",
+      "upstream_sha256": "7f63f9a7826835fbb9503ee093abf3ef2af5215894eea85cbe0550f3bc1a6261",
+      "adaptation": "Replace runtime.h include with empty GOSYM_PREFIX for the KolibriOS ELF ABI."
+    },
+    "internal/cpu/arch_kolibrios.go": {
+      "source": "KolibriOS initialization of upstream CPU detection",
+      "sha256": "dc50404baa904ec44403af54afc15a058e1cdd9016bf9af51c0e383f8e420b55"
+    },
+    "reflect/ffi_prep_cif.c": {
+      "source": "libffi 3.4.2 bundled with GCC 13.3.0: src/prep_cif.c",
+      "sha256": "0699a33c031704099440630d0c718cd7c4d051ccdcf64559bb4b138b6f4e2074",
+      "upstream_sha256": "0699a33c031704099440630d0c718cd7c4d051ccdcf64559bb4b138b6f4e2074"
+    },
+    "reflect/ffi_types.c": {
+      "source": "libffi 3.4.2 bundled with GCC 13.3.0: src/types.c",
+      "sha256": "466735ab14f3f53b3f147c6f3ab245105e8c262e89daed8426e6e9fa569f792a",
+      "upstream_sha256": "466735ab14f3f53b3f147c6f3ab245105e8c262e89daed8426e6e9fa569f792a"
+    },
+    "reflect/ffi_x86.c": {
+      "source": "libffi 3.4.2 bundled with GCC 13.3.0: src/x86/ffi.c",
+      "sha256": "3e6139846fe9f13f3a3d8b89e8475da65e6f9f4253a036042dc77cdd95c98870",
+      "upstream_sha256": "3e6139846fe9f13f3a3d8b89e8475da65e6f9f4253a036042dc77cdd95c98870"
+    },
+    "reflect/ffi_sysv.S": {
+      "source": "libffi 3.4.2 bundled with GCC 13.3.0: src/x86/sysv.S",
+      "sha256": "3f5f57f20eb1b712e671bbc0e51d2ab337da4acaea05ebc77da782a1d53ab42c",
+      "upstream_sha256": "3f5f57f20eb1b712e671bbc0e51d2ab337da4acaea05ebc77da782a1d53ab42c"
+    },
+    "reflect/ffi_common.h": {
+      "source": "libffi 3.4.2 bundled with GCC 13.3.0: include/ffi_common.h",
+      "sha256": "2b3f3d2ca1b16d6ae98d6b27ca0467fcd7605847b14cb681e844e51dea11527d",
+      "upstream_sha256": "2b3f3d2ca1b16d6ae98d6b27ca0467fcd7605847b14cb681e844e51dea11527d"
+    },
+    "reflect/tramp.h": {
+      "source": "libffi 3.4.2 bundled with GCC 13.3.0: include/tramp.h",
+      "sha256": "ef20dace99925672167a5f3b3898299d462ace170f0b90ca47fd36b30cfc7fbf",
+      "upstream_sha256": "ef20dace99925672167a5f3b3898299d462ace170f0b90ca47fd36b30cfc7fbf"
+    },
+    "reflect/internal.h": {
+      "source": "libffi 3.4.2 bundled with GCC 13.3.0: src/x86/internal.h",
+      "sha256": "faf2d20939ecf17ce73e288e38162de47119bb5f7bdd4994aa434b4b7dea6591",
+      "upstream_sha256": "faf2d20939ecf17ce73e288e38162de47119bb5f7bdd4994aa434b4b7dea6591"
+    },
+    "reflect/ffitarget.h": {
+      "source": "libffi 3.4.2 bundled with GCC 13.3.0: src/x86/ffitarget.h",
+      "sha256": "c83585125f3b244a1fe4551366f464734b97c11139ce2e2b5b4141183ba7ebb2",
+      "upstream_sha256": "c83585125f3b244a1fe4551366f464734b97c11139ce2e2b5b4141183ba7ebb2"
+    },
+    "reflect/ffi.h": {
+      "source": "libffi 3.4.2 generated 32-bit x86 ABI configuration; GCC -fdump-go-spec for ffi_defs_386.go",
+      "sha256": "f55cfdba611eeae6b5289f19374476e6cdc133f82f68c2261d64b4c42149eac7"
+    },
+    "reflect/fficonfig.h": {
+      "source": "libffi 3.4.2 generated 32-bit x86 ABI configuration; GCC -fdump-go-spec for ffi_defs_386.go",
+      "sha256": "af02806017b25703e2ce461941efa608e30508783ff76dbe5555ded91cc0c1db"
+    },
+    "reflect/ffi_defs_386.go": {
+      "source": "libffi 3.4.2 generated 32-bit x86 ABI configuration; GCC -fdump-go-spec for ffi_defs_386.go",
+      "sha256": "8419fcc7356e45e63ff32249da05e5f494e10025d8b8fcf638ed3741dfc9ea36"
+    },
+    "reflect/ffi_call.c": {
+      "source": "GCC 13.3.0 libgo/runtime/go-reflect-call.c",
+      "sha256": "b105d6fb254dfc466ee6738366ee4cd1051b8e7d68fe6062e30f5c81160d2855",
+      "upstream_sha256": "8b7877920c8db05ece772345d97b619067d7af55dead9834ae3744c71e4e9823",
+      "adaptation": "Adapt includes, helper and type names to the existing SDK ABI; omit duplicate toType in eqtype.go and unavailable libgo recovery bookkeeping in makefunc_ffi.c."
+    },
+    "reflect/ffi_getters.c": {
+      "source": "GCC 13.3.0 libgo/runtime/go-ffi.c",
+      "sha256": "cd32978383c1c8bb0d94ab0a0d37ff402e1479f658e1045e11b9802d02864d64",
+      "upstream_sha256": "7d50b2115080d0b5755ce37ee91ae835006a9ac9c8cfaa12653372b6672f67f5",
+      "adaptation": "Adapt includes, helper and type names to the existing SDK ABI; omit duplicate toType in eqtype.go and unavailable libgo recovery bookkeeping in makefunc_ffi.c."
+    },
+    "reflect/makefunc_ffi.c": {
+      "source": "GCC 13.3.0 libgo/go/reflect/makefunc_ffi_c.c",
+      "sha256": "178308b0c9f97af7da86ac21a10a188f001ab0790592b491d945a6bc6909a421",
+      "upstream_sha256": "e5dc6bf6414d07f07e8d0662620a5a40eccc2b1c54989e9fb5ca606de76f8422",
+      "adaptation": "Adapt includes, helper and type names to the existing SDK ABI; omit duplicate toType in eqtype.go and unavailable libgo recovery bookkeeping in makefunc_ffi.c."
+    },
+    "reflect/eqtype.go": {
+      "source": "GCC 13.3.0 libgo/go/reflect/eqtype.go",
+      "sha256": "6def872429388fd3f3eba47863923e6b1c9a835535dfcbcb28b66a70acf3ba51",
+      "upstream_sha256": "61a85ed8ee9eb5ec148dd89486ba3431f2ba7200da6fbc82ffccd544113eb39a",
+      "adaptation": "Adapt includes, helper and type names to the existing SDK ABI; omit duplicate toType in eqtype.go and unavailable libgo recovery bookkeeping in makefunc_ffi.c."
+    },
+    "reflect/metadata.go": {
+      "source": "GCC 13.3.0 libgo reflect/type.go method metadata and assignment algorithms adapted to SDK helper names.",
+      "sha256": "b5d3423132d6060ec96dea2fff0ddffbd2a875cf6d0fb63687b88ded44884ba9"
+    },
+    "reflect/call_kolibrios.go": {
+      "source": "GCC 13.3.0 libgo reflect/value.go Call, CallSlice and methodReceiver adapted to SDK helper names and reflect_call ABI.",
+      "sha256": "06588e6110cfa9d9b742f0087deee7d84bff19682f19e16a21d9ec884359f12b"
+    },
+    "reflect/ffi_kolibrios.go": {
+      "source": "GCC 13.3.0 libgo runtime/ffi.go adapted to SDK reflect type layouts and native libffi getters.",
+      "sha256": "1248acdc8c1083d192080a4642d9302009162dbacab2336359fd83468a0fbcd3"
+    },
+    "reflect/makefunc_kolibrios.go": {
+      "source": "GCC 13.3.0 libgo reflect/makefunc.go and makefunc_ffi.go adapted to SDK allocation and assignment helpers.",
+      "sha256": "71926702d68d28dc42ea4b9b7f6b01e5daf2b77cb460878d5c1e0d8ec499a497"
+    },
+    "reflect/methods_kolibrios.go": {
+      "source": "GCC 13.3.0 libgo reflect/makefunc.go method values adapted to SDK libffi bridge.",
+      "sha256": "3e526a16623a73f73fbd335ccaf0049b5024504b776f6132958d08acb43382ca"
+    },
+    "reflect/ffi_go_types.h": {
+      "source": "Existing gccgo type ABI definitions extracted for the SDK libffi call bridge; compile-time 386 size checks.",
+      "sha256": "46031e4dee4a16af9c1e1b1e92719c82816789376f67fbf63f36eac6d4f31e02"
+    },
+    "runtime/frames_kolibrios.go": {
+      "source": "GCC 13.3.0 libgo runtime/symtab.go frame traversal and demangling adapted to link-time symbol/source tables.",
+      "sha256": "6aa0798768e57b643e86f1c24c0a7041c17766740c018afd6f3e9564a335bf23"
+    },
+    "net/halfclose_kolibrios.go": {
+      "source": "Explicit rejection of TCP half-close absent from the documented KolibriOS socket ABI.",
+      "sha256": "d0d0424d9cd4745e430942a5319a6604340d97c3fb944a81a16cdde06bb822f0"
+    },
+    "net/http/progress_kolibrios.go": {
+      "source": "SDK progress callback compatibility using upstream HTTP trace hooks.",
+      "sha256": "a0821069840877608b88a80803ed256494f8cae189cbd06cd8136f648cfc7fb7"
+    },
+    "time/round.go": {
+      "source": "GCC 13.3.0 libgo time/time.go rounding and division algorithms adapted to SDK Time field layout.",
+      "sha256": "cecc46a364df078111cf54cc329276e563bf3d5c3400832a9fb05058bff5bcf4"
+    },
+    "internal/poll/deadline.go": {
+      "source": "GCC 13.3.0 libgo internal/poll/fd.go deadline error extract.",
+      "sha256": "23d008de0fb4d9f42e18c1a4a879d4d4a8c0909dfc5752f119814226434eb181"
+    },
+    "io/ioutil/nopcloser.go": {
+      "source": "Upstream io/ioutil NopCloser compatibility wrapper.",
+      "sha256": "58e0fb62701a1ddbffae327b48ce02ce12235b3839d8061174d532e7f82952b9"
+    },
+    "sync/atomic/int32.go": {
+      "source": "Go 1.23.0 src/sync/atomic/type.go, Int32 through Add and noCopy declarations, unchanged",
+      "sha256": "1d9764e0cf2916c8b9b3314cc80a53e43a6f101513a46c4e6925d92c352e24af"
+    },
+    "sync/atomic/pointer.go": {
+      "source": "Go 1.23.0 src/sync/atomic/type.go, Pointer declarations and all methods unchanged",
+      "sha256": "2cf3affe257d978d06c94ce3b583670bc2d738bce331386dfeb3737bcacac4de"
+    },
+    "time/duration_units.go": {
+      "source": "GCC 13.3.0 libgo/go/time/time.go, Nanoseconds, Microseconds and Milliseconds unchanged",
+      "sha256": "187b0c6fe45b7d1d2467c2e487be65a7b00c4056acc6ffc52918244d1bb83177"
+    },
+    "runtime/unsafe_string.go": {
+      "source": "Go 1.23.0 runtime/unsafe.go unsafestring, unsafestring64 and panic helpers; GCC 13.3.0 runtime/error.go errorString, unchanged bodies",
+      "sha256": "49c860ab75db9ad995227367c6f56a8e2f7876115d88eed9accb9090c2f36149",
+      "adaptation": "Add compiler runtime linknames to retain externally referenced checks."
+    },
+    "runtime/unsafe_slice_errors.go": {
+      "source": "GCC 13.3.0 runtime/slice.go panic helpers; Go 1.23 runtime/unsafe.go nil-pointer error, unchanged error expressions",
+      "sha256": "1a255e2a4da90047b8b5888828a8aad476eb0f80b9b6822babbb266cbf1a704e",
+      "adaptation": "Compiler runtime linknames; omit Go runtime caller-PC panicCheck bookkeeping unavailable in the bootstrap."
+    },
+    "reflect/conversion.go": {
+      "source": "GCC 13.3.0 libgo/go/reflect/value.go conversions; Go 1.23.0 CanConvert and slice-to-array conversion",
+      "adaptation": "Connect allocation, interface conversion and flag checks to the existing gccgo KolibriOS reflection ABI; strconv.Itoa instead of internal/itoa.",
+      "sha256": "0b658549a7a982a0359b2da4b44036847ea3284340b3ef720fae0b0d6f80622a"
+    },
+    "runtime/mapclone_kolibrios.go": {
+      "source": "Go 1.23.0 runtime/map.go mapclone",
+      "adaptation": "gccgo interface descriptor layout and native bootstrap map table backend",
+      "sha256": "b8c6666db032401de1abdc45b3880551202133872727b177fb82844622e78b2d"
+    },
+    "time/sleep.go": {
+      "source": "GCC 13.3.0 libgo/go/time/sleep.go",
+      "sha256": "e5acaf0249737a2348cd10ebf878dab1941c01a79f70ed0f5d55117c2d956a42",
+      "upstream_sha256": "3561adee8a04189e53134a067d6bc6278863e80953670a5ca802855a6ebb21ec",
+      "adaptation": "Move platform Sleep and runtime-internal timer storage and entrypoints into the KolibriOS scheduler backend; public timer bodies unchanged."
+    },
+    "time/tick.go": {
+      "source": "GCC 13.3.0 libgo/go/time/tick.go unchanged",
+      "sha256": "8196bc936889a6321b25e184bea5a64e8d0257f24f46e81a00273fc974843e71",
+      "upstream_sha256": "8196bc936889a6321b25e184bea5a64e8d0257f24f46e81a00273fc974843e71"
+    },
+    "time/timer_kolibrios.go": {
+      "source": "KolibriOS scheduler backend for the libgo runtimeTimer interface",
+      "sha256": "0f7c2af501624f6143e5eda97c945aaee2e71cb76a52355b85c18c520ad1bbea",
+      "adaptation": "Cooperative sleeping goroutines, cancellation generations and libgo phase-preserving periodic rescheduling."
+    },
+    "syscall/signal_types.go": {
+      "source": "Go 1.23.0 syscall/types_windows.go signal identifiers and syscall_windows.go Signal methods",
+      "adaptation": "Use existing formatInt instead of internal/itoa; identifiers are source compatibility, not OS signal delivery.",
+      "sha256": "5181a7c6e5d76e65691647656139b92184867bfa1fd1d97a0046627c61271da8"
+    },
+    "os/signal_types.go": {
+      "source": "Go os/exec_posix.go Interrupt and Kill aliases and os.Signal interface",
+      "adaptation": "Use source-compatible syscall signal identifiers on KolibriOS.",
+      "sha256": "39170292db421b97bf6fe43a7272644411e3abf815ffcb2f55ccb5d3a2436844"
+    },
+    "reflect/slicing.go": {
+      "source": "GCC 13.3.0 libgo/go/reflect/value.go Slice, Slice3, Cap, OverflowFloat and overflowFloat32",
+      "adaptation": "Remove the upstream arrayAt diagnostic argument and use the existing gccgo raw-value pointer adapter; channel size queries use native libgo runtime entrypoints.",
+      "sha256": "48346b88f4de52fa9ac0c0a7baa76bbbce4dce0c583b7a936ad039afb72575e6"
+    },
+    "strings/iter.go": {
+      "source": "Go 1.24.0 src/strings/iter.go unchanged",
+      "upstream_url": "https://raw.githubusercontent.com/golang/go/go1.24.0/src/strings/iter.go",
+      "upstream_sha256": "a48bd284b58ffba6455e081423e89c569dcae304eb560d0fbf40d0b8c577efd7",
+      "sha256": "a48bd284b58ffba6455e081423e89c569dcae304eb560d0fbf40d0b8c577efd7"
+    },
+    "runtime/coro_kolibrios.go": {
+      "source": "Go 1.23.0 runtime/coro.go corostart and coroutine flow",
+      "adaptation": "Use opaque gccgo scheduler pointers and top-level function descriptor ABI; native runtime supplies parked goroutine exchange and reclamation.",
+      "sha256": "f80360f4d1dce7371e70f6efe5459c451b5e4e365216da696c25d7d793c91337"
+    },
+    "time/format.go": {
+      "source": "GCC 13.3.0 libgo/go/time/format.go",
+      "upstream_sha256": "f7362b477fb0fabf7d0cfc187c4b0ef5e80d131618dd17504f50fbe57a8c8b33",
+      "adaptation": "Use SDK Date/YearDay/Clock/Weekday/Zone and monotonic fields; preserve upstream formatting and parsing algorithms.",
+      "sha256": "80bbf1bc6a5d276429379e1d37f004071cc03566a619599b271a21e076d55fd0"
+    },
+    "time/calendar_names.go": {
+      "source": "GCC 13.3.0 libgo/go/time/time.go Month/Weekday.String, fmtInt, daysBefore, daysIn and isLeap",
+      "sha256": "3b495094e053e403ecc1f9b5ad193b9df4a66fff323f613e2525bd5acc107278"
+    },
+    "time/layouts.go": {
+      "source": "Go 1.23.0 time/format.go DateTime, DateOnly and TimeOnly constants",
+      "sha256": "626c592eed9c7b8997dd0f07e11bbf0e07c2bd08a8afd855e7c4c346a3813cc5"
+    },
+    "time/format_kolibrios.go": {
+      "source": "KolibriOS Time/Location adapters for original libgo format.go",
+      "adaptation": "Current SDK UTC and fixed zones; no timezone database or DST.",
+      "sha256": "087e7ff5d1ff757ae54b527d011c8536934a566ca0a4d2779bd8f7e522efa3cb"
+    },
+    "os/filemode.go": {
+      "source": "GCC 13.3.0 libgo/go/os/types.go unchanged FileMode constants",
+      "sha256": "be0945553f938e95e040be9620de05da9c0b23b1cecc72c1bb780313bcd50e44"
+    },
+    "io/writerat.go": {
+      "source": "GCC 13.3.0 libgo/go/io/io.go unchanged WriterAt interface",
+      "sha256": "557380bf1afd6b033f154af078b029b41a0137cbe53ee25aa69d74ec36dcbc3c"
+    },
+    "os/removeall_noat.go": {
+      "source": "GCC 13.3.0 libgo/go/os/removeall_noat.go unchanged",
+      "sha256": "dea7c6a0b2e981042055005c892e44afec79959045c6e456e92dcf131c700706",
+      "upstream_sha256": "dea7c6a0b2e981042055005c892e44afec79959045c6e456e92dcf131c700706"
+    },
+    "os/removeall.go": {
+      "source": "GCC 13.3.0 libgo/go/os/path.go unchanged RemoveAll and endsWithDot",
+      "sha256": "4dd2c1256a03787414eef9606bdb0f3db08a17898840b1db8024c8b887a42401"
+    },
+    "os/file_operations.go": {
+      "source": "GCC 13.3.0 libgo/go/os/file.go, file_posix.go and file_unix.go; Go 1.23.0 Windows path Truncate",
+      "sha256": "9bc72f665c758a07ac8072895bfa945cc9e494ea3d5fe27ea7a654de5a2058df",
+      "adaptation": "Use the SDK append flag and native truncate adapter; remaining extracted bodies are unchanged."
+    },
+    "os/read_directory.go": {
+      "source": "GCC 13.3.0 libgo/go/os/dir.go unchanged ReadDir functions and declarations",
+      "sha256": "c2395507de5dbc68c2f463f5aa9853b2d255b7c9489be05b9e1c38f62e065510"
+    },
+    "syscall/filesystem_compat.go": {
+      "source": "Go 1.23.0 syscall/zerrors_linux_386.go portable compatibility constants and fs_wasip1.go unsupported ownership operations",
+      "sha256": "355652dfdfe8e824abd971fa4732acb47b7b61cab7419b9fa1b5be3a91cd0a33",
+      "adaptation": "Add the upstream Unix ENOEXEC executable-format constant for native loader validation."
+    },
+    "os/file_operations_kolibrios.go": {
+      "source": "KolibriOS filesystem adapters for upstream os algorithms",
+      "sha256": "12b97deafbd51a91c3f7181784bbb259a1beb0bf1a6a89961afa6909d6b5fb6d",
+      "adaptation": "Use existing kos filesystem operations; reject native ownership and links that the syscall interface does not expose."
+    },
+    "syscall/links_kolibrios.go": {
+      "source": "KolibriOS filesystem adapters for upstream os algorithms",
+      "sha256": "9c31c0653164469ff67f9b7c9aae602330f92263ede4627a7affbe28bc707e74",
+      "adaptation": "Use existing kos filesystem operations; reject native ownership and links that the syscall interface does not expose."
+    },
+    "io/fs/walk.go": {
+      "source": "Go 1.23.0 io/fs/walk.go unchanged, including SkipAll",
+      "sha256": "09de459e421e28f05c2eae1b5848cc616aa0879760d24e955faa056de47c26f0",
+      "upstream_sha256": "09de459e421e28f05c2eae1b5848cc616aa0879760d24e955faa056de47c26f0"
+    },
+    "path/filepath/walk.go": {
+      "source": "Go 1.23.0 path/filepath/path.go unchanged SkipDir/SkipAll, WalkFunc, lstat, walk/walkDir, Walk/WalkDir and readDirNames",
+      "sha256": "f110c54b88b3e26a855a62a071b54a78da2e57861032ab0cf2571f98b3924255"
+    },
+    "net/ip.go": {
+      "source": "GCC 13.3.0 libgo/go/net/ip.go complete unchanged file",
+      "sha256": "f29a083c30d7f86730ea8c96bb10847e24b7ea203daebd3905d8ede3f36e454f",
+      "upstream_sha256": "f29a083c30d7f86730ea8c96bb10847e24b7ea203daebd3905d8ede3f36e454f"
+    },
+    "net/ip_parse.go": {
+      "source": "GCC 13.3.0 libgo net/parse.go numeric and zone parsing helpers, including unchanged xtoi2; shared hexDigit remains in original mac.go",
+      "sha256": "a236889a3084db2fda81f74e48ee5ee79514a08c05050188ee6fdc40bc390afd"
+    },
+    "net/ip_error.go": {
+      "source": "GCC 13.3.0 libgo/go/net/net.go unchanged ParseError definition and methods",
+      "sha256": "3ec0b9bc852b5f3092b9c8b0ee9c85c85dac2587b318fddd662e8ca33ec2ca72"
+    },
+    "internal/bytealg/equal_generic.go": {
+      "sha256": "d6c5c106505c972fab2400024c14e04aa7eee1f972826e3b56787ee09f169247",
+      "source": "GCC 13.3.0 libgo/go/internal/bytealg/equal_generic.go complete unchanged file",
+      "upstream_sha256": "d6c5c106505c972fab2400024c14e04aa7eee1f972826e3b56787ee09f169247"
+    },
+    "reflect/comparable.go": {
+      "source": "Go 1.23.0 reflect/value.go Comparable, unchanged method",
+      "sha256": "e73e180816facc13621b0fd41053916eb8a1e140dc3c1b82c0894aac8eef9488"
+    },
+    "path/filepath/symlink.go": {
+      "source": "GCC 13.3.0 libgo/go/path/filepath/symlink.go, unchanged",
+      "sha256": "abd23e0e09c2e944823fb79e33c919a2b64921f60334272da2ade0890be8f9a1",
+      "upstream_sha256": "abd23e0e09c2e944823fb79e33c919a2b64921f60334272da2ade0890be8f9a1"
+    },
+    "path/filepath/symlink_unix.go": {
+      "source": "GCC 13.3.0 libgo/go/path/filepath/symlink_unix.go, unchanged",
+      "sha256": "53b14f9de206effa324673e33ca82c06ed8dd3956a161428951728919bc7e5a3",
+      "upstream_sha256": "53b14f9de206effa324673e33ca82c06ed8dd3956a161428951728919bc7e5a3"
+    },
+    "path/filepath/eval_symlinks.go": {
+      "source": "GCC 13.3.0 libgo/go/path/filepath/path.go EvalSymlinks unchanged",
+      "sha256": "6920466d864f24211b5b28c64b4364bbad9c72ef372395d4fb2ab85fb824809b"
+    },
+    "os/user_directories.go": {
+      "source": "Go 1.23.0 os/file.go UserCacheDir, UserConfigDir and UserHomeDir unchanged",
+      "sha256": "07ddc2e20587b8d760fd7ef949b6259cba0d94b9140eccf60cf370d457c9851f"
+    },
+    "syscall/errno_compat.go": {
+      "source": "KolibriOS newlib errno compatibility constants, including ENOMEM=12",
+      "sha256": "81e1400f1576dbf8d99dc373c7021f002cd2a9d34e69f18833e62f47032e98af"
+    },
+    "syscall/errno_methods.go": {
+      "source": "Go 1.23.0 syscall/syscall_unix.go Errno.Is, Temporary and Timeout unchanged; selected on Unix or KolibriOS",
+      "sha256": "35b9198e81e128bc6e4c27be4c80d34322ee06d2eeed1dac8e720e0fa670e5fe"
+    },
+    "internal/poll/no_deadline.go": {
+      "source": "Go 1.23.0 internal/poll/fd.go portable ErrNoDeadline declaration unchanged",
+      "sha256": "87a3085c8764ce0f4a431af9c035ce05a43ea3e7867c3fa8a962c216fde269ed"
+    },
+    "syscall/socket_compat.go": {
+      "source": "Go 1.23.0 syscall/zerrors_linux_386.go SHUT_RD, SHUT_WR and SHUT_RDWR compatibility constants; no native shutdown binding",
+      "sha256": "014f602f373c4cf76e40637ff16a11c5b19f56358a77fd5af1e677fa9c8f03c2"
+    },
+    "syscall/fs_kolibrios.go": {
+      "source": "KolibriOS native filesystem errno mappings, including SDK atomic creation status 17 mapped to EEXIST",
+      "sha256": "e3d8d0bc164b9449abc3efa8c6b6db41b5700c622e81e8f071ea9bb324d54f77"
+    },
+    "syscall/stat_compat.go": {
+      "source": "Go 1.23.0 syscall/syscall_js.go Stat_t declaration unchanged; portable data shape only, no invented native inode identifiers",
+      "sha256": "08ac1a118a9cd1476d8b2a4df86caea4a2f2ec55a0bb2fdce7e81307f18f18de"
+    },
+    "os/samefile_kolibrios.go": {
+      "source": "Go 1.23.0 os/types.go SameFile API adapted to SDK fileInfo and native path identity; captures absolute path at Stat time",
+      "sha256": "013f8023bfdf51ca14863e650ca13f5bdbe688c79367302d362cf026117085b8"
+    },
+    "net/rawconn_kolibrios.go": {
+      "source": "libgo 13 net/rawconn.go API adapted to KolibriOS socket handle, connection mutex, deadlines and cooperative polling",
+      "sha256": "fcebd6bea9209f147a415fa2438024947f73ae8cc592fcfe795bc4570313c44a"
+    },
+    "runtime/keepalive.go": {
+      "source": "libgo 13 runtime/mfinal.go KeepAlive documentation and function unchanged, with cgo_gccgo.go mutable cgoAlwaysFalse variable",
+      "sha256": "b406178febf5a185fd1934aa33bc3668854232eceb837660402d9526266b09b5"
+    },
+    "runtime/finalizer_kolibrios.go": {
+      "source": "libgo 13 runtime/mfinal.go SetFinalizer API and runtime.GC; native SDK collector and upstream reflect FFI callback adaptation",
+      "sha256": "de2e5a3524965428a99b58b2a3e555faefd8d4579c1db009cc8c01ec34b02b92"
+    },
+    "reflect/composite_types.go": {
+      "source": "GCC 13.3.0 libgo reflect/type.go PointerTo, SliceOf, ChanOf and lookup caches unchanged; runtime lookupType declaration",
+      "sha256": "370675329a21a3c191ba96b33a140555ec5ede77add81a81c8dd28fe082906e2"
+    },
+    "reflect/map_types.go": {
+      "source": "GCC 13.3.0 libgo reflect/type.go MapOf, bucket metadata, key properties and GC mask/program helpers unchanged; native seeded typehash declaration",
+      "sha256": "73f8c737aa9b216cdab7b02686d7881065143345441e6e032bf53b4dfc84b91b"
+    },
+    "reflect/array_types.go": {
+      "source": "GCC 13.3.0 libgo reflect/type.go ArrayOf and appendVarint; adapt arrayAt calls to the equivalent existing SDK signature without assertion-string argument",
+      "sha256": "9414010409d22c2e28df3f7ee65fc4a1c678de883c6550de05329e830ca668cf"
+    },
+    "runtime/type_descriptor.go": {
+      "source": "GCC 13.3.0 libgo runtime/type.go common descriptor layouts and type string/package path methods unchanged",
+      "sha256": "7e26caf77d7d71c0d725c5a8355a8c2b0f551fcc4a6a37ef8e5cf8387300c34b"
+    },
+    "runtime/type_assertion.go": {
+      "source": "GCC 13.3.0 libgo runtime/error.go TypeAssertionError and iface.go panicdottype unchanged; native itab failures use the same typed panic construction",
+      "sha256": "ff890dfd2b09619501107b5215525461f8d81446d2efe4213499fab3afed6720"
+    },
+    "runtime/gc_program.go": {
+      "source": "GCC 13.3.0 libgo runtime/mbitmap.go runGCProg, bitmap constants and pointer helpers unchanged; native collector entrypoint linkname",
+      "sha256": "4e42f95d89ed210d76d04b27f18cf5ccf644ff2aa0cf01e69c31eaae6b0ec298"
+    },
+    "time/dst_kolibrios.go": {
+      "source": "libgo Time.IsDST API adapted to supported UTC and fixed-offset locations, which have no DST transitions; other locations remain unsupported",
+      "sha256": "3a1c0b33524bfa471f297c034c588d5fd961f32bd7acfba095082ab417f37039"
+    },
+    "sync/atomic/atomic.go": {
+      "source": "GCC 13.3.0 libgo sync/atomic/doc.go unchanged, declarations backed by native sequentially consistent primitives",
+      "sha256": "e44a1a6bc9f5ee0dc7895e5a963c02c45d81089dceaa7c523ec4c5db12e52636"
+    },
+    "sync/atomic/value.go": {
+      "source": "GCC 13.3.0 libgo sync/atomic/value.go unchanged; cooperative scheduler pinning entrypoints",
+      "sha256": "4566c719ca8b92def2efa83ef402ff3f1176a2436c4f0581aa80151f09c21bf2"
+    },
+    "sync/atomic/unaligned.go": {
+      "source": "GCC 13.3.0 libgo sync/atomic/unaligned.go unchanged",
+      "sha256": "f3faafd0df8ad0db8aafbb6084693fb25bff80ac033671d472e8c9d70b94eace"
+    },
+    "sync/atomic/types.go": {
+      "source": "Go 1.23 sync/atomic/type.go Bool, Int64, Uint32, Uint64, Uintptr and align64 declarations and methods unchanged",
+      "sha256": "81f093572fdd2394d76edf2c87ae3759d9b6489030205caad1d95c5a7a43e60e"
+    },
+    "sync/atomic/int32_bits.go": {
+      "source": "Go 1.23 sync/atomic/type.go Int32.And and Int32.Or unchanged",
+      "sha256": "4058f5013970ebc9feb53428c82ed1e6ad3f03f87eeb9ba64d63998fc563210f"
+    },
+    "sync/atomic/bits.go": {
+      "source": "Go 1.23 sync/atomic And/Or API declarations for native libgo-style primitives",
+      "sha256": "b8a4e049a6b6b111d9b8e231f619467f72976ebb725eb8ff167df1c0219986f1"
+    },
+    "sync/atomic/atomic_kolibrios.c": {
+      "source": "GCC 13.3.0 libgo sync/atomic/atomic.c; replace runtime.h with standalone includes and adapt panicUnaligned symbol to public atomic package",
+      "sha256": "696f436633dea0d05733344c36c2816b5f432da90d01c20ce1d42aaf881c9466"
+    },
+    "sync/atomic/atomic_bits_kolibrios.c": {
+      "source": "Adapt libgo sequentially consistent atomic.c primitives to Go 1.23 And/Or and pointer APIs; native stop-the-world collector needs no concurrent write barrier",
+      "sha256": "f69588e1dfa480d7d861c1254a1cc6c2b83837568253dc0315c8ead4ac10c0cd"
+    },
+    "io/read_write_seeker.go": {
+      "source": "Go 1.23 io/io.go ReadWriteSeeker unchanged",
+      "sha256": "66c68e43bbb0484f56d18870bf96137dd40c2625d749c555bbb087dbf9150c7c"
+    },
+    "reflect/can_numeric.go": {
+      "source": "Go 1.23 reflect/value.go CanInt, CanUint and CanFloat unchanged",
+      "sha256": "cbd6b1e05d33f038af5477e03bff6d66cfda6dcc92d893da1c901ae99deddfb5"
+    },
+    "reflect/type_for.go": {
+      "source": "Go 1.23 reflect/type.go TypeFor unchanged",
+      "sha256": "92d9327617f4f893bdca26c177c983dd0464b4ea63c55abc3e3da16250d97319"
+    },
+    "time/unix_units.go": {
+      "source": "Go 1.23 time/time.go UnixMilli and UnixMicro; private unixSec/nsec method calls use equivalent SDK Unix/Nanosecond accessors",
+      "sha256": "05571c03c9055c57a4939fe712d24805cd89ab87c955ed0e0c62e6311bffe258"
+    },
+    "sync/runtime_kolibrios.c": {
+      "source": "Native adapters for original Go 1.23 sync runtime semaphore, notifyList and clock declarations; actual SDK scheduler parking and wakeup",
+      "sha256": "abeaf1c7da37c1b8a8fdaa1f30eb10ea606f6da5e048ac8816014aafa99736b5"
+    },
+    "net/interface_kolibrios.go": {
+      "source": "KolibriOS sysfuncs 74/76 interface enumeration and IPv4 addresses; zero MTU denotes unavailable public query, explicit unsupported multicast membership query",
+      "sha256": "e772e790dab4a7da97c4f0ab12258ed008e0f9701c04842b7aa634eb4f79dc6e"
+    },
+    "syscall/syscall.go": {
+      "source": "KolibriOS SDK errno type and native descriptor errors; standard ENOTTY value for unavailable terminal descriptors",
+      "sha256": "6fea21cd67d9dae2ba0cb0b924c232ff232f4bba4e5f637719e3593dafed9260"
+    },
+    "os/user_ids.go": {
+      "source": "GCC 13.3.0 libgo os/proc.go Getuid, Geteuid, Getgid, Getegid and Getgroups unchanged",
+      "sha256": "0da3794ceb565d8ddd66149cc13d17f8658a00764fe26085a752d32293314039"
+    },
+    "syscall/user_ids_kolibrios.go": {
+      "source": "Go 1.23 syscall Windows non-POSIX user/group ID API, adapt unsupported group lookup error to native ENOTSUP",
+      "sha256": "ad55021b5f55ed1a427eba3984b52228650751e25b0fb0f9826925aae5bc9b3a"
+    },
+    "bytes/available_buffer.go": {
+      "source": "Go 1.23 bytes.Buffer.AvailableBuffer and Available unchanged",
+      "sha256": "95f2e45f2d680120cfd8c0fba5259c389e6067743cd2ab2ca5c3f8fb6c7d17b2"
+    },
+    "time/duration_floating.go": {
+      "source": "Go 1.23 time.Duration.Minutes and Hours unchanged",
+      "sha256": "3d540ce2ae1456f4550bc936c60643855ca9d317ab6ab46c91db86b60a978bbf"
+    },
+    "io/read_seek_closer.go": {
+      "source": "Go 1.23 io.ReadSeekCloser unchanged",
+      "sha256": "b210c1ada62086b39ad89c0ef09c5deb1afe92b5477fc4d02a2cffe7b1c4ee24"
+    },
+    "io/ioutil/tempfile.go": {
+      "source": "Go 1.23 io/ioutil TempFile unchanged, delegates to native os.CreateTemp",
+      "sha256": "4acdeb4ec673beb029524843530ad81e40fd801a5a099488dc3974e90678a263"
+    },
+    "os/dirfs.go": {
+      "source": "GCC 13.3.0 libgo os/file.go DirFS, dirFS, Open, Stat and containsAny unchanged",
+      "sha256": "0978d7f6171576a3e8ef44feab578dbbefbbd2f280d0ce5ded80ed9c929136cf"
+    },
+    "os/executable.go": {
+      "source": "GCC 13.3.0 libgo os/executable.go unchanged, uses native loader path adapter",
+      "sha256": "ad7c2f55ecd9fd1e8bcdf519048e50c8b74b90e61720044c9b0fec1a94dd71aa"
+    },
+    "net/net.go": {
+      "source": "Native KolibriOS host lookup and AddrError API, with GCC 13.3.0 libgo DNSError struct/Error/Timeout/Temporary unchanged",
+      "sha256": "715127b44948a35b7228638359880aa898c81990e761c45ec1cd3f3ec8294037"
+    },
+    "net/dialer.go": {
+      "source": "Native KolibriOS Dialer with deprecated upstream DualStack API field; native IPv4 address family limitation remains explicit",
+      "sha256": "0e1633d872f8b5e0966f3182e0bb8572537a0dbf4170ca105348071ee71a0823"
+    },
+    "reflect/provider_values.go": {
+      "source": "Go 1.23 Value.Equal unchanged; libgo NewAt/UnsafeAddr unchanged; recursive libgo IsZero with Go 1.23 signed-zero and blank-field rules; Go 1.23 Grow adapted only to existing SDK flag validation signatures",
+      "sha256": "526f1bf9418bcfa1d950e73498927cf1209cc8cffcac90a32cc02a443483ff89"
+    },
+    "os/process_api.go": {
+      "source": "GCC 13.3.0 libgo os/exec.go Process, ErrProcessDone, atomic done state and FindProcess/Kill/Release/Signal wrappers unchanged; native backend has no retained kernel handle",
+      "sha256": "eec424abba1da3f3fb122f0a73d4a32eb723f8905a91d31f080b4d431409278a",
+      "native_process_adaptation": "Add native child metadata/status fields while retaining the existing upstream Process API.",
+      "adaptation": "Retain upstream Process API with native stream, status and exact runtime worker control records."
+    },
+    "path/filepath/rel.go": {
+      "source": "GCC 13.3.0 libgo Rel and sameWord unchanged; Unix lexical paths",
+      "sha256": "90b8faf1f5193829e675a5c7e493710f3adcd0f34db5fa4cf7431b86c21f6a46"
+    },
+    "net/buffers.go": {
+      "source": "GCC 13.3.0 libgo buffersWriter and Buffers API unchanged, including generic WriteTo fallback",
+      "sha256": "2ec8b0716e4471c1d3265582a2005f40589aefffec9dbd98b6e4772df0fb1d3d"
+    },
+    "time/compare.go": {
+      "source": "Upstream Time.Compare contract adapted to existing native wall and monotonic representation",
+      "sha256": "f22dec15ac0df2be419e29a0f6c3a066d95275caa173d833fa1e245698adc133"
+    },
+    "os/executable_kolibrios.go": {
+      "source": "KolibriOS native loader path backend for upstream os.Executable",
+      "sha256": "2d0e23c3fe87c4095e3e2d9270b469c5a9bda2ec9cacabf93df85fa63898b9b9"
+    },
+    "os/process_kolibrios.go": {
+      "source": "KolibriOS native PID lookup and termination backend; unsupported POSIX signal delivery is explicit",
+      "sha256": "0f43eff1a3ba0e22bbd99e116c4f91a62f6e2fe9e2bb0134b32d0ddf3be1f5a7",
+      "native_process_adaptation": "Serialize signal access to record successful native termination for Wait.",
+      "adaptation": "Native PID termination includes registered child runtime workers; Release retains a detached SDK resource reaper."
+    },
+    "os/exec/exec.go": {
+      "source": "Go 1.23.0 src/os/exec/exec.go",
+      "sha256": "29714fd5a52e58f551b53c970326f9f14b0262a22945fe5d52f4f6c4d2c3aad4",
+      "upstream_sha256": "29714fd5a52e58f551b53c970326f9f14b0262a22945fe5d52f4f6c4d2c3aad4"
+    },
+    "net/dnsclient.go": {
+      "source": "Portable original GCC 13.3.0 libgo DNS validation, SRV sorting and randomness; native fastrand assembly symbol annotation only",
+      "sha256": "81fc5485c347353b991fdc45f71da94398008c6de082b1c8347595d821cb584a"
+    },
+    "net/dns_exchange.go": {
+      "source": "Original GCC 13.3.0 libgo DNS request, response checks, UDP/TCP exchange and header parsing functions unchanged",
+      "sha256": "7596d2b2896ef67575e20c8132a123bf01807f87cb1cfb732c182c22241a84a5"
+    },
+    "net/resolver.go": {
+      "source": "Original GCC 13.3.0 libgo public Resolver fields and LookupHost/SRV/TXT functions; unused private singleflight state omitted",
+      "sha256": "093d4e8519a2f42a68a1eafc9cbd653d27f6591978e3be6b8811fe661c7d7ab8"
+    },
+    "net/dns_records.go": {
+      "source": "Original GCC 13.3.0 libgo Resolver.dial, lookupSRV and lookupTXT unchanged",
+      "sha256": "83950d659ec2c317fcef02d8b2280bbc69042677674b57fb5a8fbd39ba1c466e"
+    },
+    "net/packetconn.go": {
+      "source": "Original GCC 13.3.0 libgo PacketConn interface unchanged",
+      "sha256": "957c44acb45b5eef81bde9eb401a6c25a2daa2082a3fe4064f8fc9d174ce261f"
+    },
+    "os/os.go": {
+      "source": "KolibriOS file, environment and loader adapters; open files preserve their original Name and capture the absolute backing path across process-wide Chdir",
+      "sha256": "3ec7fc74bf0e35515072116b5826faea1e7fe0d756e9a180153b4a91837f816c",
+      "native_process_adaptation": "Native loader bootstrap consumes SDK child argv/cwd; os.Exit reports its actual status before native termination.",
+      "adaptation": "Native File streams, independently closed inherited handles, shared seek positions and captured child stdio lifetime; original Go copying algorithms retained."
+    },
+    "os/chdir.go": {
+      "source": "GCC 13.3.0 libgo os.Chdir wrapper, with the Windows-only getwdCache branch omitted",
+      "sha256": "9eba0d27a3175a633472b0640cd105c409dc2f83d133f4fb06e7022748aa29f5"
+    },
+    "syscall/chdir_kolibrios.go": {
+      "source": "KolibriOS filesystem metadata validation and shared application working-directory backend for syscall.Chdir",
+      "sha256": "e16e746009a1ffef34f549e19670b8fb82c22fe9daf435c28b33e1df4de14dac"
+    },
+    "os/hostname.go": {
+      "source": "GCC 13.3.0 libgo os/sys.go unchanged",
+      "sha256": "98ecc8ed73af7c43a643a62a2a16d445cec49dacefa266dd1ef7197188b84679"
+    },
+    "os/hostname_kolibrios.go": {
+      "source": "Explicit ENOTSUP from the native hostname backend; the documented kernel ABI has no hostname query",
+      "sha256": "500bb16545ca7cec3c63c5de394c133db37927028861c0501a6badf51df2a604"
+    },
+    "os/mkdirtemp.go": {
+      "source": "GCC 13.3.0 libgo MkdirTemp algorithm with mkdirTempExclusive platform hook in place of Mkdir",
+      "sha256": "88044ff0c53e51fcae4717d7b985c69a37af159a27d9e9c3e8e1d224c0a4f9f3"
+    },
+    "os/mkdirtemp_kolibrios.go": {
+      "source": "MkdirTemp platform hook delegates to atomic Mkdir backed by SDK kernel filesystem operation 12",
+      "sha256": "2225e2162ce23544f52542adb194b48d7e845b5d119658de5aebe38c82308eaf"
+    },
+    "runtime/memstats_kolibrios.go": {
+      "source": "Native collector snapshot declaration; actual allocation, live-object, threshold and GC counters, other unmaintained accounting fields remain zero",
+      "sha256": "e09dc27655b8eddd0d7caa6faaa186af14b3058d1297056f70b3eb7cb3026318"
+    },
+    "runtime/profile_kolibrios.go": {
+      "source": "Availability adapters: explicit failure to enable unsupported runtime tracing or block/mutex profiling; inactive trace and sampler queries preserve upstream contracts",
+      "sha256": "0e140bb6f7249107efca6f7bace4934dea8c769776c29bd429cf3e518b4ff17b"
+    },
+    "net/resolver_kolibrios.go": {
+      "source": "Native DNS server discovery through documented 76/IPv4/4 and TCP DNS transport using original libgo message and record algorithms; UDP and search-domain configuration remain unavailable",
+      "sha256": "865baca31b05695a085440dc2c53a452e8a54861b51a83eef7afc367d8c73dd8"
+    },
+    "os/mkdirall.go": {
+      "source": "GCC 13.3.0 libgo MkdirAll unchanged with Unix fixRootDirectory identity helper; includes race-after-create handling",
+      "sha256": "a99dc2bac85ee99f7057899b89a783f08aaf5240d7e410c76deffe2bd9b789c3"
+    },
+    "os/tempfile_kolibrios.go": {
+      "source": "KolibriOS slash separator and explicit unsupported exclusive-creation error for kernels/filesystems without SDK operations 11/12",
+      "sha256": "b50aa93ef6f9f39fbd3b9d2b36d68feff22a98be5d5ac3162c8433dd657abb76"
+    },
+    "os/terminal_kolibrios.go": {
+      "source": "KolibriOS native nonblocking CONSOLE.OBJ input integrated into os.File raw reads; cancellation through a wakeup channel, small reads retain escape sequences",
+      "sha256": "91ff8210a11006721c09e0c4b904ed221fcb1f80b3de95a3844f96947567716c"
+    },
+    "os/signal/signal_kolibrios.go": {
+      "source": "GCC 13.3.0 libgo signal_unix.go platform interface adapted to native console Ctrl-C capture and actual dimension changes; ordinary handlers, NotifyContext and Stop algorithms remain upstream",
+      "sha256": "e5c2850ef974eb9fbc777789dc36e8bb000e9b22e71c1600f0eec16872bc5351"
+    },
+    "syscall/terminal_signal_kolibrios.go": {
+      "source": "Go linux/386 SIGWINCH constant for actual native console resize events; no kernel syscall is added",
+      "sha256": "59ae7d8e07051e65b96b69996bf1c5766838eebd51dd0487d588e09545ea0c36"
+    },
+    "runtime/bounds_error_kolibrios.go": {
+      "source": "GCC 13.3.0 libgo runtime/error.go boundsError, decimal formatting and methods unchanged; native slice-conversion panic delegates to the original boundsConvert value through gccgo panic/recover",
+      "sha256": "bd6d09197e2c2fd1834a1cbf4c861b3cd8a2665800d93f820b5bcc2716d770f3"
+    },
+    "runtime/rangefunc_kolibrios.go": {
+      "source": "Go 1.23 runtime/panic.go panicrangestate unchanged algorithm using existing upstream errorString; internal/abi constants copied, compiler entrypoint and unavailable fatal throw adapted",
+      "sha256": "8e536d38975107607598d8627d4bd263953b80519afa8e58a6c2e73515333afa"
+    },
+    "syscall/env_loader_kolibrios.go": {
+      "source": "KolibriOS literal executable .env sidecar loaded before dependent package initialization; upstream synchronized environment table, no cgo mirror hooks",
+      "sha256": "3b8785536ed3665ffceb8b29e4cef8398e51ae551fe5e727149b94a6c7effc1b",
+      "native_process_adaptation": "SDK child startup supplies the environment before dependent package initialization; existing standalone sidecar loading is retained.",
+      "adaptation": "Notify the original Go GODEBUG parser using supplied environment values, avoiding re-entry into the environment lock.",
+      "portable_launch_adaptation": "KOLIBRI_WORKING_DIRECTORY opts standalone launches into an executable-relative directory and anchors standard path variables before initialization; SDK children retain their explicit cwd and environment. Verified by portable-launch and native CLI with adjacent assets."
+    },
+    "internal/chacha8rand/block_kolibrios.go": {
+      "source": "Native gccgo entrypoint selects unchanged Go 1.23 chacha8_generic.go block algorithm; original assembly prototype and state machine preserved",
+      "sha256": "aae386666191e008ffb77ace30daf076ffedbd07739ed4aa78748df6bf571ba4"
+    },
+    "runtime/rand_kolibrios.go": {
+      "source": "Go 1.23 bootstrapRand and readTimeRandom algorithms adapted to one native mutex-protected ChaCha8 stream and lazy startup; time fallback seeds math/rand/v2, not crypto/rand",
+      "sha256": "aec16f67e0620378123c518795787225e5ff8447c03c9d53aafb0d458f2a13e6"
+    },
+    "runtime/trace_annotations_kolibrios.go": {
+      "source": "libgo trace annotation inactive path while StartTrace is explicitly unavailable; SetTraceback explicitly rejects unsupported fatal all-goroutine capture",
+      "sha256": "3d9152893879e0b48a77d809c21988ea61d27f8432d0ee0094c517aa413f8b23"
+    },
+    "crypto/x509/root_kolibrios.go": {
+      "source": "Go 1.23.0 src/crypto/x509/root_unix.go",
+      "sha256": "db416214afbde9cf97fe17c19e60de15a77fdd56a3d6357f6236d6ec4625ffa4",
+      "upstream_sha256": "421c066f193250dc1adaf13fce4779fc3dc576e20faa86e43bc22af6c9536a14",
+      "adaptation": "Only build constraint changed to kolibrios && gccgo; original loader body unchanged. Native certificate paths are declared separately."
+    },
+    "os/process_portable.go": {
+      "source": "Go 1.23.0 src/os/exec.go",
+      "sha256": "02a725229e571fd1c0180b12eb1b4c0a5d53b70c6fe852878d812ea0ce07a67b",
+      "adaptation": "Original ProcAttr, StartProcess, Wait and ProcessState wrapper declarations, extracted without changing their bodies.",
+      "native_process_adaptation": "Original Go 1.23 ProcAttr, StartProcess, Wait and ProcessState API wrappers extracted without changing logic; imports formatted with gofmt."
+    },
+    "syscall/process_attrs_kolibrios.go": {
+      "source": "Go 1.23.0 src/syscall/syscall_wasip1.go",
+      "sha256": "1c17d5590c69d5033104d4f39806a432b4aa72a23260c2dda6f71c3fca7fe3db",
+      "adaptation": "Original empty native process-attribute type for platforms without Unix process options.",
+      "native_process_adaptation": "Original empty Go 1.23 WASI process-attribute type, with native build tag."
+    },
+    "internal/syscall/execenv/execenv_default.go": {
+      "source": "Go 1.23.0 src/internal/syscall/execenv/execenv_default.go",
+      "sha256": "42dcdfc64c4b31806fb848c61f3c6efceff7659db131964240ccf57813355af3",
+      "upstream_sha256": "42dcdfc64c4b31806fb848c61f3c6efceff7659db131964240ccf57813355af3"
+    },
+    "os/exec/lp_kolibrios.go": {
+      "source": "Go 1.23.0 src/os/exec/lp_unix.go",
+      "sha256": "250f32715554b07a7061c53336de20aef395ceb113815ddec9fb3a125a040527",
+      "upstream_sha256": "b34642fc1f86afc9ee992af2aa886efa2ec4aabffc747da4aed3e6a914368cc6",
+      "adaptation": "Go 1.23 lp_unix.go: native build constraint and executable-header check replace Unix Eaccess; original PATH search preserved."
+    },
+    "internal/godebug/godebug.go": {
+      "source": "Go 1.23.0 src/internal/godebug/godebug.go",
+      "sha256": "5b00748817cba0e85b09ce57010b126eceedcc331efec8972b6e3a5563294f3c",
+      "upstream_sha256": "617c491be3f119672c81e7aeecd0b27b7262b00d364e8544ec7b0e46c1a30c14",
+      "adaptation": "Move runtime hook declarations to the native Go sidecar. Setting/cache/parse/bisect algorithms unchanged."
+    },
+    "internal/bisect/bisect.go": {
+      "source": "Go 1.23.0 src/internal/bisect/bisect.go",
+      "sha256": "978d518986ba6867f5f96356531f35bfa59b865fbb363b98eb9052e862a2160c",
+      "upstream_sha256": "978d518986ba6867f5f96356531f35bfa59b865fbb363b98eb9052e862a2160c"
+    },
+    "internal/godebugs/table.go": {
+      "source": "Go 1.23.0 src/internal/godebugs/table.go",
+      "sha256": "1e016717bd8c15db27f99b29861cc8920591c9ac3b73c3e62f1c2f2ea130b232",
+      "upstream_sha256": "1e016717bd8c15db27f99b29861cc8920591c9ac3b73c3e62f1c2f2ea130b232"
+    },
+    "os/exec/exec_unix.go": {
+      "source": "Go 1.23.0 src/os/exec/exec_unix.go",
+      "sha256": "b7606c80ae631012d0d1fa17acdbfd5ec36daf2c1810138d23df923f4665163a"
+    },
+    "os/devnull_kolibrios.go": {
+      "source": "Go Unix DevNull declaration, with native platform build tag.",
+      "sha256": "9cc08db17771b3215edd6224710cd837c253e4112f1297b245d20b9b2451a589",
+      "adaptation": "Go Unix DevNull declaration, with native platform build tag."
+    },
+    "path/filepath/splitlist.go": {
+      "source": "Go 1.23 path.go SplitList and path_unix.go splitList, extracted with unchanged bodies.",
+      "sha256": "955caf5f59618dc6d60e7397a9a30a65f1111096c0e049c7520851238d583646",
+      "adaptation": "Go 1.23 path.go SplitList and path_unix.go splitList, extracted with unchanged bodies."
+    },
+    "os/process_start_kolibrios.go": {
+      "source": "Native loader backend for the original Go StartProcess/Wait implementation; child attributes use SDK metadata and kernel socketpairs.",
+      "adaptation": "Original Go StartProcess/Wait surface with native loader metadata, documented named-memory thread control and kernel socketpair streams.",
+      "sha256": "1b260a709a08cce0ce8fac52d581bb1bb47c745ce1d333486a38cabf7732a1db"
+    },
+    "os/process_streams_kolibrios.go": {
+      "source": "Native file table adapter for upstream os/exec.Cmd using documented kernel AF_LOCAL socketpairs and original Go io.Copy.",
+      "adaptation": "Original io.Copy bridges for native socketpairs; inherited files own references and shared stdout/stderr streams retain ordering.",
+      "sha256": "1b1be6ad5d8cefb6ead2aa6d47e0920ddcbbf3d8e0d9b111437b0546438f803d"
+    },
+    "os/pipe_local_kolibrios.go": {
+      "source": "Native File pipe adapter using existing network polling pattern and upstream kernel socket buffers and EOF.",
+      "adaptation": "Native File pipe adapter using existing network polling pattern and upstream kernel socket buffers and EOF.",
+      "sha256": "7c03fbd52118873d09ac7ac33e1d546682e13ae6c2d1c1f92adb80e016ebb2e3"
+    },
+    "os/user/user.go": {
+      "source": "Go 1.23.0 src/os/user/user.go",
+      "sha256": "e8e9a60b9455ffc3658b861789b525b4d1e85ff91d0af992eeac662b10ff91db",
+      "upstream_sha256": "e8e9a60b9455ffc3658b861789b525b4d1e85ff91d0af992eeac662b10ff91db"
+    },
+    "os/user/lookup.go": {
+      "source": "Go 1.23.0 src/os/user/lookup.go",
+      "sha256": "e93e23d254d43872f9d14fcda58ddd8999791b8b22471180c79a46c8238228d8",
+      "upstream_sha256": "e93e23d254d43872f9d14fcda58ddd8999791b8b22471180c79a46c8238228d8"
+    },
+    "os/user/lookup_unix.go": {
+      "source": "Go 1.23.0 src/os/user/lookup_unix.go",
+      "sha256": "08b4e72c563bc05ecb5abb18e3b0c0a7060ee2454a33dd502be350f2b85c94cf",
+      "upstream_sha256": "c6d2fc86202541bcf2e9ce470f92bcd6b1e49cc5cf4c0346e01bc313062b1f38",
+      "adaptation": "Native build constraint selects the original pure-Go passwd/group file parser."
+    },
+    "os/user/lookup_stubs.go": {
+      "source": "Go 1.23.0 src/os/user/lookup_stubs.go",
+      "sha256": "4537a59330837d7a8ec991509261f4fabd4ca736a94b52ba483ce95602fbd822",
+      "upstream_sha256": "328aa8d8792052abba2cfae54ca005c3f28d495b91f23bf4886f3129d5b8b125",
+      "adaptation": "KolibriOS has no numeric account credentials; require explicit USER/HOME but permit an empty UID, without inventing an account."
+    },
+    "os/user/listgroups_unix.go": {
+      "source": "Go 1.23.0 src/os/user/listgroups_unix.go",
+      "sha256": "e7c0967a98bd5f25f446dee9b6622eb8628ec026813c900c9128774ace37e7c0",
+      "upstream_sha256": "1c067c8190f88298108d10a96f551bbbd0656e3a5b4f8f7694241687af72300e",
+      "adaptation": "Native build constraint selects the original pure-Go passwd/group file parser."
+    },
+    "syscall/wait_status_kolibrios.go": {
+      "source": "Extracted original Go 1.23 syscall_linux.go declarations and algorithms; native build tag and explanatory comments.",
+      "sha256": "43ea411d6754016f0b79f10e64da378d0b60025adbda544454a0486341c40e08"
+    },
+    "syscall/standard_descriptors_kolibrios.go": {
+      "source": "Extracted original Go 1.23 syscall_linux.go declarations and algorithms; native build tag and explanatory comments.",
+      "sha256": "77e0be89f0de5a50b7a70cffdc4bef13a9ef68b891553ff1b3411683d6b0097e"
+    },
+    "os/file_position_kolibrios.go": {
+      "source": "Native inherited regular File handles share position while preserving independent Close lifetime, as required by upstream os/exec.",
+      "sha256": "7e23cb8ac85819549959bad52aa81334d5a91f61b7d0acc37702a67d04faaeed",
+      "adaptation": "Native inherited regular File handles share position while preserving independent Close lifetime, as required by upstream os/exec."
+    },
+    "os/process_control_kolibrios.go": {
+      "source": "Native adapter for upstream Process termination: exact child runtime PID/TID records in documented KolibriOS named memory; no Unix process-group syscall is invented.",
+      "sha256": "6decfdf2da5d56757de107b18e10622cff25131c0359b30c8c6b4e9f8cd2c970",
+      "adaptation": "Native adapter for upstream Process termination: exact child runtime PID/TID records in documented KolibriOS named memory; no Unix process-group syscall is invented."
+    }
+  }
+}

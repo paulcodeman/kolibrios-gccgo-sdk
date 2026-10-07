@@ -5,6 +5,7 @@ ROOT_ABS := $(abspath $(ROOT))
 STDLIB_DIR_ABS := $(ROOT_ABS)/stdlib
 FIRST_PARTY_DIRS ?= platform
 THIRD_PARTY_DIRS ?= third_party
+include $(ROOT_ABS)/tooling/kolibri-compat.mk
 RUNTIME_FLAVOR ?= bootstrap
 PROGRAM_OUTPUT ?= $(PROGRAM)
 ifeq ($(RUNTIME_FLAVOR),libgo)
@@ -14,7 +15,7 @@ BUILD_TAGS += libgo_runtime
 PROGRAM_OUTPUT := $(PROGRAM).libgo
 endif
 FIRST_PARTY_DIRS_ABS := $(foreach dir,$(FIRST_PARTY_DIRS),$(if $(filter /%,$(dir)),$(dir),$(ROOT_ABS)/$(dir)))
-THIRD_PARTY_DIRS_ABS := $(foreach dir,$(THIRD_PARTY_DIRS),$(if $(filter /%,$(dir)),$(dir),$(ROOT_ABS)/$(dir)))
+THIRD_PARTY_DIRS_ABS := $(SDK_VENDOR_ROOT) $(foreach dir,$(THIRD_PARTY_DIRS),$(if $(filter /%,$(dir)),$(dir),$(ROOT_ABS)/$(dir)))
 BUILD_CACHE_ROOT ?= $(ROOT)/.build-cache
 BUILD_CACHE_NAMESPACE ?=
 BUILD_CACHE_BASE := $(BUILD_CACHE_ROOT)$(if $(strip $(BUILD_CACHE_NAMESPACE)),/$(BUILD_CACHE_NAMESPACE),)
@@ -35,6 +36,7 @@ RESOLVE_PACKAGES := $(PYTHON) $(MK_DIR)/resolve-packages.py
 
 TOOLING_BIN ?= $(ROOT_ABS)/tooling/bin
 GO ?= $(firstword \
+  $(wildcard $(ROOT_ABS)/tooling/gccgo/gccgo-kolibri) \
   $(wildcard $(TOOLING_BIN)/gccgo-15) \
   $(wildcard $(TOOLING_BIN)/gccgo) \
   $(shell command -v gccgo-15 2>/dev/null) \
@@ -71,6 +73,7 @@ KEEP_PKG ?= 1
 KEEP_ABI ?= 1
 FAST_PKG ?= 0
 KPACK ?= 0
+SYMBOLS ?= 1
 KPACK_BIN ?= $(ROOT)/tooling/bin/kpack
 KPACK_FLAGS ?= --nologo
 
@@ -83,12 +86,21 @@ STARTUP_SOURCE = $(BUILD_DIR)/$(PROGRAM_OUTPUT).startup.c
 STARTUP_OBJ = $(BUILD_DIR)/$(PROGRAM_OUTPUT).startup.o
 
 GO_COMPILER_FLAGS = -m32 $(GCC_TOOL_PREFIX) -c $(GO_OPT_LEVEL) -nostdlib -nostdinc -fexceptions -fno-stack-protector -fno-split-stack -static -fno-leading-underscore -fno-common -fno-pie -g -ffunction-sections -fdata-sections -I. -I$(ROOT_ABS) -I$(PACKAGE_ARTIFACT_ROOT_ABS)
+GO_COMPILER_DEPS := $(wildcard $(GO))
+GO_COMPILER_DEPS += $(ROOT_ABS)/tooling/go_file_filter.py $(ROOT_ABS)/tooling/select-go-files.py
+ifneq ($(findstring gccgo-kolibri,$(GO)),)
+GCCGO_EFFECTIVE_BUILD := $(if $(GCCGO_BUILD_DIR),$(GCCGO_BUILD_DIR),$(ROOT_ABS)/.build-cache/gccgo15-kolibri)
+GO_COMPILER_DEPS += $(ROOT_ABS)/tooling/gccgo/compiler-driver.py
+GO_COMPILER_DEPS += $(wildcard $(ROOT_ABS)/tooling/gccgo/compat/*.go $(ROOT_ABS)/tooling/gccgo/compat/go2go/*.go $(ROOT_ABS)/tooling/gccgo/compat/embedcfg/*.go)
+GO_COMPILER_DEPS += $(wildcard $(GCCGO_EFFECTIVE_BUILD)/gcc/go1 $(GCCGO_EFFECTIVE_BUILD)/compat/go2go $(GCCGO_COMPAT))
+endif
 GCC_COMPILER_FLAGS = -m32 $(GCC_TOOL_PREFIX) -c $(OPT_LEVEL) -ffunction-sections -fdata-sections -fno-pic -fno-pie -fno-stack-protector -fno-builtin-calloc
 PACKAGE_NATIVE_INCLUDE_FLAGS :=
 ABI_RUNTIME_CPPFLAGS :=
 ABI_RUNTIME_INCLUDE_FLAGS :=
 ABI_RUNTIME_SOURCE := $(ABI_DIR)/runtime_gccgo.c
-ABI_RUNTIME_DEPS :=
+ABI_RUNTIME_DEPS := $(ABI_DIR)/runtime_panic.h $(ABI_DIR)/runtime_unsafe_pointer.h $(ABI_DIR)/runtime_finalizer.h $(ABI_DIR)/runtime_sync.h $(ABI_DIR)/runtime_memstats.h
+ABI_RUNTIME_DEPS += $(ABI_DIR)/runtime_entropy.h
 ABI_EXTRA_RUNTIME_OBJS :=
 LIBGO_RUNTIME_GLOBALIZE_SYMBOLS :=
 ifeq ($(RUNTIME_FLAVOR),libgo)
@@ -100,8 +112,9 @@ LIBGO_RUNTIME_GLOBALIZE_SYMBOLS := runtime.writeBarrier runtime.pointerequal..f 
 endif
 LDFLAGS = -n -T $(LDSCRIPT) -m elf_i386 -z noexecstack -z relro -z now --gc-sections --eh-frame-hdr --entry=$(ENTRYPOINT)
 
-APP_SOURCES = $(shell $(SELECT_GO_FILES) --package-dir $(CURDIR) --goos $(GOOS_TARGET) --goarch $(GOARCH_TARGET) --tags "$(BUILD_TAGS)")
-GO_PACKAGE ?= $(strip $(shell $(SED) -n 's/^package[[:space:]]\+\([A-Za-z_][A-Za-z0-9_]*\).*$$/\1/p;q' $(firstword $(APP_SOURCES))))
+APP_SOURCE_DIR ?= $(CURDIR)
+APP_SOURCES = $(shell $(SELECT_GO_FILES) --package-dir $(APP_SOURCE_DIR) --goos $(GOOS_TARGET) --goarch $(GOARCH_TARGET) --tags "$(BUILD_TAGS)")
+GO_PACKAGE ?= $(strip $(shell $(SED) -n '/^package[[:space:]]\+/{s/^package[[:space:]]\+\([A-Za-z_][A-Za-z0-9_]*\).*$$/\1/p;q;}' $(firstword $(APP_SOURCES))))
 
 ifeq ($(GO_PACKAGE),main)
 APP_INIT_SYMBOL ?= __go_init_main
@@ -116,9 +129,17 @@ ENTRYPOINT = runtime_kolibri_app_entry
 PACKAGE_DIRS ?= kos ui
 DEBUG_PKG ?= 0
 AUTO_DEPS ?= 1
+# With resolved imports, independent packages can compile concurrently.
+# Keep the conservative sidecar discovery order unless explicitly enabled.
+PARALLEL_PACKAGES ?= 0
 ifneq ($(AUTO_DEPS),0)
-RESOLVED_PACKAGE_DIRS := $(shell $(RESOLVE_PACKAGES) --root $(ROOT_ABS) --stdlib $(STDLIB_DIR_ABS) --first-party "$(FIRST_PARTY_DIRS)" --third-party "$(THIRD_PARTY_DIRS)" --app-dir $(CURDIR) --packages "$(PACKAGE_DIRS)" --goos $(GOOS_TARGET) --goarch $(GOARCH_TARGET) --tags "$(BUILD_TAGS)")
+PACKAGE_IMPORT_DEPS_FILE := $(BUILD_CACHE_BASE_ABS)/$(PROGRAM_OUTPUT).packages.mk
+RESOLVED_PACKAGE_DIRS := $(shell $(RESOLVE_PACKAGES) --root $(ROOT_ABS) --stdlib $(STDLIB_DIR_ABS) --first-party "$(FIRST_PARTY_DIRS)" --third-party "$(THIRD_PARTY_DIRS_ABS)" --app-dir $(APP_SOURCE_DIR) --packages "$(PACKAGE_DIRS)" --goos $(GOOS_TARGET) --goarch $(GOARCH_TARGET) --tags "$(BUILD_TAGS)" --make-deps "$(PACKAGE_IMPORT_DEPS_FILE)" --artifact-root "$(PACKAGE_ARTIFACT_ROOT_ABS)")
+ifneq ($(.SHELLSTATUS),0)
+$(error Go dependency resolution failed; see the missing import diagnostics above)
+endif
 override PACKAGE_DIRS := $(RESOLVED_PACKAGE_DIRS)
+include $(PACKAGE_IMPORT_DEPS_FILE)
 endif
 PACKAGE_OBJS =
 PACKAGE_GOXS =
@@ -138,16 +159,18 @@ $(if $(filter 1,$(DEBUG_PKG)),$(info PKG=$(1) DIR=$(call FIND_PACKAGE_DIR,$(1)))
 PACKAGE_SOURCE_DIR_$(1) := $(call FIND_PACKAGE_DIR,$(1))
 $$(if $$(PACKAGE_SOURCE_DIR_$(1)),,$$(error package source dir not found for $(1)))
 PACKAGE_DIRS_FILE_$(1) := $$(PACKAGE_SOURCE_DIR_$(1))/package_dirs.txt
+PACKAGE_SELECTION_DEP_$(1) := $$(wildcard $$(PACKAGE_SOURCE_DIR_$(1))/kolibrios.sources.json)
 PACKAGE_SOURCE_SUBDIRS_$(1) := $$(strip $$(shell if [ -f "$$(PACKAGE_DIRS_FILE_$(1))" ]; then sed -e 's/#.*//' -e '/./!d' "$$(PACKAGE_DIRS_FILE_$(1))"; fi))
 PACKAGE_SOURCE_DIRS_$(1) := $$(PACKAGE_SOURCE_DIR_$(1)) $$(foreach rel,$$(PACKAGE_SOURCE_SUBDIRS_$(1)),$$(PACKAGE_SOURCE_DIR_$(1))/$$(rel))
-PACKAGE_SOURCES_$(1) := $$(shell $(SELECT_GO_FILES) --package-dir $$(PACKAGE_SOURCE_DIR_$(1)) --goos $(GOOS_TARGET) --goarch $(GOARCH_TARGET) --tags "$(BUILD_TAGS)")
+PACKAGE_SOURCES_$(1) := $$(if $$(filter undefined,$$(origin PACKAGE_RESOLVED_SOURCES_$(1))),$$(shell $(SELECT_GO_FILES) --package-dir $$(PACKAGE_SOURCE_DIR_$(1)) --goos $(GOOS_TARGET) --goarch $(GOARCH_TARGET) --tags "$(BUILD_TAGS)"),$$(PACKAGE_RESOLVED_SOURCES_$(1)))
 PACKAGE_SOURCE_FILES_$(1) := $$(patsubst $$(PACKAGE_SOURCE_DIR_$(1))/%,%,$$(PACKAGE_SOURCES_$(1)))
 PACKAGE_ARTIFACT_PREFIX_$(1) := $(PACKAGE_ARTIFACT_ROOT)/$(1)
 PACKAGE_ARTIFACT_PREFIX_ABS_$(1) := $(PACKAGE_ARTIFACT_ROOT_ABS)/$(1)
-PACKAGE_GO_OBJ_$(1) := $$(PACKAGE_ARTIFACT_PREFIX_$(1)).gccgo.go.o
+PACKAGE_GO_OBJ_$(1) := $$(PACKAGE_ARTIFACT_PREFIX_ABS_$(1)).gccgo.go.o
 PACKAGE_NATIVE_OBJ_DIR_$(1) := $$(PACKAGE_ARTIFACT_PREFIX_$(1)).native
 PACKAGE_C_SOURCES_$(1) := $$(strip $$(foreach dir,$$(PACKAGE_SOURCE_DIRS_$(1)),$$(wildcard $$(dir)/*.c)))
 PACKAGE_ASM_SOURCES_$(1) := $$(strip $$(foreach dir,$$(PACKAGE_SOURCE_DIRS_$(1)),$$(wildcard $$(dir)/*.S)))
+PACKAGE_NATIVE_HEADERS_$(1) := $$(strip $$(foreach dir,$$(PACKAGE_SOURCE_DIRS_$(1)),$$(wildcard $$(dir)/*.h)))
 PACKAGE_C_SOURCE_FILES_$(1) := $$(patsubst $$(PACKAGE_SOURCE_DIR_$(1))/%,%,$$(PACKAGE_C_SOURCES_$(1)))
 PACKAGE_ASM_SOURCE_FILES_$(1) := $$(patsubst $$(PACKAGE_SOURCE_DIR_$(1))/%,%,$$(PACKAGE_ASM_SOURCES_$(1)))
 PACKAGE_C_OBJS_$(1) := $$(patsubst %.c,$$(PACKAGE_NATIVE_OBJ_DIR_$(1))/%.o,$$(PACKAGE_C_SOURCE_FILES_$(1)))
@@ -161,7 +184,11 @@ PACKAGE_GLOBALIZE_SYMBOLS_$(1) :=
 else ifeq ($(1),runtime)
 PACKAGE_GLOBALIZE_SYMBOLS_$(1) := $(LIBGO_RUNTIME_GLOBALIZE_SYMBOLS)
 endif
-ifneq ($(FAST_PKG),0)
+ifneq ($(AUTO_DEPS),0)
+# Changed imports invalidate their users transitively. Each export and its
+# compiler sidecar are complete before a dependent package starts.
+PACKAGE_ORDER_DEPS_$(1) := $$(foreach imp,$$(PACKAGE_IMPORTS_$(1)),$(PACKAGE_ARTIFACT_ROOT)/$$(imp).gox) $(if $(filter 0,$(PARALLEL_PACKAGES)),$$(if $$(PREVIOUS_PACKAGE_GOXS),| $$(PREVIOUS_PACKAGE_GOXS),),)
+else ifneq ($(FAST_PKG),0)
 PACKAGE_ORDER_DEPS_$(1) := $$(if $$(PREVIOUS_PACKAGE_GOXS),| $$(PREVIOUS_PACKAGE_GOXS),)
 else
 PACKAGE_ORDER_DEPS_$(1) := $$(PREVIOUS_PACKAGE_GOXS)
@@ -170,16 +197,16 @@ endif
 PACKAGE_OBJS += $$(PACKAGE_OBJ_$(1))
 PACKAGE_GOXS += $$(PACKAGE_GOX_$(1))
 
-$$(PACKAGE_GO_OBJ_$(1)): $$(PACKAGE_SOURCES_$(1)) $$(PACKAGE_ORDER_DEPS_$(1))
+$$(PACKAGE_GO_OBJ_$(1)): $$(PACKAGE_SOURCES_$(1)) $$(PACKAGE_SELECTION_DEP_$(1)) $$(PACKAGE_SOURCE_SELECTION_$(1)) $(GO_COMPILER_DEPS) $$(PACKAGE_ORDER_DEPS_$(1))
 	mkdir -p $$(dir $$@)
 	cd $$(PACKAGE_SOURCE_DIR_$(1)) && $(GO) $(GO_COMPILER_FLAGS) -fgo-pkgpath=$(1) -o $$(PACKAGE_ARTIFACT_PREFIX_ABS_$(1)).gccgo.go.o $$(PACKAGE_SOURCE_FILES_$(1))
 	$$(if $$(strip $$(PACKAGE_GLOBALIZE_SYMBOLS_$(1))),for sym in $$(PACKAGE_GLOBALIZE_SYMBOLS_$(1)); do $(OBJCOPY) --globalize-symbol=$$$$sym $$@; done)
 
-$$(PACKAGE_NATIVE_OBJ_DIR_$(1))/%.o: $$(PACKAGE_SOURCE_DIR_$(1))/%.c
+$$(PACKAGE_NATIVE_OBJ_DIR_$(1))/%.o: $$(PACKAGE_SOURCE_DIR_$(1))/%.c $$(PACKAGE_NATIVE_HEADERS_$(1))
 	mkdir -p $$(dir $$@)
 	$(GCC) $(GCC_COMPILER_FLAGS) -I$$(PACKAGE_SOURCE_DIR_$(1)) -I$(ROOT_ABS) -I$(PACKAGE_ARTIFACT_ROOT_ABS) $(PACKAGE_NATIVE_INCLUDE_FLAGS) $$< -o $$@
 
-$$(PACKAGE_NATIVE_OBJ_DIR_$(1))/%.o: $$(PACKAGE_SOURCE_DIR_$(1))/%.S
+$$(PACKAGE_NATIVE_OBJ_DIR_$(1))/%.o: $$(PACKAGE_SOURCE_DIR_$(1))/%.S $$(PACKAGE_NATIVE_HEADERS_$(1))
 	mkdir -p $$(dir $$@)
 	$(GCC) $(GCC_COMPILER_FLAGS) -I$$(PACKAGE_SOURCE_DIR_$(1)) -I$(ROOT_ABS) -I$(PACKAGE_ARTIFACT_ROOT_ABS) $(PACKAGE_NATIVE_INCLUDE_FLAGS) $$< -o $$@
 
@@ -198,6 +225,10 @@ $(foreach pkg,$(PACKAGE_DIRS),$(eval $(call REGISTER_PACKAGE,$(pkg))))
 
 APP_OBJ = $(PROGRAM_OUTPUT).gccgo.o
 
+# Compiler-generated dependencies on original go:embed resources. Directory
+# timestamps also invalidate objects when matching files are added or removed.
+-include $(foreach pkg,$(PACKAGE_DIRS),$(PACKAGE_GO_OBJ_$(pkg)).embed.d) $(APP_OBJ).embed.d
+
 LIBGCC = $(shell $(GCC) -m32 -print-libgcc-file-name)
 LIBGCC_EH = $(shell $(GCC) -m32 -print-file-name=libgcc_eh.a)
 RUNTIME_LIBS = $(LIBGCC_EH) $(LIBGCC)
@@ -207,6 +238,7 @@ ABI_SYSCALLS_ALIAS_OBJ =
 ABI_RUNTIME_OBJ = $(ABI_ARTIFACT_ROOT)/runtime_gccgo.o
 ABI_UNWIND_OBJ = $(ABI_ARTIFACT_ROOT)/go-unwind.o
 ABI_CONTEXT_OBJ = $(ABI_ARTIFACT_ROOT)/runtime_context_386.o
+ABI_ENTROPY_OBJ = $(ABI_ARTIFACT_ROOT)/runtime_entropy_386.o
 ifeq ($(RUNTIME_FLAVOR),libgo)
 LIBGO_RUNTIME_DIR := $(ROOT_ABS)/native/libgo/staging/runtime
 LIBGO_RUNTIME_INC := $(LIBGO_RUNTIME_DIR)/runtime.inc
@@ -219,7 +251,7 @@ LIBGO_RUNTIME_EXTRA_SRCS := $(LIBGO_RUNTIME_DIR)/aeshash.c $(LIBGO_RUNTIME_DIR)/
 ABI_EXTRA_RUNTIME_OBJS := $(patsubst $(LIBGO_RUNTIME_DIR)/%.c,$(ABI_ARTIFACT_ROOT)/libgo-runtime/%.o,$(LIBGO_RUNTIME_EXTRA_SRCS))
 ABI_EXTRA_RUNTIME_OBJS += $(ABI_ARTIFACT_ROOT)/libc_compat.o
 endif
-ABI_OBJS = $(ABI_SYSCALLS_OBJ) $(ABI_SYSCALLS_ALIAS_OBJ) $(ABI_RUNTIME_OBJ) $(ABI_UNWIND_OBJ) $(ABI_CONTEXT_OBJ) $(ABI_EXTRA_RUNTIME_OBJS)
+ABI_OBJS = $(ABI_SYSCALLS_OBJ) $(ABI_SYSCALLS_ALIAS_OBJ) $(ABI_RUNTIME_OBJ) $(ABI_UNWIND_OBJ) $(ABI_CONTEXT_OBJ) $(ABI_ENTROPY_OBJ) $(ABI_EXTRA_RUNTIME_OBJS)
 STARTUP_ARTIFACTS = $(STARTUP_SOURCE) $(STARTUP_OBJ)
 OBJS = $(ABI_OBJS) $(PACKAGE_OBJS) $(APP_OBJ)
 OBJS += $(STARTUP_OBJ)
@@ -227,7 +259,10 @@ PACKAGE_ARTIFACTS = $(PACKAGE_OBJS) $(PACKAGE_GOXS)
 INTERMEDIATE_ARTIFACTS = $(ABI_OBJS) $(APP_OBJ) $(LDSCRIPT) $(STARTUP_ARTIFACTS)
 
 .DEFAULT_GOAL := all
-.PHONY: all clean clean-cache distclean link
+.PHONY: all clean clean-cache distclean link print-output
+
+print-output:
+	@printf '%s\n' '$(CURDIR)/$(PROGRAM_OUTPUT).kex'
 
 all: $(PROGRAM_OUTPUT).kex
 
@@ -237,7 +272,7 @@ clean:
 	rm -f $(PROGRAM).kex $(PROGRAM).libgo.kex
 
 clean-cache:
-	rm -rf $(BUILD_CACHE_BASE)
+	rm -rf $(PACKAGE_ARTIFACT_ROOT) $(ABI_ARTIFACT_ROOT)
 
 distclean: clean clean-cache
 
@@ -249,14 +284,21 @@ $(BUILD_DIR):
 $(LDSCRIPT): $(LDSCRIPT_TEMPLATE) | $(BUILD_DIR)
 	$(SED) -e 's/@ENTRYPOINT@/$(ENTRYPOINT)/g' -e 's/@STACK_RESERVE@/$(APP_STACK_RESERVE)/g' $< > $@
 
-$(STARTUP_SOURCE): $(STARTUP_TEMPLATE) | $(BUILD_DIR)
+$(STARTUP_SOURCE): $(STARTUP_TEMPLATE) $(MK_DIR)/kolibri-app.mk Makefile | $(BUILD_DIR)
 	$(SED) -e 's/@APP_INIT_SYMBOL@/$(APP_INIT_SYMBOL)/g' -e 's/@APP_MAIN_SYMBOL@/$(APP_MAIN_SYMBOL)/g' $< > $@
 
 $(STARTUP_OBJ): $(STARTUP_SOURCE)
 	$(GCC) $(GCC_COMPILER_FLAGS) $< -o $@
 
-$(PROGRAM_OUTPUT).kex: $(OBJS) $(PACKAGE_GOXS) $(LDSCRIPT)
+$(PROGRAM_OUTPUT).kex: $(OBJS) $(PACKAGE_GOXS) $(LDSCRIPT) $(ROOT_ABS)/tooling/link-symbols.py
+ifneq ($(SYMBOLS),0)
+	python3 $(ROOT_ABS)/tooling/link-symbols.py --cc "$(GCC)" -- $(LD) $(LDFLAGS) -o $(PROGRAM_OUTPUT).kex $(OBJS) $(RUNTIME_LIBS)
+else
 	$(LD) $(LDFLAGS) -o $(PROGRAM_OUTPUT).kex $(OBJS) $(RUNTIME_LIBS)
+endif
+ifneq ($(DEBUG_ELF),)
+	cp $(PROGRAM_OUTPUT).kex $(DEBUG_ELF)
+endif
 	$(STRIP) $(PROGRAM_OUTPUT).kex
 	$(OBJCOPY) $(PROGRAM_OUTPUT).kex -O binary
 ifneq ($(KPACK),0)
@@ -272,7 +314,7 @@ ifeq ($(KEEP_PKG),0)
 endif
 	rmdir $(BUILD_DIR) 2>/dev/null || true
 
-$(APP_OBJ): $(APP_SOURCES) $(PACKAGE_GOXS)
+$(APP_OBJ): $(APP_SOURCES) $(GO_COMPILER_DEPS) $(PACKAGE_GOXS)
 	$(GO) $(GO_COMPILER_FLAGS) -o $@ $(APP_SOURCES)
 
 $(ABI_RUNTIME_OBJ): $(ABI_RUNTIME_SOURCE) $(ABI_RUNTIME_DEPS)
@@ -307,5 +349,9 @@ $(ABI_UNWIND_OBJ): $(ABI_DIR)/go-unwind.c
 	$(GCC) $(GCC_COMPILER_FLAGS) -fexceptions $< -o $@
 
 $(ABI_CONTEXT_OBJ): $(ABI_DIR)/runtime_context_386.S
+	mkdir -p $(dir $@)
+	$(GCC) $(GCC_COMPILER_FLAGS) $< -o $@
+
+$(ABI_ENTROPY_OBJ): $(ABI_DIR)/runtime_entropy_386.S
 	mkdir -p $(dir $@)
 	$(GCC) $(GCC_COMPILER_FLAGS) $< -o $@

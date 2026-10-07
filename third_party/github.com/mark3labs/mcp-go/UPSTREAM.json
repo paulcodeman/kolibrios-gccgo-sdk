@@ -1,0 +1,13 @@
+{
+  "repository": "https://github.com/mark3labs/mcp-go",
+  "version": "v0.17.0",
+  "files": {
+    "server/hooks.go": "f017d3b0089468851abebe90318308ad86096a090eaf2210061ed5ff44b9dc27",
+    "server/internal/gen/data.go": "292871287f7427973ee4fa1967aff4ce6de46d32cb27fd6add915c0bb92fe598",
+    "server/internal/gen/main.go": "7821e77aa96c941e5f47a559207a157cea9b6fc5812c0c4458ab42c12fae01c7",
+    "server/request_handler.go": "58607a273c390f537014c0f7de0f3b4cdeb3665da6fec617e49681e8e081cbec",
+    "server/server.go": "17a6437bfb48f77c9bb241be9dcdea86d4848090b446a0b6d46293c852aa7ccc",
+    "server/sse.go": "06f66ed208d760a8ccb24eb0b026b686d3ad80aefa4e16dce0db1ceb5a8916af",
+    "server/stdio.go": "45e4d936620e52b5dee54231c5893b751359f76bcc23452ed7993a82b9ba74c7"
+  }
+}

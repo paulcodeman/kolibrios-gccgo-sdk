@@ -1,59 +1,26 @@
+// Copyright 2023 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+//go:build kolibrios
+
+// Adapted from Go 1.23 crypto/rand/rand_wasip1.go: the platform call is
+// backed by upstream OpenSSL CPU random routines in the native runtime.
 package rand
 
-import (
-	"os"
-	"sync"
-	"time"
-	"unsafe"
+import "errors"
 
-	"kos"
-)
+func init() { Reader = &reader{} }
 
-const fallbackRandSeed = uint64(0x9e3779b97f4a7c15)
+type reader struct{}
 
-type fallbackReader struct {
-	mu    sync.Mutex
-	state uint64
-}
+var errRandomUnavailable = errors.New("crypto/rand: secure CPU random source unavailable")
 
-func init() {
-	// Temporary KolibriOS fallback until a real CSPRNG source is wired in.
-	Reader = newFallbackReader()
-}
+func nativeReadRandom(*byte, int) int __asm__("runtime.kolibriReadRandom")
 
-func newFallbackReader() *fallbackReader {
-	seed := uint64(time.Now().UnixNano())
-	seed ^= kos.UptimeNanoseconds()
-	seed ^= uint64(os.Getpid()) << 32
-	seed ^= uint64(uintptr(unsafe.Pointer(&seed)))
-	if seed == 0 {
-		seed = fallbackRandSeed
-	}
-
-	return &fallbackReader{state: seed}
-}
-
-func (r *fallbackReader) Read(b []byte) (int, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	for i := 0; i < len(b); {
-		word := r.next()
-		for j := 0; j < 8 && i < len(b); j++ {
-			b[i] = byte(word)
-			word >>= 8
-			i++
-		}
-	}
-
-	return len(b), nil
-}
-
-func (r *fallbackReader) next() uint64 {
-	r.state += fallbackRandSeed
-
-	z := r.state
-	z = (z ^ (z >> 30)) * uint64(0xbf58476d1ce4e5b9)
-	z = (z ^ (z >> 27)) * uint64(0x94d049bb133111eb)
-	return z ^ (z >> 31)
+func (r *reader) Read(b []byte) (int, error) {
+ if len(b)==0 { return 0,nil }
+ n:=nativeReadRandom(&b[0],len(b))
+ if n!=len(b) { return n,errRandomUnavailable }
+ return len(b),nil
 }

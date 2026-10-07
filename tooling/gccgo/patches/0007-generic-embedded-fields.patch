@@ -1,0 +1,86 @@
+--- a/gcc/go/gofrontend/types.cc
++++ b/gcc/go/gofrontend/types.cc
+@@ -12,6 +12,7 @@
+ #include "gogo.h"
+ #include "go-diagnostics.h"
+ #include "go-encode-id.h"
++#include "lex.h"
+ #include "go-sha1.h"
+ #include "operator.h"
+ #include "expressions.h"
+@@ -36,6 +37,11 @@
+ get_backend_interface_fields(Gogo* gogo, Interface_type* type,
+ 			     bool use_placeholder,
+ 			     std::vector<Backend::Btyped_identifier>* bfields);
++
++// Decode specialization metadata before named type declarations are lowered.
++static bool
++decode_compat_generic_metadata(const std::string&, std::string*, std::string*,
++                              std::string*, std::string*);
+ 
+ // Class Type.
+ 
+@@ -5986,6 +5992,25 @@
+ 	  Pointer_type* ptype = static_cast<Pointer_type*>(t);
+ 	  dt = ptype->points_to();
+ 	}
++      // The compiler's canonical specialization identifier is not the Go
++      // field name. Embedded Box[int] is still named Box, with its original
++      // visibility and package ownership. Check forward names as well: this
++      // method is called while the package is still being parsed.
++      std::string type_name;
++      if (dt->forward_declaration_type() != NULL)
++        type_name = dt->forward_declaration_type()->name();
++      else if (dt->named_type() != NULL)
++        type_name = dt->named_type()->name();
++      std::string pkgpath, display;
++      if (!type_name.empty()
++          && decode_compat_generic_metadata(type_name, NULL, &pkgpath, NULL,
++                                            &display))
++        {
++          display = display.substr(0, display.find('['));
++          this->compat_field_name_ = (Lex::is_exported_name(display)
++                                      ? display : '.' + pkgpath + '.' + display);
++          return this->compat_field_name_;
++        }
+       if (dt->forward_declaration_type() != NULL)
+ 	return dt->forward_declaration_type()->name();
+       else if (dt->named_type() != NULL)
+@@ -6027,7 +6052,7 @@
+       if (t->points_to() != NULL)
+ 	t = t->points_to();
+       Named_type* nt = t->named_type();
+-      if (nt != NULL && nt->name() == name)
++      if (nt != NULL && this->field_name() == name)
+ 	return true;
+ 
+       // This is a horrible hack caused by the fact that we don't pack
+@@ -11299,7 +11324,16 @@
+ Named_type::compat_generic_metadata(std::string* identity, std::string* pkgpath,
+                                     std::string* pkgname, std::string* display) const
+ {
+-  std::string name = Gogo::unpack_hidden_name(this->named_object_->name());
++  return decode_compat_generic_metadata(this->named_object_->name(), identity,
++                                       pkgpath, pkgname, display);
++}
++
++static bool
++decode_compat_generic_metadata(const std::string& encoded, std::string* identity,
++                              std::string* pkgpath, std::string* pkgname,
++                              std::string* display)
++{
++  std::string name = Gogo::unpack_hidden_name(encoded);
+   const std::string prefix = "GccgoCompatType_";
+   if (name.compare(0, prefix.size(), prefix) != 0)
+     return false;
+--- a/gcc/go/gofrontend/types.h
++++ b/gcc/go/gofrontend/types.h
+@@ -2488,6 +2488,8 @@
+  private:
+   // The field name, type, and location.
+   Typed_identifier typed_identifier_;
++  // Stable storage for restored embedded generic field names.
++  mutable std::string compat_field_name_;
+   // The field tag.  This is NULL if the field has no tag.
+   std::string* tag_;
+   // Whether this field is defined in an imported struct.

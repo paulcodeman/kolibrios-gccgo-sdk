@@ -1,0 +1,20 @@
+{
+  "files": {
+    "LICENSE": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+    "go.mod": "a2c3e0e3c81403ce6d0fb25fc9f57a22a8fb2265a08955207eeb53d105ac7d20",
+    "term.go": "9792d91be6b3e5195591a2e5bda1fd01cb19954df79fd844de4d429538c1c5d5",
+    "term_plan9.go": "d2317483f1077eaab2f6a33c1b31704cb072fbdad75b5bca67aac8f0a8dd175e",
+    "term_test.go": "8e8e50a6c4858f93d2238baedd7ec723cc0a9d7c2d99321e0b5416f082499a61",
+    "term_unix.go": "e6a95d1ac948b5e2b389676545101de744f2715766e77f55160375a49a765b15",
+    "term_unix_bsd.go": "582326355334ff9492a712458087a16b705c5855d44c30ed1ae45c0aeb0be7af",
+    "term_unix_other.go": "b85131ef51f97355fdadfec6f993c8fb4c0cd5c3d2453e1eec76c48d1d4d87d0",
+    "term_unsupported.go": "4eea632af55288c8a05509b8754dbbf530746ca73cfa0f29b31fd515192858f7",
+    "term_windows.go": "e04b022bd2ecd36f2ea7c85e7631bec23d7afdd7264487239293d48af336a38d",
+    "terminal.go": "72b0efd410f78e128a3e02153c02020d3e95144ee221857d23514d38341cf511",
+    "terminal_test.go": "e6707721bfe1e3b9c759d47be4666ff62c6f4a5725127fa4f56f728790a27a11"
+  },
+  "module": "golang.org/x/term",
+  "module_checksum": "h1:erwDkOK1Msy6offm1mOgvspSkslFnIGsFnxOKoufg3o=",
+  "source": "verified Go module cache",
+  "version": "v0.31.0"
+}

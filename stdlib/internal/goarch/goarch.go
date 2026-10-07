@@ -5,7 +5,28 @@
 // package goarch contains GOARCH-specific constants.
 package goarch
 
+// The next line makes 'go generate' write the zgoarch*.go files with
+// per-arch information, including constants named $GOARCH for every
+// GOARCH. The constant is 1 on the current system, 0 otherwise; multiplying
+// by them is useful for defining GOARCH-specific constants.
+//
+//go:generate go run gengoarch.go
+
 type ArchFamilyType int
+
+const (
+	AMD64 ArchFamilyType = iota
+	ARM
+	ARM64
+	I386
+	LOONG64
+	MIPS
+	MIPS64
+	PPC64
+	RISCV64
+	S390X
+	WASM
+)
 
 // PtrSize is the size of a pointer in bytes - unsafe.Sizeof(uintptr(0)) but as an ideal constant.
 // It is also the size of the machine's native word size (that is, 4 on 32-bit systems, 8 on 64-bit).
@@ -15,7 +36,7 @@ const PtrSize = 4 << (^uintptr(0) >> 63)
 const ArchFamily ArchFamilyType = _ArchFamily
 
 // BigEndian reports whether the architecture is big-endian.
-const BigEndian = _BigEndian
+const BigEndian = IsArmbe|IsArm64be|IsMips|IsMips64|IsPpc|IsPpc64|IsS390|IsS390x|IsSparc|IsSparc64 == 1
 
 // DefaultPhysPageSize is the default physical page size.
 const DefaultPhysPageSize = _DefaultPhysPageSize
@@ -25,7 +46,7 @@ const DefaultPhysPageSize = _DefaultPhysPageSize
 const PCQuantum = _PCQuantum
 
 // Int64Align is the required alignment for a 64-bit integer (4 on 32-bit systems, 8 on 64-bit).
-const Int64Align = _Int64Align
+const Int64Align = PtrSize
 
 // MinFrameSize is the size of the system-reserved words at the bottom
 // of a frame (just above the architectural stack pointer).

@@ -1,0 +1,19 @@
+{
+  "repository": "https://github.com/radovskyb/watcher",
+  "version": "v1.0.7",
+  "module_sum": "h1:AYePLih6dpmS32vlHfhCeli8127LzkIgwJGcwwe8tUE=",
+  "go_mod_sum": "h1:78okwvY5wPdzcb1UYnip1pvrZNIVEIh/Cm+ZuvsUYIg=",
+  "files": {
+    "watcher.go": "bbae74c23553244cb0069d9797c98a083c441cb58fcb5c6bded65cee12aff5a6",
+    "ishidden.go": "4e2096f87391e1afc49283253ee2aae3461cc37bca71a365a34b8b7b8a3a5381",
+    "samefile.go": "2d810ded60887493b116a0ce7bf312603c62b5b9b5695b32e10b560c0aee5d5a",
+    "LICENSE": "8eb6fd132d4bcddf05218170e888514a355434f32e4567744b9b19569a64a955"
+  },
+  "adaptations": {
+    "watcher_kolibrios.go": {
+      "sha256": "7c353222d90e9c853e01b4103cc0974b0ddb1aee95ad34423d690e312e553a33",
+      "source": "watcher.go",
+      "reason": "FAT has coarse modification timestamps and no watch syscalls: retain upstream poller, record content fingerprints, guard concurrent watch changes and avoid a stranded completion send on Close."
+    }
+  }
+}

@@ -1,0 +1,4 @@
+{
+  "reason": "KolibriOS has no native filesystem watch ABI; retain fsnotify API and use the upstream polling watcher with FAT content snapshots.",
+  "replace": {"backend_other.go": "backend_kolibrios.go"}
+}

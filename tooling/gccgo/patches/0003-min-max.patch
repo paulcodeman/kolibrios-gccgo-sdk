@@ -1,0 +1,449 @@
+--- a/gcc/go/gofrontend/expressions.h
++++ b/gcc/go/gofrontend/expressions.h
+@@ -2784,6 +2784,8 @@
+       BUILTIN_COPY,
+       BUILTIN_DELETE,
+       BUILTIN_CLEAR,
++      BUILTIN_MIN,
++      BUILTIN_MAX,
+       BUILTIN_IMAG,
+       BUILTIN_LEN,
+       BUILTIN_MAKE,
+@@ -2874,6 +2876,14 @@
+ 
+   bool
+   check_one_arg();
++
++  // Join operand types without imposing the result's constant context.
++  Type*
++  minmax_type() const;
++
++  bool
++  do_string_constant_value(std::string*);
++
+ 
+   static Type*
+   real_imag_type(Type*);
+--- a/gcc/go/gofrontend/expressions.cc
++++ b/gcc/go/gofrontend/expressions.cc
+@@ -9301,6 +9301,10 @@
+     this->code_ = BUILTIN_DELETE;
+   else if (name == "clear")
+     this->code_ = BUILTIN_CLEAR;
++  else if (name == "min")
++    this->code_ = BUILTIN_MIN;
++  else if (name == "max")
++    this->code_ = BUILTIN_MAX;
+   else if (name == "imag")
+     this->code_ = BUILTIN_IMAG;
+   else if (name == "len")
+@@ -9333,6 +9337,57 @@
+     go_unreachable();
+ }
+ 
++// min/max use the same operand type rules as addition, but must not
++// evaluate a synthetic sum: that could overflow otherwise valid constants.
++Type*
++Builtin_call_expression::minmax_type() const
++{
++  const Expression_list* args = this->args();
++  if (args == NULL || args->empty())
++    return Type::make_error_type();
++  Type* typed = NULL;
++  Type* untyped = NULL;
++  for (Expression_list::const_iterator p = args->begin(); p != args->end(); ++p)
++    {
++      Type* t;
++      if (!(*p)->is_untyped(&t))
++        {
++          (*p)->determine_type_no_context(this->gogo_);
++          t = (*p)->type();
++          if (typed != NULL && !Type::are_identical(typed, t, 0, NULL))
++            return Type::make_error_type();
++          typed = t;
++        }
++      else if (untyped == NULL)
++        untyped = t;
++      else if (untyped->is_numeric_type() && t->is_numeric_type())
++        {
++          if (t->complex_type() != NULL || untyped->complex_type() != NULL)
++            untyped = Type::make_abstract_complex_type();
++          else if (t->float_type() != NULL || untyped->float_type() != NULL)
++            untyped = Type::make_abstract_float_type();
++          else if (t->integer_type()->is_rune()
++                   || untyped->integer_type()->is_rune())
++            untyped = Type::make_abstract_character_type();
++        }
++      else if (!Type::are_identical(untyped, t, 0, NULL))
++        return Type::make_error_type();
++      if (t->integer_type() == NULL && t->float_type() == NULL
++          && !t->is_string_type())
++        return Type::make_error_type();
++    }
++  if (typed != NULL && untyped != NULL
++      && !((typed->is_numeric_type() && untyped->is_numeric_type())
++           || (typed->is_string_type() && untyped->is_string_type())))
++    return Type::make_error_type();
++  Type* result = typed != NULL ? typed : untyped;
++  if (result == NULL
++      || (result->integer_type() == NULL && result->float_type() == NULL
++          && !result->is_string_type()))
++    return Type::make_error_type();
++  return result;
++}
++
+ // Return whether this is a call to recover.  This is a virtual
+ // function called from the parent class.
+ 
+@@ -9368,6 +9423,14 @@
+     return this;
+ 
+   Location loc = this->location();
++
++  if ((this->code_ == BUILTIN_MIN || this->code_ == BUILTIN_MAX)
++      && this->is_constant() && this->type()->is_string_type())
++    {
++      std::string value;
++      if (this->string_constant_value(&value))
++        return Expression::make_string_typed(value, this->type(), loc);
++    }
+ 
+   if (this->code_ == BUILTIN_OFFSETOF)
+     {
+@@ -9485,6 +9548,66 @@
+     {
+     default:
+       break;
++
++    case BUILTIN_MIN:
++    case BUILTIN_MAX:
++      {
++        // Evaluate every operand once before selecting a result. A NaN
++        // must not skip side effects in the remaining operands.
++        std::vector<Temporary_statement*> temps;
++        Type* type = this->type();
++        for (Expression_list::const_iterator p = this->args()->begin();
++             p != this->args()->end(); ++p)
++          {
++            Temporary_statement* temp = Statement::make_temporary(type, *p, loc);
++            inserter->insert(temp);
++            temps.push_back(temp);
++          }
++        Temporary_statement* selected = temps.front();
++        Operator op = this->code_ == BUILTIN_MIN ? OPERATOR_LT : OPERATOR_GT;
++        for (size_t i = 1; i < temps.size(); ++i)
++          {
++            Expression* a = Expression::make_temporary_reference(selected, loc);
++            Expression* b = Expression::make_temporary_reference(temps[i], loc);
++            Operator compare = type->is_string_type()
++                ? (this->code_ == BUILTIN_MIN ? OPERATOR_LE : OPERATOR_GE) : op;
++            Expression* cond = Expression::make_binary(compare, a, b, loc);
++            Expression* result = Expression::make_conditional(cond, a->copy(),
++                                                               b->copy(), loc);
++            if (type->float_type() != NULL)
++              {
++                // Reciprocal zero distinguishes -0 from +0 without a new
++                // runtime ABI. Floating division by zero produces infinity.
++                Expression* one = Expression::make_integer_ul(1, type, loc);
++                Expression* ra = Expression::make_binary(OPERATOR_DIV,
++                                                         one, a->copy(), loc);
++                Expression* rb = Expression::make_binary(OPERATOR_DIV,
++                                                   one->copy(), b->copy(), loc);
++                Expression* zero_cond = Expression::make_binary(op, ra, rb, loc);
++                Expression* zero_result = Expression::make_conditional(
++                    zero_cond, a->copy(), b->copy(), loc);
++                Expression* zero = Expression::make_integer_ul(0, type, loc);
++                Expression* is_zero = Expression::make_binary(OPERATOR_EQEQ,
++                                                              a->copy(), zero, loc);
++                Expression* equal = Expression::make_binary(OPERATOR_EQEQ,
++                                                       a->copy(), b->copy(), loc);
++                Expression* both_zero = Expression::make_binary(OPERATOR_ANDAND,
++                                                                equal, is_zero, loc);
++                result = Expression::make_conditional(both_zero, zero_result,
++                                                      result, loc);
++                Expression* b_nan = Expression::make_binary(OPERATOR_NOTEQ,
++                                                       b->copy(), b->copy(), loc);
++                result = Expression::make_conditional(b_nan, b->copy(), result, loc);
++                Expression* a_nan = Expression::make_binary(OPERATOR_NOTEQ,
++                                                       a->copy(), a->copy(), loc);
++                result = Expression::make_conditional(a_nan, a->copy(), result, loc);
++              }
++            result->determine_type_no_context(gogo);
++            selected = Statement::make_temporary(type, result, loc);
++            inserter->insert(selected);
++          }
++        return Expression::make_temporary_reference(selected, loc);
++      }
+ 
+     case BUILTIN_CLEAR:
+       {
+@@ -10643,6 +10766,30 @@
+     return true;
+   switch (this->code_)
+     {
++    case BUILTIN_MIN:
++    case BUILTIN_MAX:
++      {
++        Type* common = this->minmax_type();
++        if (this->is_varargs() || common->is_error())
++          return false;
++        for (Expression_list::const_iterator p = this->args()->begin();
++             p != this->args()->end(); ++p)
++          {
++            if (!(*p)->is_constant())
++              return false;
++            if (common->is_numeric_type())
++              {
++                Numeric_constant value;
++                if (!(*p)->numeric_constant_value(&value)
++                    || !value.set_type(common, false, this->location()))
++                  return false;
++              }
++            else if (!(*p)->type()->is_string_type())
++              return false;
++          }
++        return true;
++      }
++
+     case BUILTIN_LEN:
+     case BUILTIN_CAP:
+       {
+@@ -10732,6 +10879,16 @@
+     {
+     default:
+       return false;
++
++    case BUILTIN_MIN:
++    case BUILTIN_MAX:
++      {
++        Type* t = this->minmax_type();
++        if (t->is_error() || !t->is_abstract())
++          return false;
++        *ptype = t;
++        return true;
++      }
+ 
+     case BUILTIN_COMPLEX:
+       {
+@@ -10760,11 +10917,68 @@
+     }
+ }
+ 
++bool
++Builtin_call_expression::do_string_constant_value(std::string* value)
++{
++  if ((this->code_ != BUILTIN_MIN && this->code_ != BUILTIN_MAX)
++      || !this->is_constant() || !this->minmax_type()->is_string_type())
++    return false;
++  this->args()->front()->string_constant_value(value);
++  for (Expression_list::const_iterator p = this->args()->begin() + 1;
++       p != this->args()->end(); ++p)
++    {
++      std::string other;
++      (*p)->string_constant_value(&other);
++      if ((this->code_ == BUILTIN_MIN && other < *value)
++          || (this->code_ == BUILTIN_MAX && other > *value))
++        *value = other;
++    }
++  return true;
++}
++
+ // Return a numeric constant if possible.
+ 
+ bool
+ Builtin_call_expression::do_numeric_constant_value(Numeric_constant* nc)
+ {
++  if (this->code_ == BUILTIN_MIN || this->code_ == BUILTIN_MAX)
++    {
++      if (!this->is_constant() || !this->minmax_type()->is_numeric_type())
++        return false;
++      Type* common = this->minmax_type();
++      this->args()->front()->numeric_constant_value(nc);
++      for (Expression_list::const_iterator p = this->args()->begin() + 1;
++           p != this->args()->end(); ++p)
++        {
++          Numeric_constant other;
++          (*p)->numeric_constant_value(&other);
++          nc->set_type(common, false, this->location());
++          other.set_type(common, false, this->location());
++          int cmp;
++          if (common->integer_type() != NULL)
++            {
++              mpz_t a, b;
++              nc->to_int(&a);
++              other.to_int(&b);
++              cmp = mpz_cmp(a, b);
++              mpz_clear(a);
++              mpz_clear(b);
++            }
++          else
++            {
++              mpfr_t a, b;
++              nc->to_float(&a);
++              other.to_float(&b);
++              cmp = mpfr_cmp(a, b);
++              mpfr_clear(a);
++              mpfr_clear(b);
++            }
++          if ((this->code_ == BUILTIN_MIN && cmp > 0)
++              || (this->code_ == BUILTIN_MAX && cmp < 0))
++            *nc = other;
++        }
++      return nc->set_type(this->type(), true, this->location());
++    }
+   if (this->code_ == BUILTIN_LEN
+       || this->code_ == BUILTIN_CAP)
+     {
+@@ -11010,6 +11224,8 @@
+     default:
+       go_unreachable();
+ 
++    case BUILTIN_MIN:
++    case BUILTIN_MAX:
+     case BUILTIN_APPEND:
+     case BUILTIN_CAP:
+     case BUILTIN_COMPLEX:
+@@ -11055,6 +11271,10 @@
+     case BUILTIN_INVALID:
+     default:
+       return Type::make_error_type();
++
++    case BUILTIN_MIN:
++    case BUILTIN_MAX:
++      return this->minmax_type();
+ 
+     case BUILTIN_NEW:
+       {
+@@ -11165,6 +11385,33 @@
+   this->simplify_multiple_results(gogo);
+ 
+   const Expression_list* args = this->args();
++
++  if (this->code_ == BUILTIN_MIN || this->code_ == BUILTIN_MAX)
++    {
++      Type* common = this->minmax_type();
++      if (common->is_error())
++        {
++          this->report_error("min/max require compatible ordered operands");
++          return;
++        }
++      Type* result = common;
++      bool all_constant = this->is_constant();
++      if (common->is_abstract())
++        {
++          if (context->type != NULL && context->type->interface_type() == NULL
++              && ((common->is_numeric_type() && context->type->is_numeric_type())
++                  || (common->is_string_type() && context->type->is_string_type())))
++            result = context->type;
++          else if (!context->may_be_abstract)
++            result = common->make_non_abstract_type();
++        }
++      Type_context operands(common->is_abstract() && !all_constant ? result : common,
++                            common->is_abstract() && all_constant);
++      for (Expression_list::const_iterator p = args->begin(); p != args->end(); ++p)
++        (*p)->determine_type(gogo, &operands);
++      this->set_type(result);
++      return;
++    }
+ 
+   bool is_print;
+   Type* arg_type = NULL;
+@@ -11451,6 +11698,35 @@
+     {
+     case BUILTIN_INVALID:
+       return;
++
++    case BUILTIN_MIN:
++    case BUILTIN_MAX:
++      {
++        Type* common = this->minmax_type();
++        if (common->is_error())
++          this->report_error("min/max require compatible ordered operands");
++        else
++          for (Expression_list::const_iterator p = this->args()->begin();
++               p != this->args()->end(); ++p)
++            {
++              Type* t = (*p)->type();
++              if (t->is_error())
++                this->set_is_error();
++              else if (t->is_abstract())
++                {
++                  Numeric_constant value;
++                  if (common->is_numeric_type()
++                      && (!(*p)->numeric_constant_value(&value)
++                          || !value.set_type(common, true, (*p)->location())))
++                    this->set_is_error();
++                  else if (t->is_string_type() != common->is_string_type())
++                    this->report_error("incompatible min/max operand types");
++                }
++              else if (!Type::are_identical(common, t, 0, NULL))
++                this->report_error("incompatible min/max operand types");
++            }
++      }
++      break;
+ 
+     case BUILTIN_NEW:
+       if (this->check_one_arg())
+@@ -11995,6 +12271,8 @@
+   switch (this->code_)
+     {
+     case BUILTIN_INVALID:
++    case BUILTIN_MIN:
++    case BUILTIN_MAX:
+     case BUILTIN_NEW:
+     case BUILTIN_MAKE:
+     case BUILTIN_ADD:
+@@ -12374,6 +12652,12 @@
+ 	case BUILTIN_CLEAR:
+ 	  s = "clear";
+ 	  break;
++        case BUILTIN_MIN:
++          s = "min";
++          break;
++        case BUILTIN_MAX:
++          s = "max";
++          break;
+ 	case BUILTIN_PRINT:
+ 	  s = "print";
+ 	  break;
+--- a/gcc/go/gofrontend/gogo.cc
++++ b/gcc/go/gofrontend/gogo.cc
+@@ -267,6 +267,12 @@
+   delete_type->set_is_varargs();
+   delete_type->set_is_builtin();
+   this->globals_->add_function_declaration("delete", NULL, delete_type, loc);
++
++  Function_type* minmax_type = Type::make_function_type(NULL, NULL, NULL, loc);
++  minmax_type->set_is_varargs();
++  minmax_type->set_is_builtin();
++  this->globals_->add_function_declaration("min", NULL, minmax_type, loc);
++  this->globals_->add_function_declaration("max", NULL, minmax_type, loc);
+ 
+   Function_type* clear_type = Type::make_function_type(NULL, NULL, NULL, loc);
+   clear_type->set_is_varargs();
+--- a/gcc/go/gofrontend/escape.cc
++++ b/gcc/go/gofrontend/escape.cc
+@@ -1623,6 +1623,8 @@
+                 // these do not escape.
+                 break;
+ 
++              case Builtin_call_expression::BUILTIN_MIN:
++              case Builtin_call_expression::BUILTIN_MAX:
+               case Builtin_call_expression::BUILTIN_ADD:
+               case Builtin_call_expression::BUILTIN_SLICE:
+                 // handled in ::assign.
+@@ -2421,6 +2423,14 @@
+                       Node* appendee = Node::make_node(call->args()->front());
+                       this->assign(dst, appendee);
+                     }
++                    break;
++
++                  case Builtin_call_expression::BUILTIN_MIN:
++                  case Builtin_call_expression::BUILTIN_MAX:
++                    // A selected string retains its operand's backing store.
++                    for (Expression_list::const_iterator p = call->args()->begin();
++                         p != call->args()->end(); ++p)
++                      this->assign(dst, Node::make_node(*p));
+                     break;
+ 
+                   case Builtin_call_expression::BUILTIN_ADD:

@@ -11,6 +11,9 @@ const (
 const (
 	NetworkSockStream = 1
 	NetworkSockDgram  = 2
+	// kernel/trunk/network/stack.inc SO_NONBLOCK; socket_open accepts it
+	// in the type argument documented by sysfuncs.txt function 75/0.
+	NetworkSockNonBlock = 1 << 31
 )
 
 const (

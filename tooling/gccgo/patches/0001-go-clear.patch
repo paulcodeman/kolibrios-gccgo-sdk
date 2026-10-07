@@ -1,0 +1,146 @@
+--- a/gcc/go/gofrontend/gogo.cc
++++ b/gcc/go/gofrontend/gogo.cc
+@@ -267,6 +267,11 @@
+   delete_type->set_is_varargs();
+   delete_type->set_is_builtin();
+   this->globals_->add_function_declaration("delete", NULL, delete_type, loc);
++
++  Function_type* clear_type = Type::make_function_type(NULL, NULL, NULL, loc);
++  clear_type->set_is_varargs();
++  clear_type->set_is_builtin();
++  this->globals_->add_function_declaration("clear", NULL, clear_type, loc);
+ }
+ 
+ std::string
+--- a/gcc/go/gofrontend/expressions.h
++++ b/gcc/go/gofrontend/expressions.h
+@@ -2783,6 +2783,7 @@
+       BUILTIN_COMPLEX,
+       BUILTIN_COPY,
+       BUILTIN_DELETE,
++      BUILTIN_CLEAR,
+       BUILTIN_IMAG,
+       BUILTIN_LEN,
+       BUILTIN_MAKE,
+--- a/gcc/go/gofrontend/expressions.cc
++++ b/gcc/go/gofrontend/expressions.cc
+@@ -9299,6 +9299,8 @@
+     this->code_ = BUILTIN_COPY;
+   else if (name == "delete")
+     this->code_ = BUILTIN_DELETE;
++  else if (name == "clear")
++    this->code_ = BUILTIN_CLEAR;
+   else if (name == "imag")
+     this->code_ = BUILTIN_IMAG;
+   else if (name == "len")
+@@ -9483,6 +9485,41 @@
+     {
+     default:
+       break;
++
++    case BUILTIN_CLEAR:
++      {
++        // Capture the operand once: both the slice pointer and length use it.
++        Expression* arg = this->one_arg();
++        Type* type = arg->type();
++        Temporary_statement* temp = Statement::make_temporary(type, arg, loc);
++        inserter->insert(temp);
++        Expression* ref = Expression::make_temporary_reference(temp, loc);
++        Expression* call;
++        if (type->map_type() != NULL)
++          {
++            Expression* td = Expression::make_type_descriptor(type, loc);
++            call = Runtime::make_call(gogo, Runtime::MAPCLEAR, loc, 2, td, ref);
++          }
++        else
++          {
++            Expression* ptr = Expression::make_slice_info(
++                ref, SLICE_INFO_VALUE_POINTER, loc);
++            Expression* len = Expression::make_slice_info(
++                ref->copy(), SLICE_INFO_LENGTH, loc);
++            Type* uintptr_type = Type::lookup_integer_type("uintptr");
++            len = Expression::make_cast(uintptr_type, len, loc);
++            Type* elem = type->array_type()->element_type();
++            Expression* size = Expression::make_type_info(elem, TYPE_INFO_SIZE);
++            Expression* bytes = Expression::make_binary(OPERATOR_MULT,
++                                                        len, size, loc);
++            // The barrier-aware routine also handles pointer-free slices.
++            // Use len, not cap: clear must preserve the unused backing tail.
++            call = Runtime::make_call(gogo, Runtime::MEMCLRHASPTR, loc, 2,
++                                      ptr, bytes);
++          }
++        call->determine_type_no_context(gogo);
++        return call;
++      }
+ 
+     case BUILTIN_APPEND:
+       return this->flatten_append(gogo, function, inserter, NULL, NULL);
+@@ -10992,6 +11029,7 @@
+     case BUILTIN_CLOSE:
+     case BUILTIN_COPY:
+     case BUILTIN_DELETE:
++    case BUILTIN_CLEAR:
+     case BUILTIN_PANIC:
+     case BUILTIN_PRINT:
+     case BUILTIN_PRINTLN:
+@@ -11046,6 +11084,7 @@
+ 
+     case BUILTIN_CLOSE:
+     case BUILTIN_DELETE:
++    case BUILTIN_CLEAR:
+     case BUILTIN_PANIC:
+     case BUILTIN_PRINT:
+     case BUILTIN_PRINTLN:
+@@ -11495,6 +11534,16 @@
+ 	    return;
+ 	  }
+       }
++      break;
++
++    case BUILTIN_CLEAR:
++      if (this->check_one_arg())
++        {
++          Type* type = this->one_arg()->type();
++          if (!type->is_error_type() && !type->is_slice_type()
++              && type->map_type() == NULL)
++            this->report_error(_("argument to clear must be a map or slice"));
++        }
+       break;
+ 
+     case BUILTIN_DELETE:
+@@ -12248,6 +12297,7 @@
+         return int_cst->get_backend(context);
+       }
+ 
++    case BUILTIN_CLEAR:
+     case BUILTIN_COPY:
+       // Handled in Builtin_call_expression::do_flatten.
+       go_unreachable();
+@@ -12320,6 +12370,9 @@
+ 	  break;
+ 	case BUILTIN_DELETE:
+ 	  s = "delete";
++	  break;
++	case BUILTIN_CLEAR:
++	  s = "clear";
+ 	  break;
+ 	case BUILTIN_PRINT:
+ 	  s = "print";
+--- a/gcc/go/gofrontend/escape.cc
++++ b/gcc/go/gofrontend/escape.cc
+@@ -1607,6 +1607,7 @@
+                 break;
+ 
+               case Builtin_call_expression::BUILTIN_CLOSE:
++              case Builtin_call_expression::BUILTIN_CLEAR:
+               case Builtin_call_expression::BUILTIN_DELETE:
+               case Builtin_call_expression::BUILTIN_PRINT:
+               case Builtin_call_expression::BUILTIN_PRINTLN:
+@@ -2457,6 +2458,7 @@
+                     break;
+ 
+                   case Builtin_call_expression::BUILTIN_CLOSE:
++                  case Builtin_call_expression::BUILTIN_CLEAR:
+                   case Builtin_call_expression::BUILTIN_DELETE:
+                   case Builtin_call_expression::BUILTIN_PRINT:
+                   case Builtin_call_expression::BUILTIN_PRINTLN:

@@ -1,0 +1,6 @@
+{
+  "reason": "Retain upstream polling watcher; FAT content snapshots detect coarse-timestamp edits and generations protect concurrent watch changes.",
+  "replace": {
+    "watcher.go": "watcher_kolibrios.go"
+  }
+}

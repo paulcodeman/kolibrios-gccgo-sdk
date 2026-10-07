@@ -4,7 +4,6 @@ import (
 	"errors"
 	"strconv"
 	"strings"
-	"sync"
 
 	"kos"
 )
@@ -97,9 +96,6 @@ const (
 	Saturday
 )
 
-const RFC1123 = "Mon, 02 Jan 2006 15:04:05 MST"
-const RFC3339 = "2006-01-02T15:04:05Z07:00"
-const RFC3339Nano = "2006-01-02T15:04:05.999999999Z07:00"
 const layoutASN1UTCTimeMinutes = "0601021504Z0700"
 const layoutASN1UTCTimeSeconds = "060102150405Z0700"
 const layoutASN1GeneralizedTime = "20060102150405Z0700"
@@ -204,218 +200,21 @@ func Date(year int, month Month, day int, hour int, minute int, second int, nano
 	}
 }
 
-func Parse(layout string, value string) (Time, error) {
-	if layout == RFC1123 {
-		return parseRFC1123(value)
-	}
-	switch layout {
-	case layoutASN1UTCTimeMinutes, layoutASN1UTCTimeSeconds, layoutASN1GeneralizedTime:
-		return parseNumericLayout(layout, value)
-	}
 
-	return parseNumericLayout(layout, value)
-}
 
 // ParseDuration parses a duration string.
 // A duration string is a possibly signed sequence of decimal numbers, each with
 // optional fraction and a unit suffix, such as "300ms", "-1.5h" or "2h45m".
 // Valid time units are "ns", "us", "ms", "s", "m", "h".
-func ParseDuration(value string) (Duration, error) {
-	orig := value
-	neg := false
-	if value != "" {
-		switch value[0] {
-		case '-':
-			neg = true
-			value = value[1:]
-		case '+':
-			value = value[1:]
-		}
-	}
-	if value == "0" {
-		return 0, nil
-	}
-	if value == "" {
-		return 0, errors.New("time: invalid duration " + orig)
-	}
 
-	var total int64
-	for value != "" {
-		hasInt := false
-		intPart := int64(0)
-		i := 0
-		for i < len(value) && value[i] >= '0' && value[i] <= '9' {
-			i++
-		}
-		if i > 0 {
-			hasInt = true
-			parsed, err := strconv.ParseInt(value[:i], 10, 64)
-			if err != nil {
-				return 0, errors.New("time: invalid duration " + orig)
-			}
-			intPart = parsed
-		}
-		value = value[i:]
-
-		fracPart := int64(0)
-		scale := int64(1)
-		if len(value) > 0 && value[0] == '.' {
-			value = value[1:]
-			j := 0
-			for j < len(value) && value[j] >= '0' && value[j] <= '9' {
-				if fracPart <= maxInt64/10 {
-					fracPart = fracPart*10 + int64(value[j]-'0')
-					scale *= 10
-				}
-				j++
-			}
-			if j == 0 && !hasInt {
-				return 0, errors.New("time: invalid duration " + orig)
-			}
-			value = value[j:]
-		} else if !hasInt {
-			return 0, errors.New("time: invalid duration " + orig)
-		}
-
-		k := 0
-		for k < len(value) && (value[k] < '0' || value[k] > '9') && value[k] != '.' {
-			k++
-		}
-		if k == 0 {
-			return 0, errors.New("time: missing unit in duration " + orig)
-		}
-		unitStr := value[:k]
-		value = value[k:]
-
-		unit, ok := durationUnit(unitStr)
-		if !ok {
-			return 0, errors.New("time: unknown unit " + unitStr + " in duration " + orig)
-		}
-
-		if intPart != 0 {
-			if intPart > maxInt64/int64(unit) {
-				return 0, errors.New("time: invalid duration " + orig)
-			}
-			total += intPart * int64(unit)
-		}
-		if fracPart != 0 {
-			total += int64(float64(fracPart) * (float64(unit) / float64(scale)))
-		}
-		if total > maxInt64 {
-			return 0, errors.New("time: invalid duration " + orig)
-		}
-	}
-
-	if neg {
-		total = -total
-	}
-	return Duration(total), nil
-}
 
 func Sleep(duration Duration) {
-	if duration <= 0 {
-		return
-	}
-
-	centiseconds, remainder := divModUint64(unsignedAbsInt64(int64(duration)), uint32(nanosecondsPerCentisecond))
-	if remainder != 0 {
-		centiseconds++
-	}
-
-	for centiseconds > 0 {
-		chunk := centiseconds
-		if chunk > uint64(^uint32(0)) {
-			chunk = uint64(^uint32(0))
-		}
-
-		kos.SleepCentiseconds(uint32(chunk))
-		centiseconds -= chunk
-	}
+	// As in libgo, the runtime parks this goroutine until its deadline;
+	// sleeping the whole OS task prevents other goroutines from running.
+	runtimeSleep(int64(duration))
 }
 
-type Timer struct {
-	C chan Time
-
-	mu     sync.Mutex
-	active bool
-	seq    uint64
-	fn     func()
-}
-
-func After(duration Duration) <-chan Time {
-	return NewTimer(duration).C
-}
-
-func NewTimer(duration Duration) *Timer {
-	timer := &Timer{
-		C: make(chan Time, 1),
-	}
-	timer.Reset(duration)
-	return timer
-}
-
-func AfterFunc(duration Duration, f func()) *Timer {
-	timer := &Timer{fn: f}
-	timer.Reset(duration)
-	return timer
-}
-
-func (timer *Timer) Stop() bool {
-	if timer == nil {
-		return false
-	}
-
-	timer.mu.Lock()
-	wasActive := timer.active
-	if wasActive {
-		timer.seq++
-		timer.active = false
-	}
-	timer.mu.Unlock()
-	return wasActive
-}
-
-func (timer *Timer) Reset(duration Duration) bool {
-	if timer == nil {
-		return false
-	}
-
-	timer.mu.Lock()
-	wasActive := timer.active
-	timer.seq++
-	seq := timer.seq
-	timer.active = true
-	timer.mu.Unlock()
-
-	go timer.waitAndFire(seq, duration)
-	return wasActive
-}
-
-func (timer *Timer) waitAndFire(seq uint64, duration Duration) {
-	Sleep(duration)
-
-	timer.mu.Lock()
-	if !timer.active || timer.seq != seq {
-		timer.mu.Unlock()
-		return
-	}
-	timer.active = false
-	fn := timer.fn
-	ch := timer.C
-	timer.mu.Unlock()
-
-	if fn != nil {
-		fn()
-		return
-	}
-	if ch == nil {
-		return
-	}
-	select {
-	case ch <- Now():
-	default:
-	}
-}
+func runtimeSleep(ns int64) __asm__("runtime_kolibri_sleep")
 
 func Until(value Time) Duration {
 	return value.Sub(Now())
@@ -479,12 +278,10 @@ func (value Time) Location() *Location {
 
 func (value Time) Zone() (name string, offset int) {
 	loc := value.Location()
-	return loc.String(), loc.offset
+	return loc.name, loc.offset
 }
 
-func (value Time) String() string {
-	return formatISO(value) + " " + zoneName(value.Location())
-}
+
 
 func (value Time) Unix() int64 {
 	return value.unixSeconds
@@ -567,40 +364,9 @@ func (value Time) Weekday() Weekday {
 	return Weekday(weekday)
 }
 
-func (value Time) Format(layout string) string {
-	switch layout {
-	case RFC1123:
-		return formatRFC1123(value)
-	case "Mon, 02 Jan 2006":
-		return formatDateWithWeekday(value)
-	case "15:04:05 MST":
-		return formatTimeWithZone(value)
-	case "Mon, 02 Jan 2006 15:04:05 GMT":
-		return formatRFC1123WithZone(value.UTC(), "GMT")
-	case RFC3339, RFC3339Nano:
-		return formatISOZ(value.UTC())
-	case "2006-01-02T15:04:05.000Z":
-		return formatISOZ(value.UTC())
-	case layoutASN1UTCTimeMinutes:
-		return formatCompactZoneTime(value, false, false)
-	case layoutASN1UTCTimeSeconds:
-		return formatCompactZoneTime(value, false, true)
-	case layoutASN1GeneralizedTime:
-		return formatCompactZoneTime(value, true, true)
-	case "2006-01-02 15:04:05":
-		return formatISO(value)
-	case "2006-01-02":
-		return formatDateOnly(value)
-	case "15:04:05":
-		return formatTimeOnly(value)
-	default:
-		return formatISO(value)
-	}
-}
 
-func (value Time) AppendFormat(buffer []byte, layout string) []byte {
-	return append(buffer, value.Format(layout)...)
-}
+
+
 
 func (value Time) compare(other Time) int {
 	if value.hasMonotonic && other.hasMonotonic {
@@ -792,7 +558,7 @@ var shortWeekdayNames = [...]string{
 	"Sat",
 }
 
-var shortMonthNames = [...]string{
+var bootstrapShortMonthNames = [...]string{
 	"Jan",
 	"Feb",
 	"Mar",
@@ -816,7 +582,7 @@ func formatRFC1123WithZone(value Time, zone string) string {
 	weekday := value.Weekday()
 	return shortWeekdayNames[weekday] + ", " +
 		pad2(day) + " " +
-		shortMonthNames[int(month)-1] + " " +
+		bootstrapShortMonthNames[int(month)-1] + " " +
 		pad4(year) + " " +
 		pad2(hour) + ":" + pad2(minute) + ":" + pad2(second) + " " +
 		zone
@@ -827,7 +593,7 @@ func formatDateWithWeekday(value Time) string {
 	weekday := value.Weekday()
 	return shortWeekdayNames[weekday] + ", " +
 		pad2(day) + " " +
-		shortMonthNames[int(month)-1] + " " +
+		bootstrapShortMonthNames[int(month)-1] + " " +
 		pad4(year)
 }
 

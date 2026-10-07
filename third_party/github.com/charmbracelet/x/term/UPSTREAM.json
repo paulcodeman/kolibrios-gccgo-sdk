@@ -1,0 +1,19 @@
+{
+  "files": {
+    "LICENSE": "0baa4a5942a801d93f4050d2bc0039d8c037105fcd335230d118eec99a11782b",
+    "go.mod": "cc7562bdfc0321f9f1984b014d0a5c9e7e3d7d02853de4b452bddcabd1462630",
+    "term.go": "899bf7d9c3212c1ca5e814e41d2fe1b0ffa4642b2fcdda1901491c61ba3f0e37",
+    "term_other.go": "ba110230c479f4ec17261f543943e5e1e9c19a638c0f2f6c307ac53bac19863e",
+    "term_test.go": "31965c01792d5f3fa3a6d8a467aee1b191fffe87573fc0aa64d501c3d826a63b",
+    "term_unix.go": "103822e728b312cddada666066717ee60ff1bf641bf2e3f50ca344ad5c0ee98f",
+    "term_unix_bsd.go": "65e103dffbdff3a82377c48aad9a23eca5b86c8291281afcf82e3504028ea03d",
+    "term_unix_other.go": "b61f2b8a9e966a0b7d243a8cc2ca9f00eccb97f66dd4d38a488a54742e32b31b",
+    "term_windows.go": "0c3b945400cdb5838023ef9103b8cd259fa456897fe2233f54b5ccb5e2ab0daa",
+    "terminal.go": "2192e20761f3a6437fd088aa87eb652742c6d1ef05dc5be9abea129fa353a390",
+    "util.go": "43f29350e41413df4d142b7302a95615e3ce41719cbb61f9973d88e7cba18802"
+  },
+  "module": "github.com/charmbracelet/x/term",
+  "module_checksum": "h1:AQeHeLZ1OqSXhrAWpYUtZyX1T3zVxfpZuEQMIQaGIAQ=",
+  "source": "verified Go module cache",
+  "version": "v0.2.1"
+}

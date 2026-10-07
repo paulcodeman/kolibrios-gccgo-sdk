@@ -1,0 +1,19 @@
+{
+  "name": "GNU Unifont",
+  "version": "16.0.04",
+  "files": {
+    "unifont_all-16.0.04.hex.gz": {
+      "url": "https://unifoundry.com/pub/unifont/unifont-16.0.04/font-builds/unifont_all-16.0.04.hex.gz",
+      "sha256": "20e8b505f602488697979eefc69857f7f6106bceab702f5ac559f4f84e0e7494"
+    },
+    "LICENSE.txt": {
+      "url": "https://unifoundry.com/LICENSE.txt",
+      "sha256": "1e74cb82bf476843e97c2596297b04219b1a7e51f7238944a8c031cb9401fa87"
+    },
+    "OFL-1.1.txt": {
+      "url": "https://unifoundry.com/OFL-1.1.txt",
+      "sha256": "869692af094c57fb7258c57fe26820c759319603321d0ffeb278de3651763ded"
+    }
+  },
+  "purpose": "unchanged Unicode bitmap glyphs for the native terminal renderer"
+}

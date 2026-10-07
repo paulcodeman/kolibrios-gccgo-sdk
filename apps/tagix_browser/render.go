@@ -1512,8 +1512,6 @@ func appendDocumentNodes(out *[]*ui.DocumentNode, node *Node, ctx *renderContext
 			*out = append(*out, frame)
 		}
 		return
-	case "option":
-		return
 	case "img":
 		if image := imageFallbackNode(node, ctx); image != nil {
 			*out = append(*out, image)

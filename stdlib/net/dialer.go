@@ -7,6 +7,9 @@ import (
 
 // Dialer is a minimal KolibriOS net.Dialer implementation for client-side code.
 type Dialer struct {
+	// Deprecated: IPv4 is the currently supported native address family.
+	DualStack bool
+	KeepAlive time.Duration
 	Timeout  time.Duration
 	Deadline time.Time
 }

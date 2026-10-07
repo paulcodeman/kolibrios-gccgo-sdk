@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+if [ -z "${GCCGO_BUILD_DIR:-}" ]; then
+    compiler_sdk_root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+    GCCGO_BUILD_DIR="$compiler_sdk_root/.build-cache/gccgo15-kolibri"
+fi
+if [ ! -x "$GCCGO_BUILD_DIR/gcc/go1" ]; then
+    echo 'Set GCCGO_BUILD_DIR to the build directory created by tooling/gccgo/build.py' >&2
+    exit 1
+fi
+export GCCGO_BUILD_DIR
+compiler_sdk_root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+exec python3 "$compiler_sdk_root/tooling/gccgo/compiler-driver.py" "$@"

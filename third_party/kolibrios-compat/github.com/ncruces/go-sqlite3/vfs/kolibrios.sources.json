@@ -1,0 +1,4 @@
+{
+  "reason": "Use the original SQLite dot-lock VFS and shared-memory implementation with the native exclusive lock adapter.",
+  "tags": ["sqlite3_dotlk"]
+}

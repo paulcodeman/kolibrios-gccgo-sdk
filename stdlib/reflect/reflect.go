@@ -82,12 +82,14 @@ type Type interface {
 	NumOut() int
 	Out(i int) Type
 	IsVariadic() bool
+	ChanDir() ChanDir
 	Elem() Type
 	Key() Type
 	Comparable() bool
 	Implements(u Type) bool
 	AssignableTo(u Type) bool
 	ConvertibleTo(u Type) bool
+	common() *rtype
 }
 
 type tflag uint8
@@ -309,13 +311,16 @@ type Method struct {
 type flag uintptr
 
 const (
-	flagKindWidth      = 5
-	flagKindMask  flag = 1<<flagKindWidth - 1
-	flagStickyRO  flag = 1 << 5
-	flagEmbedRO   flag = 1 << 6
-	flagIndir     flag = 1 << 7
-	flagAddr      flag = 1 << 8
-	flagRO             = flagStickyRO | flagEmbedRO
+	flagKindWidth        = 5
+	flagKindMask    flag = 1<<flagKindWidth - 1
+	flagStickyRO    flag = 1 << 5
+	flagEmbedRO     flag = 1 << 6
+	flagIndir       flag = 1 << 7
+	flagAddr        flag = 1 << 8
+	flagMethod      flag = 1 << 9
+	flagMethodShift      = 11
+	flagMethodFn    flag = 1 << 10
+	flagRO               = flagStickyRO | flagEmbedRO
 )
 
 type Value struct {
@@ -591,24 +596,19 @@ func (t *rtype) FieldByName(name string) (StructField, bool) {
 	return StructField{}, false
 }
 
-func (t *rtype) NumMethod() int                          { return 0 }
-func (t *rtype) Method(i int) Method                     { return Method{} }
-func (t *rtype) MethodByName(name string) (Method, bool) { return Method{}, false }
-func (t *rtype) NumIn() int                              { return 0 }
-func (t *rtype) In(i int) Type                           { return nil }
-func (t *rtype) NumOut() int                             { return 0 }
-func (t *rtype) Out(i int) Type                          { return nil }
-func (t *rtype) IsVariadic() bool                        { return false }
 func (t *rtype) Key() Type {
 	if t.Kind() != Map {
 		panic("reflect: Key of non-map type " + t.String())
 	}
 	return toType((*mapType)(unsafe.Pointer(t)).key)
 }
-func (t *rtype) Implements(u Type) bool                  { return false }
-func (t *rtype) AssignableTo(u Type) bool                { return t == u }
-func (t *rtype) ConvertibleTo(u Type) bool               { return t == u }
-func (t *rtype) Comparable() bool                        { return t != nil && t.equal != nil }
+func (t *rtype) ConvertibleTo(u Type) bool {
+	if u == nil {
+		panic("reflect: nil type passed to Type.ConvertibleTo")
+	}
+	return convertOp(u.common(), t) != nil
+}
+func (t *rtype) Comparable() bool          { return t != nil && t.equal != nil }
 
 func (t *rtype) Elem() Type {
 	switch t.Kind() {
@@ -657,10 +657,34 @@ func (v Value) kind() Kind {
 func (v Value) Kind() Kind { return v.kind() }
 
 func (v Value) Type() Type {
-	if v.flag == 0 {
+	f := v.flag
+	if f == 0 {
 		panic(&ValueError{"reflect.Value.Type", Invalid})
 	}
-	return toType(v.typ)
+	if f&flagMethod == 0 {
+		// Easy case
+		return toType(v.typ)
+	}
+
+	// Method value.
+	// v.typ describes the receiver, not the method type.
+	i := int(v.flag) >> flagMethodShift
+	if v.typ.Kind() == Interface {
+		// Method on interface.
+		tt := (*interfaceType)(unsafe.Pointer(v.typ))
+		if uint(i) >= uint(len(tt.methods)) {
+			panic("reflect: internal error: invalid method index")
+		}
+		m := &tt.methods[i]
+		return toType(m.typ)
+	}
+	// Method on concrete type.
+	ms := v.typ.exportedMethods()
+	if uint(i) >= uint(len(ms)) {
+		panic("reflect: internal error: invalid method index")
+	}
+	m := ms[i]
+	return toType(m.mtyp)
 }
 
 func (v Value) IsValid() bool {
@@ -693,6 +717,23 @@ func (v Value) CanInterface() bool {
 }
 
 func packEface(v Value) interface{} {
+	if v.flag&flagMethod != 0 {
+		v = makeMethodValue("Interface", v)
+	}
+	if v.flag&flagMethodFn != 0 {
+		ft := (*funcType)(unsafe.Pointer(v.typ))
+		if ft.in[0].Kind() != Ptr {
+			v = makeValueMethod(v)
+		}
+	}
+	// libgo valueInterface: an interface Value contains the interface's
+	// dynamic value, rather than a concrete value of the interface type.
+	if v.kind() == Interface {
+		if v.NumMethod() == 0 {
+			return *(*interface{})(v.ptr)
+		}
+		return *(*interface{ M() })(v.ptr)
+	}
 	var i interface{}
 	e := (*emptyInterface)(unsafe.Pointer(&i))
 	t := v.typ
@@ -701,7 +742,14 @@ func packEface(v Value) interface{} {
 		if v.flag&flagIndir == 0 {
 			panic("reflect: bad indir")
 		}
-		e.word = v.ptr
+		ptr := v.ptr
+		// Interface conversion copies an addressable value. Later writes to
+		// the original variable must not change the interface snapshot.
+		if v.flag&flagAddr != 0 {
+			ptr = runtimeNewObject(t)
+			runtimeTypedmemmove(t, ptr, v.ptr)
+		}
+		e.word = ptr
 	case v.flag&flagIndir != 0:
 		e.word = *(*unsafe.Pointer)(v.ptr)
 	default:
@@ -834,7 +882,19 @@ func (v Value) Elem() Value {
 		if v.ptr == nil {
 			return Value{}
 		}
-		return ValueOf(*(*interface{})(v.ptr))
+		// libgo value.go: a nonempty interface contains an itab, not an
+		// empty interface type descriptor. Convert it before unpacking.
+		var eface interface{}
+		if v.typ.NumMethod() == 0 {
+			eface = *(*interface{})(v.ptr)
+		} else {
+			eface = (interface{})(*(*interface{ M() })(v.ptr))
+		}
+		x := ValueOf(eface)
+		if x.flag != 0 {
+			x.flag |= v.flag.ro()
+		}
+		return x
 	default:
 		panic(&ValueError{"reflect.Value.Elem", v.kind()})
 	}
@@ -842,6 +902,8 @@ func (v Value) Elem() Value {
 
 func (v Value) Len() int {
 	switch v.kind() {
+	case Chan:
+		return chanlen(rawValuePointer(v))
 	case Array:
 		return int((*arrayType)(unsafe.Pointer(v.typ)).len)
 	case Slice:
@@ -856,15 +918,6 @@ func (v Value) Len() int {
 		return (*runtimeMap)(ptr).len
 	default:
 		panic(&ValueError{"reflect.Value.Len", v.kind()})
-	}
-}
-
-func (v Value) Cap() int {
-	switch v.kind() {
-	case Slice:
-		return (*unsafeheader.Slice)(v.ptr).Cap
-	default:
-		return 0
 	}
 }
 
@@ -893,8 +946,6 @@ func (v Value) Index(i int) Value {
 	}
 }
 
-func (v Value) Slice(i, j int) Value     { return Value{} }
-func (v Value) Slice3(i, j, k int) Value { return Value{} }
 
 func (v Value) NumField() int {
 	v.flag.mustBe(Struct, "reflect.Value.NumField")
@@ -946,9 +997,43 @@ func (v Value) FieldByName(name string) Value {
 	return Value{}
 }
 
-func (v Value) NumMethod() int                 { return 0 }
-func (v Value) Method(i int) Value             { return Value{} }
-func (v Value) MethodByName(name string) Value { return Value{} }
+func (v Value) NumMethod() int {
+	if v.typ == nil {
+		panic(&ValueError{"reflect.Value.NumMethod", Invalid})
+	}
+	if v.flag&flagMethod != 0 {
+		return 0
+	}
+	return v.typ.NumMethod()
+}
+func (v Value) Method(i int) Value {
+	if v.typ == nil {
+		panic(&ValueError{"reflect.Value.Method", Invalid})
+	}
+	if v.flag&flagMethod != 0 || uint(i) >= uint(v.typ.NumMethod()) {
+		panic("reflect: Method index out of range")
+	}
+	if v.typ.Kind() == Interface && v.IsNil() {
+		panic("reflect: Method on nil interface value")
+	}
+	fl := v.flag.ro() | (v.flag & flagIndir)
+	fl |= flag(Func)
+	fl |= flag(i)<<flagMethodShift | flagMethod
+	return Value{v.typ, v.ptr, fl}
+}
+func (v Value) MethodByName(name string) Value {
+	if v.typ == nil {
+		panic(&ValueError{"reflect.Value.MethodByName", Invalid})
+	}
+	if v.flag&flagMethod != 0 {
+		return Value{}
+	}
+	m, ok := v.typ.MethodByName(name)
+	if !ok {
+		return Value{}
+	}
+	return v.Method(m.Index)
+}
 func (v Value) Pointer() uintptr {
 	switch v.kind() {
 	case Pointer, Map, Chan, Func, UnsafePointer:
@@ -962,9 +1047,6 @@ func (v Value) Pointer() uintptr {
 func (v Value) UnsafePointer() unsafe.Pointer {
 	return unsafe.Pointer(v.Pointer())
 }
-func (v Value) Convert(t Type) Value           { return Value{} }
-func (v Value) Call(in []Value) []Value        { return nil }
-func (v Value) CallSlice(in []Value) []Value   { return nil }
 func (v Value) MapKeys() []Value {
 	v.flag.mustBe(Map, "reflect.Value.MapKeys")
 	tt := (*mapType)(unsafe.Pointer(v.typ))
@@ -1038,20 +1120,33 @@ func assignToType(context string, v Value, dst *rtype) Value {
 	if !v.IsValid() {
 		panic(context + ": zero Value")
 	}
-	if v.typ == dst {
+	if v.flag&flagMethod != 0 {
+		v = makeMethodValue(context, v)
+	}
+	if directlyAssignable(dst, v.typ) {
 		fl := v.flag&(flagAddr|flagIndir) | v.flag.ro() | flag(dst.Kind())
 		return Value{typ: dst, ptr: v.ptr, flag: fl}
 	}
-	if dst.Kind() == Interface {
+	if dst.Kind() == Interface && implements(dst, v.typ) {
 		it := (*interfaceType)(unsafe.Pointer(dst))
+		target := runtimeNewObject(dst)
 		if len(it.methods) == 0 {
-			target := runtimeNewObject(dst)
 			*(*interface{})(target) = v.Interface()
-			return Value{typ: dst, ptr: target, flag: flag(Interface) | flagIndir}
+		} else {
+			value := v.Interface()
+			e := (*emptyInterface)(unsafe.Pointer(&value))
+			if e.typ != nil {
+				iface := (*nonEmptyInterface)(target)
+				iface.itab = runtimeAssertitab(dst, e.typ)
+				iface.word = e.word
+			}
 		}
+		return Value{typ: dst, ptr: target, flag: flag(Interface) | flagIndir}
 	}
 	panic(context + ": value of type " + v.typ.String() + " is not assignable to type " + dst.String())
 }
+
+func runtimeAssertitab(*rtype, *rtype) *interfaceMethodTable __asm__("runtime.assertitab")
 
 func (v Value) Set(x Value) {
 	v.flag.mustBeAssignable("reflect.Set")
@@ -1191,7 +1286,6 @@ func (v Value) OverflowUint(x uint64) bool {
 	}
 }
 
-func (v Value) OverflowFloat(x float64) bool { return false }
 
 func Zero(t Type) Value {
 	if t == nil {
@@ -1269,7 +1363,7 @@ func Append(s Value, x ...Value) Value {
 	return s
 }
 
-func MakeMap(t Type) Value                                 { return MakeMapWithSize(t, 0) }
+func MakeMap(t Type) Value { return MakeMapWithSize(t, 0) }
 func MakeMapWithSize(t Type, n int) Value {
 	if t == nil {
 		panic("reflect: MakeMapWithSize(nil)")
@@ -1281,18 +1375,6 @@ func MakeMapWithSize(t Type, n int) Value {
 	m := runtimeMakemap(rt, n, nil)
 	return Value{typ: rt, ptr: unsafe.Pointer(&m), flag: flag(Map) | flagIndir}
 }
-func MakeFunc(t Type, fn func(args []Value) []Value) Value { return Value{} }
-func PtrTo(t Type) Type {
-	if t == nil {
-		panic("reflect: PtrTo(nil)")
-	}
-	return ptrTo(t.(*rtype))
-}
-func PointerTo(t Type) Type                                { return PtrTo(t) }
-func SliceOf(t Type) Type                                  { return &rtype{kind: uint8(Slice)} }
-func MapOf(key, elem Type) Type                            { return &rtype{kind: uint8(Map)} }
-func ArrayOf(len int, elem Type) Type                      { return &rtype{kind: uint8(Array)} }
-func ChanOf(dir ChanDir, t Type) Type                      { return &rtype{kind: uint8(Chan)} }
 
 func Indirect(v Value) Value {
 	if v.Kind() != Pointer {
@@ -1378,26 +1460,8 @@ func (v Value) MapRange() *MapIter {
 }
 
 func ptrTo(t *rtype) *rtype {
-	if t == nil {
-		return nil
-	}
-	if t.ptrToThis != nil {
-		return t.ptrToThis
-	}
-	s := "*" + t.String()
-	align := uint8(unsafe.Alignof(uintptr(0)))
-	base := &ptrType{
-		rtype: rtype{
-			size:       unsafe.Sizeof(uintptr(0)),
-			ptrdata:    unsafe.Sizeof(uintptr(0)),
-			align:      align,
-			fieldAlign: align,
-			kind:       uint8(Pointer) | kindDirectIface,
-			string:     &s,
-		},
-		elem: t,
-	}
-	return &base.rtype
+    if t == nil { return nil }
+    return t.ptrTo()
 }
 
 func copyData(v Value) (unsafe.Pointer, int, *rtype) {

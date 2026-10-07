@@ -144,9 +144,13 @@ Library `.obj` outputs are written next to each library target.
 - `tooling/kolibri-app.mk` and `tooling/kolibri-lib.mk` accept ordered
   `PACKAGE_DIRS` and can resolve imports from `platform/` (first-party) and
   `third_party/`.
-- The build defaults to `gccgo-15`; override with `GO=gccgo` if your binary name
-  differs.
+- The common build defaults to the patched `tooling/gccgo/gccgo-kolibri`
+  compiler; prepare its build as described in `docs/BUILD.md`.
 - Builds now reuse package and ABI artifacts from `.build-cache/` by default.
+- OpenCode builds with `./build-app.sh opencode`, producing
+  `apps/opencode/opencode.kex` through the same makefile as other apps.
+- `./make-all.sh --rebuild` recompiles all app entrypoints and records successes
+  and failures under `.build-cache/build-all/`, preserving dependency caches.
 - Set `KEEP_PKG=0` or `KEEP_ABI=0` to disable cache reuse for a build.
 - Set `FAST_PKG=1` to avoid package rebuild cascades in batch builds.
 - Use `make clean-cache` or `make distclean` in a target directory to drop the shared build cache.
@@ -174,6 +178,10 @@ Library `.obj` outputs are written next to each library target.
 - `docs/NATIVE_OWNERSHIP.md`
 - `docs/NATIVE_GOTREE_PLAN.md`
 - `docs/NATIVE_BRINGUP_CHECKLIST.md`
+- `docs/OPENCODE_PORT.md` - original Go OpenCode CLI native port, GCC frontend
+  patches, full CLI qualification, installation and remaining platform limits
+- `docs/OPENCODE_STDLIB.md` - imported upstream standard packages, source fidelity,
+  KolibriOS adaptations, compilation results and execution checks
 
 ## License
 

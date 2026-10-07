@@ -10,7 +10,7 @@ jobs:
   build-all:
     runs-on: ubuntu-24.04
     env:
-      GO: gccgo
+      GCCGO_BASE: gccgo
       KEEP_PKG: "1"
       KEEP_ABI: "1"
       FAST_PKG: "1"
@@ -24,12 +24,46 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             gcc \
+            g++ \
             gccgo \
             gcc-multilib \
             gccgo-multilib \
             make \
+            libgmp-dev libmpfr-dev libmpc-dev \
+            flex bison curl xz-utils patch \
             mtools \
             qemu-system-x86
+
+      - name: Install host Go for source preparation
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+
+      - name: Cache patched GCC Go frontend
+        id: gccgo-cache
+        uses: actions/cache@v4
+        with:
+          path: .build-cache/gccgo15-kolibri
+          key: gccgo-15.2.0-${{ runner.os }}-${{ hashFiles('tooling/gccgo/**') }}
+
+      - name: Prepare patched GCC Go frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ '${{ steps.gccgo-cache.outputs.cache-hit }}' != 'true' ]]; then
+            archive="$RUNNER_TEMP/gcc-15.2.0.tar.xz"
+            curl --fail --location --retry 3 --connect-timeout 20 --max-time 600 \
+              https://gcc.gnu.org/pub/gcc/releases/gcc-15.2.0/gcc-15.2.0.tar.xz -o "$archive"
+            # Pinned from the release's official sha512.sum.
+            printf '%s  %s\n' \
+              89047a2e07bd9da265b507b516ed3635adb17491c7f4f67cf090f0bd5b3fc7f2ee6e4cc4008beef7ca884b6b71dffe2bb652b21f01a702e17b468cca2d10b2de \
+              "$archive" | sha512sum --check
+            tar -xJf "$archive" -C "$RUNNER_TEMP"
+            python3 tooling/gccgo/build.py --source "$RUNNER_TEMP/gcc-15.2.0" \
+              --build "$PWD/.build-cache/gccgo15-kolibri" --jobs 4
+          fi
+          python3 tooling/gccgo/build-compat.py
 
       - name: Prepare bundled tools
         run: |
@@ -39,6 +73,7 @@ jobs:
           chmod +x tooling/bin/objcopy
           chmod +x tooling/bin/strip
           chmod +x tooling/bin/ld
+          chmod +x tooling/bin/kpack tooling/gccgo/gccgo-kolibri
           chmod +x make-all.sh build-app.sh build-lib.sh new-app.sh new-lib.sh
 
       - name: Build all apps and examples
@@ -46,6 +81,13 @@ jobs:
         run: |
           set -euo pipefail
           ./make-all.sh
+
+      - name: Upload per-folder build report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-report
+          path: .build-cache/build-all/
 
       - name: Build all libs
         shell: bash
@@ -65,6 +107,7 @@ jobs:
           path: |
             apps/**/*.kex
             apps/**/assets/**
+            apps/opencode/opencode.kex.env
 
       - name: Upload obj artifacts
         uses: actions/upload-artifact@v4

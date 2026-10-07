@@ -1,0 +1,8 @@
+{
+  "reason": "Original shell handler: native executable header replaces unavailable FAT permission bits, actual SDK exit status is preserved, native cancellation uses the supported Kill operation.",
+  "replace": {
+    "handler.go": "handler_kolibrios.go"
+  },
+  "upstream_sha256": "42b9ab6e6c6850dd152852cbfbc0465343b637ce6c97ebac4824c52d7ae20633",
+  "adapter_sha256": "647a2306bdd71d66f972766db31e72c77b1c78f184cabf33c0abf99238aba888"
+}

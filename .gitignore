@@ -1,5 +1,8 @@
 # Build outputs
 *.kex
+*.debug.elf
+*.elf
+*.gccgo.o.embed.d
 *.obj
 *.gccgo.o
 *.gox
@@ -7,3 +10,7 @@
 .pkg/
 .build-cache/
 .build/
+__pycache__/
+apps/opencode/assets/ca-bundle.crt
+apps/opencode/assets/manifest.json
+apps/opencode/assets/licenses/

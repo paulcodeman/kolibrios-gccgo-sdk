@@ -1,0 +1,22 @@
+--- a/gcc/go/go-gcc.cc
++++ b/gcc/go/go-gcc.cc
+@@ -1278,6 +1278,19 @@
+ 			     ret);
+       TYPE_NAME(ret) = decl;
+ 
++      // Go's atomic typed 64-bit values contain a zero-sized align64
++      // marker. Give only the runtime/atomic package marker types the
++      // required alignment, including when imported from export data.
++      // Other packages' empty structs and copied definitions keep their
++      // normal alignment.
++      if (name == ".sync/atomic.align64"
++          || name == ".runtime/internal/atomic.align64"
++          || name == ".internal/runtime/atomic.align64")
++        {
++          SET_TYPE_ALIGN(ret, 64);
++          TYPE_USER_ALIGN(ret) = 1;
++        }
++
+       // The struct type that eventually replaces this placeholder will require
+       // structural equality. The placeholder must too, so that the requirement
+       // for structural equality propagates to references that are constructed
