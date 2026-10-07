@@ -1,0 +1,7 @@
+[
+  {"at": 16, "mouse": [{"type": "rel", "data": {"axis": "x", "value": -10}}, {"type": "rel", "data": {"axis": "y", "value": -10}}]},
+  {"at": 18, "mouse": [{"type": "btn", "data": {"button": "left", "down": true}}]},
+  {"at": 20, "mouse": [{"type": "btn", "data": {"button": "left", "down": false}}]},
+  {"at": 22, "mouse": [{"type": "btn", "data": {"button": "wheel-up", "down": true}}]},
+  {"at": 23, "mouse": [{"type": "btn", "data": {"button": "wheel-up", "down": false}}]}
+]

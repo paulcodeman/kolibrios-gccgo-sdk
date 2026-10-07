@@ -1,0 +1,11 @@
+[
+  {"at": 6, "keys": ["a"]},
+  {"at": 6.3, "keys": ["up"]},
+  {"at": 6.6, "keys": ["ret"]},
+  {"at": 6.9, "keys": ["ctrl", "c"]},
+  {"at": 9, "keys": ["a"]},
+  {"at": 9.3, "keys": ["b"]},
+  {"at": 9.6, "keys": ["backspace"]},
+  {"at": 9.9, "keys": ["c"]},
+  {"at": 10.2, "keys": ["ret"]}
+]

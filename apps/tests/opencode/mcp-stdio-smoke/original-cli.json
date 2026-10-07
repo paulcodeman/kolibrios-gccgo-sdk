@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "native": {
+      "type": "stdio",
+      "command": "/hd0/1/mcp.kex",
+      "args": ["serve"],
+      "env": ["MCP_TEST_ENV=Привет"]
+    }
+  }
+}

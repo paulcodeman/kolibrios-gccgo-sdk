@@ -1,0 +1,44 @@
+--- a/internal/tui/components/core/status.go
++++ b/internal/tui/components/core/status.go
+@@ -7,6 +7,7 @@
+ 
+ 	tea "github.com/charmbracelet/bubbletea"
+ 	"github.com/charmbracelet/lipgloss"
++	"github.com/charmbracelet/x/ansi"
+ 	"github.com/opencode-ai/opencode/internal/config"
+ 	"github.com/opencode-ai/opencode/internal/llm/models"
+ 	"github.com/opencode-ai/opencode/internal/lsp"
+@@ -148,7 +149,8 @@
+ 	if m.info.Msg != "" {
+ 		infoStyle := styles.Padded().
+ 			Foreground(t.Background()).
+-			Width(availableWidht)
++			Width(availableWidht).
++			MaxHeight(1)
+ 
+ 		switch m.info.Type {
+ 		case util.InfoTypeInfo:
+@@ -159,12 +161,8 @@
+ 			infoStyle = infoStyle.Background(t.Error())
+ 		}
+ 
+-		infoWidth := availableWidht - 10
+-		// Truncate message if it's longer than available width
+-		msg := m.info.Msg
+-		if len(msg) > infoWidth && infoWidth > 0 {
+-			msg = msg[:infoWidth] + "..."
+-		}
++		infoWidth := max(0, availableWidht-infoStyle.GetHorizontalFrameSize())
++		msg := ansi.Truncate(m.info.Msg, infoWidth, "…")
+ 		status += infoStyle.Render(msg)
+ 	} else {
+ 		status += styles.Padded().
+@@ -176,7 +174,7 @@
+ 
+ 	status += diagnostics
+ 	status += m.model()
+-	return status
++	return ansi.Truncate(status, max(0, m.width), "")
+ }
+ 
+ func (m *statusCmp) projectDiagnostics() string {

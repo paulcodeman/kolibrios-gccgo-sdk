@@ -1,0 +1,9 @@
+{
+  "debugLSP": true,
+  "lsp": {
+    "bash-syntax": {
+      "command": "/hd0/1/bash-lsp.kex",
+      "args": ["serve"]
+    }
+  }
+}
